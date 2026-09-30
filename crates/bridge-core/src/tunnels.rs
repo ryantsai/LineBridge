@@ -55,8 +55,33 @@ impl Tunnels {
     fn tailscale() -> PathBuf {
         if cfg!(windows) {
             r"C:\Program Files\Tailscale\tailscale.exe".into()
+        } else if cfg!(target_os = "macos") {
+            [
+                "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+                "/opt/homebrew/bin/tailscale",
+                "/usr/local/bin/tailscale",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| "/Applications/Tailscale.app/Contents/MacOS/Tailscale".into())
         } else {
             "/usr/bin/tailscale".into()
+        }
+    }
+    fn cloudflared(&self) -> PathBuf {
+        let local = self.root.join(if cfg!(windows) {
+            "tools/cloudflared.exe"
+        } else {
+            "tools/cloudflared"
+        });
+        if !local.exists()
+            && cfg!(target_os = "macos")
+            && self.root.join("../MacOS/cloudflared").exists()
+        {
+            self.root.join("../MacOS/cloudflared")
+        } else {
+            local
         }
     }
     pub fn configure(&self, v: &Value) -> Result<Value> {
@@ -125,6 +150,8 @@ impl Tunnels {
     async fn command(args: &[&str]) -> Result<Value> {
         let mut cmd = Command::new(Self::tailscale());
         cmd.args(args).kill_on_drop(true);
+        #[cfg(target_os = "macos")]
+        cmd.env("TAILSCALE_BE_CLI", "1");
         #[cfg(windows)]
         cmd.creation_flags(0x08000000);
         let output = tokio::time::timeout(Duration::from_secs(15), cmd.output())
@@ -197,7 +224,7 @@ impl Tunnels {
         }
         value["status"] = json!(*self.state.lock().unwrap());
         value["connected"] = json!(connected);
-        value["cloudflaredInstalled"] = json!(self.root.join("tools/cloudflared.exe").exists());
+        value["cloudflaredInstalled"] = json!(self.cloudflared().exists());
         value["hasConnectorToken"] = json!(
             !self
                 .store
@@ -272,12 +299,12 @@ impl Tunnels {
             *self.state.lock().unwrap() = "running".into();
             return Ok(json!({"status":"running","url":format!("https://{host}")}));
         }
-        let binary = self.root.join("tools/cloudflared.exe");
+        let binary = self.cloudflared();
         if !binary.exists() {
             return Err(BridgeError::new(
                 409,
                 "cloudflared_missing",
-                "Install cloudflared in tools/cloudflared.exe first.",
+                "The bundled cloudflared connector is missing. Reinstall LineBridge or prepare its runtime.",
             ));
         }
         if text(&c, "hostname").is_empty()

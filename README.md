@@ -1,12 +1,14 @@
 # LineBridge
 
-**LineBridge** is a Windows desktop app and local gateway for cloud AI clients to inspect designated LINE accounts, read messages and send explicitly requested messages. Version 0.2 uses Rust 1.98.1, Tauri 2.12.0 and SQLite, with a Traditional Chinese (Taiwan) interface. [繁體中文使用說明](README.zh-TW.md).
+**LineBridge** is a desktop app and local gateway for cloud AI clients to inspect designated LINE accounts, read messages and send explicitly requested messages. Version 0.2 uses Rust 1.98.1, Tauri 2.12.0 and SQLite, with a Traditional Chinese (Taiwan) interface. Windows NSIS packaging is verified; macOS DMG packaging is configured and awaits a Mac build. [繁體中文使用說明](README.zh-TW.md).
 
 ## Open it
 
 Double-click **Start LineBridge.cmd** for the desktop app. **Start LineBridge Headless.cmd** runs the Rust service and opens its browser interface; use this mode when a cloud client should keep working without a desktop window. **Stop LineBridge.cmd** stops the verified local service and its owned worker/connector processes.
 
-The Windows installer is in `target/release/bundle/nsis/LineBridge_0.2.0_x64-setup.exe`. It bundles the LINE worker runtime and cloudflared. Microsoft WebView2 is required; the installer handles the standard WebView2 bootstrap. The installer is unsigned.
+The Windows installer is in `release/windows-x64/LineBridge_0.2.0_x64-setup.exe`, with `SHA256SUMS.txt` and `build-info.json`. It installs for the current user, offers Traditional Chinese/English installer languages, and bundles the LINE worker runtime and cloudflared. Microsoft WebView2 is required; the installer handles the standard WebView2 bootstrap. The installer is unsigned.
+
+macOS builds produce separate Apple Silicon and Intel DMGs under `release/macos-arm64/` or `release/macos-x64/`. Open the DMG and drag **LineBridge.app** to **Applications**. The minimum system version is macOS 13.5, matching the bundled Node runtime. See [PACKAGING.md](PACKAGING.md) for build steps and signing status. No Mac build has been run on this Windows PC.
 
 - Local browser interface: `http://localhost:3210`
 - Authenticated AI gateway: `http://127.0.0.1:3211`
@@ -90,13 +92,13 @@ SQLite stores accounts, designations, grants, send outcomes, settings, audit met
 
 The source launchers explicitly reuse the existing `data/bridge.sqlite` and `data/vault-key.dpapi`. First Rust startup creates a SQLite snapshot in `data/backups/`; existing accounts, credentials, grants, chat permissions and unknown send outcomes are preserved. Do not run the legacy Node service concurrently. A process lock prevents duplicate Rust database owners.
 
-A newly installed copy defaults to `%LOCALAPPDATA%/com.ryantsai.linebridge`, unless `LINE_BRIDGE_DATA` specifies an existing data directory. To use this checkout's existing accounts, run **Start LineBridge.cmd**, or set `LINE_BRIDGE_DATA` to this checkout's `data` directory before launching the installed app. Do not copy a live SQLite database without its WAL or a consistent backup. DPAPI data is tied to this Windows user; moving to another user/PC needs a separate migration design.
+A newly installed copy defaults to `%LOCALAPPDATA%/com.ryantsai.linebridge` on Windows, or `~/Library/Application Support/com.ryantsai.linebridge` on macOS, unless `LINE_BRIDGE_DATA` specifies an existing data directory. On macOS the AES master key is a local file restricted to the current user (0600); Keychain protection is not yet implemented. To use this checkout's existing Windows accounts, run **Start LineBridge.cmd**, or set `LINE_BRIDGE_DATA` to this checkout's `data` directory before launching the installed app. Do not copy a live SQLite database without its WAL or a consistent backup. DPAPI data is tied to this Windows user; moving it to another user/PC or a Mac needs a separate migration design.
 
 `data/`, credentials, runtime binaries, generated protocol bundles and build outputs are Git-ignored. The repository is local, on `main`, with no remote or push configured.
 
 ## Build and verify
 
-Requires Rust 1.98.1 (pinned), Node ≥24, the Visual Studio C++ build tools and WebView2. Versions are pinned in Cargo/npm lockfiles. The build bundles the actual Node runtime (not an nvm shim), verifies it against official Node.js SHA-256 checksums and includes third-party license notices.
+Requires Rust 1.98.1 (pinned) and Node ≥24. Windows also requires the Visual Studio C++ build tools and WebView2; macOS requires Xcode command-line tools. Versions are pinned in Cargo/npm lockfiles. Packaging bundles Node 26.5.0 and cloudflared 2026.9.3 for the native architecture, verifies downloads against pinned official SHA-256 checksums in `packaging/runtimes.json` and includes third-party license notices. On macOS the helpers are signed sidecars in the app bundle, so a GUI launch does not depend on the shell's PATH.
 
 ```powershell
 npm ci --ignore-scripts

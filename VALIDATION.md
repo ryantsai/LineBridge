@@ -1,5 +1,14 @@
 # LineBridge verification · 2026-09-30
 
+## Installer packaging
+
+- Rebuilt the Windows x64 NSIS Unicode installer with per-user installation, Traditional Chinese/English language selection and the LineBridge Start Menu folder. Deliverable: `release/windows-x64/LineBridge_0.2.0_x64-setup.exe`, 45,582,505 bytes, unsigned. SHA-256: `19ec761a95e6377b17a51033570023ea03155e7aa3fc4308e777dc55d1f7ff82`; the adjacent `SHA256SUMS.txt` matches an independent hash check.
+- 7-Zip tested the complete NSIS archive successfully. Its 18 entries include the app, private worker, matching Node/cloudflared binaries, source/checksum metadata, licenses and installer components. No local database, account data, credentials, tunnel configuration or AI tokens are included. This verifies the archive, not running the installation wizard.
+- Cross-platform preparation verifies pinned official download hashes and executable formats/architectures before packaging. Windows preparation and both bundled runtime version checks passed. An already verified runtime is reused, so rebuilding does not try to overwrite the active Windows worker executable.
+- JavaScript syntax checks, 25 JavaScript tests, six Rust tests and workspace clippy passed. The official JavaScript MCP client smoke test also passed against the Rust service with isolated synthetic data. No real LINE messages were sent.
+- Added native Apple Silicon and Intel macOS configurations, ICNS icon, localized bundle metadata, signed Node/cloudflared sidecars, macOS helper/Tailscale paths and a minimum macOS version of 13.5. DMGs are configured for ad-hoc signing and are not notarized.
+- Added a manual GitHub Actions workflow for Windows x64, macOS ARM64 and macOS x64, including regression checks, Mac signature/helper/app-startup checks and installer/checksum uploads. No GitHub remote is configured, and this workflow has not been dispatched. No Mac host is available in this task; **no DMG has been produced or macOS execution verified**. A Windows request for a Mac build exits clearly before compiling.
+
 ## Rust/Tauri migration
 
 - Local Git repository on `main`, with baseline commit `b753e24`. No remote or push configured. Credentials, database, generated worker/runtime and build outputs are ignored.

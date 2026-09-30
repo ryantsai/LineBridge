@@ -1,0 +1,64 @@
+name: Package LineBridge
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64 NSIS
+            runner: windows-2025
+            artifact: windows-x64
+          - name: macOS Apple Silicon DMG
+            runner: macos-15
+            artifact: macos-arm64
+          - name: macOS Intel DMG
+            runner: macos-15-intel
+            artifact: macos-x64
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+      - name: Install locked JavaScript dependencies
+        run: npm ci --ignore-scripts
+      - name: Check syntax and fixtures
+        run: |
+          npm run check
+          npm test
+      - name: Check Rust
+        run: |
+          npm run build:protocol
+          npm run prepare:runtime
+          cargo test -p line-bridge-core --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build installer and checksums
+        run: npm run desktop:build
+      - name: Verify Rust gateway and MCP
+        run: |
+          cargo build --release -p line-bridge-core --bin line-bridge-service --locked
+          node tests/rust-smoke.mjs
+      - name: Verify signed Mac app and bundled helpers
+        if: runner.os == 'macOS'
+        run: npm run verify:mac
+      - name: Upload installer and checksum
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: LineBridge-${{ matrix.artifact }}
+          path: release/${{ matrix.artifact }}/
+          if-no-files-found: error
+          retention-days: 14

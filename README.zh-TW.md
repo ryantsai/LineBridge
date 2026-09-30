@@ -8,7 +8,9 @@ LineBridge 是本機 LINE 帳號橋接器。桌面程式使用 Rust 1.98.1 + Tau
 
 瀏覽器介面是 `http://localhost:3210`，AI 閘道是 `http://127.0.0.1:3211`。只將 3211 轉送至私人通道。關閉桌面程式會停止它管理的服務與監聽；目前未建立自動啟動項目。
 
-Windows 安裝程式位於 `target/release/bundle/nsis/LineBridge_0.2.0_x64-setup.exe`。安裝版預設使用 `%LOCALAPPDATA%/com.ryantsai.linebridge`；若要使用此專案的既有帳號，請從上述啟動檔開啟，或在啟動安裝版之前，將 `LINE_BRIDGE_DATA` 設為此資料夾的 `data` 完整路徑。安裝程式未簽章。
+Windows NSIS 安裝程式位於 `release/windows-x64/LineBridge_0.2.0_x64-setup.exe`，同目錄附有 SHA-256 校驗碼。安裝介面可選繁體中文或英文，以目前使用者身分安裝。安裝版預設使用 `%LOCALAPPDATA%/com.ryantsai.linebridge`；若要使用此專案的既有帳號，請從上述啟動檔開啟，或在啟動安裝版之前，將 `LINE_BRIDGE_DATA` 設為此資料夾的 `data` 完整路徑。安裝程式未簽章。
+
+macOS 提供 Apple Silicon 與 Intel 兩種 DMG 建置設定，最低版本為 macOS 13.5。開啟 DMG 後，將 **LineBridge.app** 拖曳至 **Applications**。目前這台 Windows 電腦尚未實際產生 DMG；建置方式與簽章狀態見 [PACKAGING.md](PACKAGING.md)。Mac 安裝版資料位於 `~/Library/Application Support/com.ryantsai.linebridge`；主金鑰使用權限為 0600 的本機檔案，尚未整合 Keychain。Windows 的 DPAPI 憑證不能直接搬到 Mac 解鎖。
 
 ## 帳號與聊天室
 

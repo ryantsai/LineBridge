@@ -37,8 +37,18 @@ impl Worker {
         let node = std::env::var_os("LINE_BRIDGE_NODE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
-                let local = root.join("runtime/node.exe");
-                if local.exists() { local } else { "node".into() }
+                let local = root.join(if cfg!(windows) {
+                    "runtime/node.exe"
+                } else {
+                    "runtime/node"
+                });
+                if local.exists() {
+                    local
+                } else if cfg!(target_os = "macos") && root.join("../MacOS/node").exists() {
+                    root.join("../MacOS/node")
+                } else {
+                    "node".into()
+                }
             });
         let bundle = root.join("protocol/line-worker.cjs");
         let dev = root.join("protocol/worker.mjs");

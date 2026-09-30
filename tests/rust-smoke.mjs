@@ -8,7 +8,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 const root=process.cwd(),data=mkdtempSync(join(tmpdir(),'linebridge-test-'));
 const admin='http://127.0.0.1:4510',gateway='http://127.0.0.1:4511';
-const service=spawn(join(root,'target/release/line-bridge-service.exe'),[],{cwd:root,env:{...process.env,LINE_BRIDGE_ROOT:root,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4510',LINE_BRIDGE_GATEWAY_PORT:'4511'},stdio:'ignore',windowsHide:true});
+const service=spawn(join(root,`target/release/line-bridge-service${process.platform==='win32'?'.exe':''}`),[],{cwd:root,env:{...process.env,LINE_BRIDGE_ROOT:root,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4510',LINE_BRIDGE_GATEWAY_PORT:'4511'},stdio:'ignore',windowsHide:true});
 let client;
 try{
   for(let i=0;i<100;i++){try{if((await fetch(`${gateway}/health`)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
