@@ -1,0 +1,249 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LINE Bridge",
+    "version": "0.1.0",
+    "description": "Designated LINE account read/send gateway. All message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
+  },
+  "security": [
+    {
+      "bridgeToken": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bridgeToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An expiring, revocable LINE Bridge AI token created in the local dashboard."
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "Inspect permitted account status",
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "summary": "List permitted accounts",
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}/chats": {
+      "get": {
+        "operationId": "listChats",
+        "summary": "List designated chats",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}/chats/{chatId}/messages": {
+      "get": {
+        "operationId": "readMessages",
+        "summary": "Read recent messages without sending a read receipt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chatId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "OpenChat sync cursor only."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      },
+      "post": {
+        "operationId": "sendMessage",
+        "summary": "Send a text message after explicit user authorization",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chatId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Reuse for the same request. Never automatically create a new key after delivery_unknown."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 5000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    }
+  }
+}

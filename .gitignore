@@ -1,0 +1,16 @@
+node_modules/
+data/
+.env
+*.log
+target/
+dist/
+release/
+runtime/
+tools/*.exe
+dashboard-preview.png
+discovery-fixed.png
+zh-TW-preview.png
+*.sqlite*
+*.dpapi
+.env.*
+!.env.example

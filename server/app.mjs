@@ -1,0 +1,101 @@
+import express from 'express';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { ZodError } from 'zod';
+import { adminActor } from './hub.mjs';
+import { fail, publicError } from './errors.mjs';
+import { mcpHandler } from './mcp.mjs';
+import { openapi } from './openapi.mjs';
+
+const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+function harden(app) {
+  app.disable('x-powered-by');app.set('trust proxy',false);
+  app.use((req,res,next)=>{
+    res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY',
+      'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});next();
+  });
+}
+function errors(error,req,res,next) {
+  if(res.headersSent)return next(error);
+  const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
+  res.status(e.status).json({error:e.code,message:e.message});
+}
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
+  const admin=express(),gateway=express();harden(admin);harden(gateway);
+  const session=randomBytes(32).toString('base64url');
+  const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
+  admin.use((req,res,next)=>{
+    if(!adminHosts.has(req.headers.host))return res.status(403).json({error:'local_dashboard_only'});
+    if(req.headers.origin && ![`http://localhost:${adminPort}`,`http://127.0.0.1:${adminPort}`].includes(req.headers.origin))return res.status(403).json({error:'origin_denied'});
+    if(req.headers['sec-fetch-site']==='cross-site')return res.status(403).json({error:'origin_denied'});
+    if(req.path==='/' && req.method==='GET')res.cookie('lb_admin',session,{httpOnly:true,sameSite:'strict',path:'/',maxAge:86400000});
+    next();
+  });
+  admin.use('/admin',(req,res,next)=>{
+    const cookie=(req.headers.cookie ?? '').split(';').some(c=>c.trim()===`lb_admin=${session}`);
+    if(!cookie)return res.status(401).json({error:'dashboard_session_required',message:'Open the local dashboard first.'});
+    if(!['GET','HEAD'].includes(req.method) && (req.headers['x-line-bridge']!=='dashboard' || !req.headers.origin))return res.status(403).json({error:'origin_required'});
+    next();
+  });
+  admin.use(express.json({limit:'32kb'}));
+  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:'0.1.0',accounts:hub.accounts(adminActor).map(a=>({...a,discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),
+    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
+  admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
+  admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
+  admin.post('/admin/accounts/:id/login',(req,res)=>res.json(hub.beginLogin(req.params.id)));
+  admin.get('/admin/accounts/:id/login',(req,res)=>res.json(hub.loginState(req.params.id)));
+  admin.post('/admin/accounts/:id/reconnect',asyncRoute(async(req,res)=>res.json(await hub.connect(req.params.id))));
+  admin.post('/admin/accounts/:id/disconnect',(req,res)=>{hub.disconnect(req.params.id,req.body.forget===true);res.json({ok:true});});
+  admin.delete('/admin/accounts/:id',(req,res)=>{hub.remove(req.params.id);res.json({ok:true});});
+  admin.get('/admin/accounts/:id/chats',(req,res)=>res.json(hub.chats(adminActor,req.params.id)));
+  admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
+  admin.post('/admin/accounts/:id/chats',(req,res)=>res.status(201).json(hub.addChat(req.params.id,req.body)));
+  admin.patch('/admin/accounts/:id/chats/:chatId',(req,res)=>{hub.designate(req.params.id,req.params.chatId,req.body.enabled);res.json({ok:true});});
+  admin.get('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(adminActor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
+  admin.post('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(adminActor,req.params.id,req.params.chatId,req.body.text,req.body.idempotencyKey))));
+  admin.post('/admin/tokens',(req,res)=>res.status(201).json(hub.createToken(req.body)));
+  admin.delete('/admin/tokens/:id',(req,res)=>{hub.store.revoke(req.params.id);hub.store.audit('local-admin','token.revoke',null,null,'ok');res.json({ok:true});});
+  admin.put('/admin/tunnel',(req,res)=>res.json(tunnels.configure(req.body)));
+  admin.post('/admin/tunnel/start',asyncRoute(async(req,res)=>res.json(await tunnels.start(req.body.connectorToken))));
+  admin.post('/admin/tunnel/stop',asyncRoute(async(req,res)=>res.json(await tunnels.stop())));
+  admin.use(express.static(join(root,'public'),{index:'index.html',etag:false,maxAge:0}));
+  admin.use((req,res)=>res.status(404).json({error:'not_found'}));admin.use(errors);
+
+  let accessKeyset,accessIssuer;
+  gateway.use((req,res,next)=>{
+    const c=tunnels.config(),hosts=new Set([`localhost:${gatewayPort}`,`127.0.0.1:${gatewayPort}`,c.hostname].filter(Boolean));
+    if(!hosts.has(req.headers.host))return res.status(403).json({error:'host_denied'});
+    if(req.headers.origin)return res.status(403).json({error:'browser_origin_denied',message:'Use a server-side AI client. The dashboard is on its separate local port.'});
+    next();
+  });
+  gateway.get('/health',(req,res)=>res.json({service:'line-bridge',status:'running'}));
+  gateway.use(asyncRoute(async(req,res,next)=>{
+    const c=tunnels.config();
+    // Once configured, enforce Access on ALL gateway requests, independent of spoofable Host/forwarding headers.
+    if(c.provider==='cloudflare' && c.hostname) {
+      if(!c.teamDomain||!c.audience)fail(503,'access_not_configured','Cloudflare Access must be configured before remote access.');
+      const assertion=req.headers['cf-access-jwt-assertion'];
+      if(typeof assertion!=='string')fail(401,'cloudflare_access_required','Cloudflare Access authentication is required in addition to a LINE Bridge Bearer token.');
+      const issuer=`https://${c.teamDomain}`;
+      if(accessIssuer!==issuer){accessIssuer=issuer;accessKeyset=createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`),{timeoutDuration:5000});}
+      try{await jwtVerify(assertion,accessKeyset,{issuer,audience:c.audience,algorithms:['RS256']});tunnels.accessLastValidated=new Date().toISOString();}
+      catch{fail(401,'invalid_access_assertion','Cloudflare Access authentication failed.');}
+    }
+    if(!hub.store.setting('aiEnabled',true))fail(503,'gateway_paused','The user has paused AI access.');
+    const header=req.headers.authorization;
+    req.actor=hub.authenticate(header?.startsWith('Bearer ')?header.slice(7):undefined);
+    hub.limit(req.actor);next();
+  }));
+  gateway.use(express.json({limit:'32kb'}));
+  gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,accounts:hub.accounts(req.actor)}));
+  gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
+  gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));
+  gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
+  gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key']))));
+  gateway.get('/openapi.json',(req,res)=>res.json(openapi));
+  gateway.post('/mcp',asyncRoute((req,res)=>mcpHandler(hub,req,res)));
+  gateway.all('/mcp',(req,res)=>res.status(405).json({error:'method_not_allowed',message:'Use stateless Streamable HTTP POST.'}));
+  gateway.use((req,res)=>res.status(404).json({error:'not_found'}));gateway.use(errors);
+  return {admin,gateway};
+}
