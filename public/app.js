@@ -1,3 +1,4 @@
+import {createConnections,providerName} from './connections.js';
 import { sendIntent } from './send-intent.js';
 import {label,errorText,coverage} from './locale.js';
 import {icon} from './icons.js';
@@ -7,7 +8,7 @@ const $=selector=>document.querySelector(selector);
 const escape=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nice=label;
 const when=value=>value?new Date(value).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}): '—';
-let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,toastTimer,lastConfig,sendAttempt,chatFilter='all';
+let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,toastTimer,sendAttempt,chatFilter='all';
 let refreshRunning=false,reading=false,sending=false;
 let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='',wizardReturn=false;
 const observedSequences=new Map();
@@ -25,7 +26,7 @@ function switchTab(tab,fromWizard=false){
   currentPage=tab;document.body.dataset.page=tab;
   document.querySelectorAll('.nav').forEach(e=>{e.classList.toggle('active',e.dataset.tab===tab);if(e.dataset.tab===tab)e.setAttribute('aria-current','page');else e.removeAttribute('aria-current');});
   document.querySelectorAll('.page').forEach(e=>e.classList.toggle('active',e.id===tab));
-  $('#page-title').textContent={setup:'開始設定',monitoring:'訊息監控',accounts:'帳號與聊天室',access:'AI 存取權限',tunnel:'私人連線',activity:'活動紀錄'}[tab];
+  $('#page-title').textContent={setup:'開始設定',monitoring:'訊息監控',accounts:'帳號與聊天室',access:'AI 存取權限',tunnel:'雲端連線',activity:'活動紀錄'}[tab];
   $('#breadcrumb-page').textContent=$('#page-title').textContent;
   $('#page-description').textContent={setup:'幾個簡單步驟，連接你的 LINE 與 AI。',monitoring:'每一則新訊息，都在你的掌握之中。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'建立雲端 AI 主機與這台電腦之間的受保護連線。',activity:'查看用戶端的讀取、傳送與異動紀錄。'}[tab];
   $('#setup-return')?.remove();
@@ -60,7 +61,7 @@ async function refresh(){
     $('#metric-account-detail').textContent=`${state.accounts.filter(a=>a.kind==='line').length} 個 LINE 帳號${demos?` · ${demos} 個沙盒`:''}`;
     $('#metric-tokens').textContent=state.tokens.filter(t=>!t.revoked&&Date.parse(t.expires_at)>Date.now()).length;
     $('#metric-tunnel').textContent=state.tunnel.connected?'已連線':'未連線';$('#metric-tunnel').className=`text-status ${state.tunnel.connected?'good':'warn'}`;
-    $('#metric-tunnel-detail').textContent=state.tunnel.provider==='cloudflare'?'Cloudflare Tunnel + Access':'Tailscale · 私人 tailnet';
+    $('#metric-tunnel-detail').textContent=providerName(state.tunnel.provider);
     $('#metric-gateway').textContent=state.gateway.enabled?'可使用':'已暫停';$('#metric-gateway').className=`text-status ${state.gateway.enabled?'good':'warn'}`;
     $('#pause').textContent=state.gateway.enabled?'暫停':'恢復';$('#vault-detail').textContent=`本機 SQLite · ${state.vault}`;
     renderAccounts();renderTokens();renderAudit();renderTunnel();renderMonitoring();wizard.sync();
@@ -195,16 +196,6 @@ function renderAudit(){
   const actorName=id=>id==='local-admin'?'本機管理介面':state.tokens.find(t=>t.id===id)?.name||'AI 用戶端';
   $('#audit-list').innerHTML=state.audit.length?state.audit.map(row=>`<tr><td>${escape(when(row.at))}</td><td>${escape(nice(row.action))}</td><td>${escape(state.accounts.find(a=>a.id===row.account_id)?.label||'—')}${row.chat_id?`<small>${escape(row.chat_id.slice(0,20))}</small>`:''}</td><td>${escape(actorName(row.actor))}</td><td>${badge(nice(row.outcome),['ok','enabled'].includes(row.outcome)?'good':['failed','rejected','unknown'].includes(row.outcome)?'danger':'')}</td></tr>`).join(''):'<tr><td colspan="5">尚無閘道活動紀錄。</td></tr>';
 }
-function renderTunnel(){
-  const t=state.tunnel,config=JSON.stringify([t.provider,t.hostname,t.teamDomain,t.audience]);
-  if(lastConfig!==config){const form=$('#tunnel-form');for(const key of ['provider','hostname','teamDomain','audience'])form.elements[key].value=t[key]||'';lastConfig=config;updateProvider();}
-  $('#tunnel-badge').className=`badge ${t.connected?'good':'warn'}`;$('#tunnel-badge').textContent=t.connected?'已連線':t.hostname?'已設定 · 尚未連線':'尚未設定';
-  $('#tunnel-health').textContent=t.provider==='cloudflare'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${nice(t.status)}. ${t.accessLastValidated?`Access 已驗證：${when(t.accessLastValidated)}`:'Access 尚未經實際請求驗證。'}`:`Tailscale ${nice(t.tailscale.state)} · 使用 HTTPS 連接埠 8443；AI 主機須加入相同的 tailnet。`;
-}
-function updateProvider(){const cf=$('#tunnel-form').elements.provider.value==='cloudflare';$('#cloudflare-fields').hidden=!cf;$('#connector-label').hidden=!cf;}
-$('#tunnel-form').elements.provider.addEventListener('change',updateProvider);
-async function saveTunnel(){const form=$('#tunnel-form');const cf=form.elements.provider.value==='cloudflare';return api('/tunnel',{method:'PUT',body:JSON.stringify({provider:form.elements.provider.value,hostname:cf?form.elements.hostname.value:'',teamDomain:cf?form.elements.teamDomain.value:'',audience:cf?form.elements.audience.value:''})});}
-$('#tunnel-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{await saveTunnel();toast('已儲存閘道設定');await refresh();});});
-$('#start-tunnel').addEventListener('click',()=>action(async()=>{await saveTunnel();const input=$('#tunnel-form').elements.connectorToken;try{await api('/tunnel/start',{method:'POST',body:JSON.stringify({connectorToken:input.value||undefined})});toast('正在啟動連線');}finally{input.value='';await refresh();}}));
-$('#stop-tunnel').addEventListener('click',()=>action(async()=>{await api('/tunnel/stop',{method:'POST',body:'{}'});toast('連線已停止');await refresh();}));
+const connections=createConnections({api,action,toast,refresh,escape,when,getState:()=>state});
+function renderTunnel(){connections.render();}
 await refresh();setInterval(()=>{void refresh();},3000);

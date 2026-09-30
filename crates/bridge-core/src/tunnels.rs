@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
+    io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     sync::Mutex as AsyncMutex,
 };
@@ -19,6 +20,7 @@ pub struct Tunnels {
     store: Arc<Store>,
     vault: Arc<Vault>,
     root: PathBuf,
+    data: PathBuf,
     port: u16,
     child: Mutex<Option<Child>>,
     state: Mutex<String>,
@@ -26,13 +28,23 @@ pub struct Tunnels {
     client: reqwest::Client,
     keys: AsyncMutex<Option<(String, Instant, JwkSet)>>,
     access: Mutex<Option<String>>,
+    quick_host: Arc<Mutex<Option<String>>>,
+    quick_log: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    login: AsyncMutex<()>,
 }
 impl Tunnels {
-    pub fn new(store: Arc<Store>, vault: Arc<Vault>, root: PathBuf, port: u16) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        vault: Arc<Vault>,
+        root: PathBuf,
+        data: PathBuf,
+        port: u16,
+    ) -> Self {
         Self {
             store,
             vault,
             root,
+            data,
             port,
             child: Mutex::new(None),
             state: Mutex::new("not_started".into()),
@@ -44,6 +56,9 @@ impl Tunnels {
                 .expect("TLS client"),
             keys: AsyncMutex::new(None),
             access: Mutex::new(None),
+            quick_host: Arc::new(Mutex::new(None)),
+            quick_log: Mutex::new(None),
+            login: AsyncMutex::new(()),
         }
     }
     pub fn config(&self) -> Value {
@@ -85,6 +100,13 @@ impl Tunnels {
         }
     }
     pub fn configure(&self, v: &Value) -> Result<Value> {
+        let _guard = self.operation.try_lock().map_err(|_| {
+            BridgeError::new(
+                409,
+                "tunnel_running",
+                "Wait for the current tunnel operation to finish.",
+            )
+        })?;
         strict(v, &["provider", "hostname", "teamDomain", "audience"])?;
         if self.child.lock().unwrap().is_some()
             || self.config()["provider"] == "tailscale" && *self.state.lock().unwrap() == "running"
@@ -96,16 +118,28 @@ impl Tunnels {
             ));
         }
         let provider = text(v, "provider");
-        if !["cloudflare", "tailscale"].contains(&provider) {
+        if !["cloudflare", "cloudflare_quick", "tailscale"].contains(&provider) {
             return Err(BridgeError::new(
                 400,
                 "invalid_input",
                 "Invalid tunnel provider.",
             ));
         }
-        let host = text(v, "hostname").trim().to_lowercase();
-        let team = text(v, "teamDomain").trim().to_lowercase();
-        let audience = text(v, "audience").trim();
+        let host = if provider == "cloudflare" {
+            text(v, "hostname").trim().to_lowercase()
+        } else {
+            String::new()
+        };
+        let team = if provider == "cloudflare" {
+            text(v, "teamDomain").trim().to_lowercase()
+        } else {
+            String::new()
+        };
+        let audience = if provider == "cloudflare" {
+            text(v, "audience").trim()
+        } else {
+            ""
+        };
         for s in [&host, &team] {
             if !s.is_empty()
                 && (s.len() > 253
@@ -143,7 +177,15 @@ impl Tunnels {
         }
         let value =
             json!({"provider":provider,"hostname":host,"teamDomain":team,"audience":audience});
+        let previous = self.config();
+        if provider != "cloudflare" && previous["provider"] == "cloudflare" {
+            self.store.set("cloudflareNamed", &previous)?;
+        }
         self.store.set("tunnel", &value)?;
+        if provider == "cloudflare" {
+            self.store.set("cloudflareNamed", &value)?;
+        }
+        *self.quick_host.lock().unwrap() = None;
         *self.state.lock().unwrap() = "configured".into();
         Ok(value)
     }
@@ -181,6 +223,90 @@ impl Tunnels {
             })
         }
     }
+    pub async fn connect_tailscale(&self) -> Result<Value> {
+        let _guard = self.login.lock().await;
+        if !Self::tailscale().is_file() {
+            return Err(BridgeError::new(
+                409,
+                "tailscale_missing",
+                "Install Tailscale first.",
+            ));
+        }
+        let before = Self::command(&["status", "--json"]).await?;
+        if before["BackendState"] == "Running" {
+            return Ok(json!({"connected":true,"state":"Running"}));
+        }
+        // Only output/wait flags: preserve all existing client preferences.
+        let mut cmd = Command::new(Self::tailscale());
+        cmd.args(["up", "--json", "--timeout=4s"])
+            .kill_on_drop(true);
+        #[cfg(target_os = "macos")]
+        cmd.env("TAILSCALE_BE_CLI", "1");
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+        let output = tokio::time::timeout(Duration::from_secs(7), cmd.output())
+            .await
+            .map_err(|_| {
+                BridgeError::new(502, "tailscale_unavailable", "Tailscale did not respond.")
+            })?
+            .map_err(|_| {
+                BridgeError::new(502, "tailscale_unavailable", "Tailscale is unavailable.")
+            })?;
+        let after = Self::command(&["status", "--json"]).await?;
+        if after["BackendState"] == "Running" {
+            return Ok(json!({"connected":true,"state":"Running"}));
+        }
+        // The daemon retains the pending login after the bounded CLI command exits.
+        let auth = valid_tailscale_auth(text(&after, "AuthURL")).or_else(|| {
+            serde_json::Deserializer::from_slice(&output.stdout)
+                .into_iter::<Value>()
+                .filter_map(std::result::Result::ok)
+                .find_map(|v| valid_tailscale_auth(text(&v, "AuthURL")))
+        });
+        if let Some(auth) = auth {
+            return Ok(json!({"connected":false,"state":after["BackendState"],"authUrl":auth}));
+        }
+        if after["BackendState"] == "NeedsMachineAuth" {
+            return Ok(json!({"connected":false,"state":"NeedsMachineAuth"}));
+        }
+        Err(BridgeError::new(
+            502,
+            "tailscale_unavailable",
+            "Open the installed Tailscale client to complete sign-in.",
+        ))
+    }
+    pub fn gateway_hostname(&self) -> String {
+        if self.config()["provider"] == "cloudflare_quick" {
+            self.quick_host.lock().unwrap().clone().unwrap_or_default()
+        } else {
+            text(&self.config(), "hostname").to_string()
+        }
+    }
+    pub fn idle(&self) -> Result<()> {
+        if self.child.lock().unwrap().is_some()
+            || self.config()["provider"] == "tailscale" && *self.state.lock().unwrap() == "running"
+        {
+            return Err(BridgeError::new(
+                409,
+                "tunnel_running",
+                "Stop the tunnel before changing its configuration.",
+            ));
+        }
+        Ok(())
+    }
+    pub fn save_connector(&self, token: &str) -> Result<()> {
+        if !(30..=16000).contains(&token.len()) || token.chars().any(char::is_whitespace) {
+            return Err(BridgeError::new(
+                400,
+                "invalid_connector_token",
+                "Invalid connector token.",
+            ));
+        }
+        self.store.set(
+            "cloudflareConnector",
+            &json!(self.vault.seal(&json!(token), "cloudflare.connector")?),
+        )
+    }
     pub async fn status(&self) -> Result<Value> {
         let mut value = self.config();
         let mut connected = false;
@@ -191,8 +317,12 @@ impl Tunnels {
                 .is_some_and(|c| c.try_wait().ok().flatten().is_some())
             {
                 *child = None;
-                *self.state.lock().unwrap() = "stopped".into();
+                *self.quick_host.lock().unwrap() = None;
+                *self.state.lock().unwrap() = "failed".into();
             }
+        }
+        if value["provider"] == "cloudflare_quick" {
+            value["hostname"] = json!(self.gateway_hostname());
         }
         if self.child.lock().unwrap().is_some() {
             connected = self
@@ -202,21 +332,26 @@ impl Tunnels {
                 .send()
                 .await
                 .is_ok_and(|r| r.status().is_success());
+            if value["provider"] == "cloudflare_quick" {
+                connected &= !text(&value, "hostname").is_empty();
+            }
             if connected {
                 *self.state.lock().unwrap() = "running".into();
             }
         }
         let mut tailscale = json!({"installed":Self::tailscale().exists(),"state":"unknown"});
-        if value["provider"] == "tailscale" && Self::tailscale().exists() {
+        if Self::tailscale().exists() {
             match Self::command(&["status", "--json"]).await {
                 Ok(s) => {
                     tailscale["state"] = s["BackendState"].clone();
                     if let Ok(serve) = Self::command(&["serve", "status", "--json"]).await {
                         let host = text(&value, "hostname");
-                        connected = s["BackendState"] == "Running"
-                            && serve["AllowFunnel"][host] != true
-                            && serve["Web"][host]["Handlers"]["/"]["Proxy"]
-                                == format!("http://127.0.0.1:{}", self.port);
+                        if value["provider"] == "tailscale" {
+                            connected = s["BackendState"] == "Running"
+                                && serve["AllowFunnel"][host] != true
+                                && serve["Web"][host]["Handlers"]["/"]["Proxy"]
+                                    == format!("http://127.0.0.1:{}", self.port);
+                        }
                     }
                 }
                 Err(_) => tailscale["state"] = json!("unavailable"),
@@ -244,6 +379,14 @@ impl Tunnels {
                 && !text(&value, "audience").is_empty()
         );
         value["accessLastValidated"] = json!(*self.access.lock().unwrap());
+        value["namedConfig"] = self.store.setting(
+            "cloudflareNamed",
+            if value["provider"] == "cloudflare" {
+                self.config()
+            } else {
+                json!({})
+            },
+        );
         Ok(value)
     }
     pub async fn start(&self, token: Option<&str>) -> Result<Value> {
@@ -259,12 +402,12 @@ impl Tunnels {
             }
             let state = Self::command(&["status", "--json"]).await?;
             if state["BackendState"] != "Running" {
-                return Err(BridgeError::new(
-                    409,
-                    "tailscale_stopped",
-                    "Connect Tailscale on this PC first.",
-                ));
+                let login = self.connect_tailscale().await?;
+                if login["connected"] != true {
+                    return Ok(login);
+                }
             }
+            let state = Self::command(&["status", "--json"]).await?;
             let dns = text(&state["Self"], "DNSName").trim_end_matches('.');
             if dns.is_empty() {
                 return Err(BridgeError::new(
@@ -298,6 +441,61 @@ impl Tunnels {
             )?;
             *self.state.lock().unwrap() = "running".into();
             return Ok(json!({"status":"running","url":format!("https://{host}")}));
+        }
+        if c["provider"] == "cloudflare_quick" {
+            self.idle()?;
+            let binary = self.cloudflared();
+            if !binary.is_file() {
+                return Err(BridgeError::new(
+                    409,
+                    "cloudflared_missing",
+                    "Install cloudflared first.",
+                ));
+            }
+            // An explicit owned config avoids inheriting the user's named-tunnel config.
+            let config = self.data.join("linebridge-quick.yml");
+            std::fs::write(&config, "no-autoupdate: true\n").map_err(|_| BridgeError::storage())?;
+            let mut command = Command::new(binary);
+            command
+                .args(["tunnel", "--config"])
+                .arg(&config)
+                .args([
+                    "--no-autoupdate",
+                    "--metrics",
+                    &format!("127.0.0.1:{}", self.port + 1),
+                    "--url",
+                    &format!("http://127.0.0.1:{}", self.port),
+                ])
+                .env_remove("TUNNEL_TOKEN")
+                .env_remove("TUNNEL_TOKEN_FILE")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true);
+            #[cfg(windows)]
+            command.creation_flags(0x08000000);
+            let mut child = command.spawn().map_err(|_| {
+                BridgeError::new(
+                    502,
+                    "connector_failed",
+                    "Cloudflare connector could not start.",
+                )
+            })?;
+            let stderr = child.stderr.take().ok_or_else(BridgeError::storage)?;
+            let host = self.quick_host.clone();
+            *host.lock().unwrap() = None;
+            let log = tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if let Some(value) = quick_hostname(&line) {
+                        *host.lock().unwrap() = Some(value);
+                    }
+                }
+            });
+            *self.quick_log.lock().unwrap() = Some(log);
+            *self.child.lock().unwrap() = Some(child);
+            *self.state.lock().unwrap() = "starting".into();
+            return Ok(json!({"status":"starting"}));
         }
         let binary = self.cloudflared();
         if !binary.exists() {
@@ -396,6 +594,10 @@ impl Tunnels {
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.start_kill();
         }
+        if let Some(log) = self.quick_log.lock().unwrap().take() {
+            log.abort();
+        }
+        *self.quick_host.lock().unwrap() = None;
     }
     pub async fn verify_access(&self, assertion: Option<&str>) -> Result<()> {
         let c = self.config();
@@ -459,5 +661,63 @@ impl Tunnels {
         decode::<Value>(jwt, &key, &validation).map_err(|_| invalid())?;
         *self.access.lock().unwrap() = Some(now());
         Ok(())
+    }
+}
+
+fn quick_hostname(line: &str) -> Option<String> {
+    line.split_whitespace()
+        .filter_map(|s| url::Url::parse(s.trim_matches('|')).ok())
+        .find_map(|u| {
+            let host = u.host_str()?;
+            let prefix = host.strip_suffix(".trycloudflare.com")?;
+            (u.scheme() == "https"
+                && u.username().is_empty()
+                && u.password().is_none()
+                && u.port().is_none()
+                && !prefix.is_empty()
+                && prefix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+            .then(|| host.to_string())
+        })
+}
+pub fn valid_tailscale_auth(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    (url.scheme() == "https"
+        && url.host_str() == Some("login.tailscale.com")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url.path().starts_with("/a/"))
+    .then(|| url.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_vendor_tunnel_and_login_urls() {
+        assert_eq!(
+            quick_hostname("INF | https://bright-blue-tree.trycloudflare.com |"),
+            Some("bright-blue-tree.trycloudflare.com".into())
+        );
+        for bad in [
+            "https://trycloudflare.com",
+            "https://evil.trycloudflare.com.attacker.test",
+            "http://abc.trycloudflare.com",
+            "https://user@abc.trycloudflare.com",
+            "https://a.b.trycloudflare.com",
+        ] {
+            assert!(quick_hostname(bad).is_none());
+        }
+        assert!(valid_tailscale_auth("https://login.tailscale.com/a/123").is_some());
+        for bad in [
+            "http://login.tailscale.com/a/123",
+            "https://login.tailscale.com.evil/a/123",
+            "https://login.tailscale.com:8443/a/123",
+            "https://user@login.tailscale.com/a/123",
+        ] {
+            assert!(valid_tailscale_auth(bad).is_none());
+        }
     }
 }

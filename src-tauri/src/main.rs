@@ -21,6 +21,42 @@ async fn admin_request(
 ) -> Result<Value, BridgeError> {
     http::admin_request(&state.core, &method, &path, body).await
 }
+#[tauri::command]
+async fn open_provider_login(url: String) -> Result<(), BridgeError> {
+    let url = line_bridge_core::cloudflare::external_url(&url)?;
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = tokio::process::Command::new("rundll32.exe");
+        c.args(["url.dll,FileProtocolHandler", url.as_str()]);
+        c.creation_flags(0x08000000);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = tokio::process::Command::new("open");
+        c.arg(url.as_str());
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut c = tokio::process::Command::new("xdg-open");
+        c.arg(url.as_str());
+        c
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| {
+            BridgeError::new(
+                502,
+                "browser_open_failed",
+                "Open the provider sign-in link in your browser.",
+            )
+        })?;
+    Ok(())
+}
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -62,7 +98,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![admin_request])
+        .invoke_handler(tauri::generate_handler![admin_request, open_provider_login])
         .build(tauri::generate_context!())
         .expect("LineBridge could not start; check whether another service owns ports 3210/3211.");
     app.run(|app, event| {

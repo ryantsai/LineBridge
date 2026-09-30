@@ -110,6 +110,24 @@ pub async fn admin_request(core: &Arc<Core>, method: &str, path: &str, v: Value)
             core.tunnels.start(v["connectorToken"].as_str()).await
         }
         ("POST", ["admin", "tunnel", "stop"]) => core.tunnels.stop().await,
+        ("POST", ["admin", "tunnel", "tailscale", "connect"]) => {
+            core.tunnels.connect_tailscale().await
+        }
+        ("GET", ["admin", "cloudflare"]) => core.cloudflare.status(),
+        ("PUT", ["admin", "cloudflare", "client"]) => core.cloudflare.configure(&v),
+        ("POST", ["admin", "cloudflare", "login"]) => core.cloudflare.begin(),
+        ("POST", ["admin", "cloudflare", "disconnect"]) => core.cloudflare.disconnect().await,
+        ("GET", ["admin", "cloudflare", "resources"]) => {
+            core.cloudflare
+                .resources(q.get("accountId").map(String::as_str))
+                .await
+        }
+        ("POST", ["admin", "cloudflare", "setup"]) => {
+            core.cloudflare
+                .provision(&core.tunnels, core.gateway_port, &v)
+                .await
+        }
+        ("POST", ["admin", "cloudflare", "service-token"]) => core.cloudflare.service_token(),
         _ => Err(not_found()),
     }
 }
@@ -162,6 +180,25 @@ async fn static_handler(request: Request) -> Response {
     };
     ([(header::CONTENT_TYPE, mime)], file.contents().to_vec()).into_response()
 }
+async fn cloudflare_callback(State(core): State<Arc<Core>>, request: Request) -> Response {
+    if request.uri().query().unwrap_or("").len() > 8192 {
+        return BridgeError::new(400, "invalid_input", "Callback is too large.").into_response();
+    }
+    let params = query(request.uri());
+    let result = core.cloudflare.finish(&params).await;
+    let (status, message) = if result.is_ok() {
+        (
+            axum::http::StatusCode::OK,
+            "Cloudflare 已連接。請回到 LineBridge 繼續設定。",
+        )
+    } else {
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            "登入未完成或已過期。請回到 LineBridge 重新連接 Cloudflare。",
+        )
+    };
+    (status,axum::response::Html(format!("<!doctype html><html lang=\"zh-TW\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>LineBridge · Cloudflare</title><link rel=\"stylesheet\" href=\"/styles.css\"><body class=\"oauth-result\"><main><h1>LineBridge</h1><p>{message}</p><a href=\"/\">返回本機介面</a></main></body></html>"))).into_response()
+}
 async fn admin_guard(State(core): State<Arc<Core>>, request: Request, next: Next) -> Response {
     let h = request.headers();
     let host = h
@@ -175,6 +212,11 @@ async fn admin_guard(State(core): State<Arc<Core>>, request: Request, next: Next
     if !allowed.contains(&host.to_string()) {
         return BridgeError::new(403, "local_dashboard_only", "The dashboard is local only.")
             .into_response();
+    }
+    // OAuth is the sole cross-site entry. It requires one-use state + PKCE and
+    // never creates a dashboard session or reflects provider query parameters.
+    if request.method() == Method::GET && request.uri().path() == crate::cloudflare::CALLBACK {
+        return next.run(request).await;
     }
     let origins = allowed.map(|s| format!("http://{s}"));
     if h.get(header::ORIGIN)
@@ -255,7 +297,6 @@ async fn gateway_guard(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let config = core.tunnels.config();
     let h = request.headers();
     let host = h
         .get(header::HOST)
@@ -264,7 +305,7 @@ async fn gateway_guard(
     if ![
         format!("localhost:{}", core.gateway_port),
         format!("127.0.0.1:{}", core.gateway_port),
-        text(&config, "hostname").to_string(),
+        core.tunnels.gateway_hostname(),
     ]
     .contains(&host.to_string())
     {
@@ -300,6 +341,14 @@ async fn gateway_guard(
     match core.authenticate(auth) {
         Ok(actor) => {
             request.extensions_mut().insert(actor);
+            if request.uri().path() == "/mcp" || request.uri().path().starts_with("/mcp/") {
+                // The gateway above validates the exact live tunnel hostname, denies
+                // browser origins and authenticates every request. Normalize its
+                // internal hop so rmcp's static localhost allowlist accepts it.
+                request
+                    .headers_mut()
+                    .insert(header::HOST, HeaderValue::from_static("localhost"));
+            }
             next.run(request).await
         }
         Err(e) => e.into_response(),
@@ -376,6 +425,10 @@ pub fn routers(core: Arc<Core>) -> (Router, Router) {
         config,
     );
     let admin = Router::new()
+        .route(
+            crate::cloudflare::CALLBACK,
+            axum::routing::get(cloudflare_callback),
+        )
         .route("/admin/{*path}", any(admin_handler))
         .fallback(static_handler)
         .layer(DefaultBodyLimit::max(32768))

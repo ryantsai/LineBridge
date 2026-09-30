@@ -53,6 +53,7 @@ pub struct Core {
     worker: OnceCell<Worker>,
     events: mpsc::UnboundedSender<Value>,
     pub tunnels: Tunnels,
+    pub cloudflare: crate::cloudflare::Cloudflare,
     #[cfg(test)]
     pub test_failure: Mutex<u8>,
 }
@@ -152,7 +153,15 @@ impl Core {
                 }
             }
         });
-        let tunnels = Tunnels::new(store.clone(), vault.clone(), root.clone(), gateway_port);
+        let tunnels = Tunnels::new(
+            store.clone(),
+            vault.clone(),
+            root.clone(),
+            data.clone(),
+            gateway_port,
+        );
+        let cloudflare =
+            crate::cloudflare::Cloudflare::new(store.clone(), vault.clone(), admin_port);
         Ok(Arc::new(Self {
             _lease: lease,
             store,
@@ -169,6 +178,7 @@ impl Core {
             worker: OnceCell::new(),
             events,
             tunnels,
+            cloudflare,
             #[cfg(test)]
             test_failure: Mutex::new(0),
         }))
@@ -1156,7 +1166,7 @@ impl Core {
             }
         }
         Ok(
-            json!({"version":env!("CARGO_PKG_VERSION"),"backend":"rust","locale":"zh-TW","accounts":accounts,"tokens":self.tokens()?,"audit":self.store.rows("SELECT * FROM audit ORDER BY at DESC LIMIT 80",&[])?,"tunnel":self.tunnels.status().await?,"gateway":{"port":self.gateway_port,"mcp":"/mcp","api":"/api/v1","enabled":self.store.setting("aiEnabled",json!(true))},"vault":self.vault.protection()}),
+            json!({"version":env!("CARGO_PKG_VERSION"),"backend":"rust","locale":"zh-TW","accounts":accounts,"tokens":self.tokens()?,"audit":self.store.rows("SELECT * FROM audit ORDER BY at DESC LIMIT 80",&[])?,"tunnel":self.tunnels.status().await?,"cloudflare":self.cloudflare.status()?,"gateway":{"port":self.gateway_port,"mcp":"/mcp","api":"/api/v1","enabled":self.store.setting("aiEnabled",json!(true))},"vault":self.vault.protection()}),
         )
     }
     pub fn stop(&self) {

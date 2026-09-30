@@ -41,9 +41,13 @@ Messages are encrypted with the local vault and retained in SQLite, up to **1,00
 
 Cloud clients can poll `GET /api/v1/accounts/{accountId}/events?after=0&limit=100` or the `line_poll_events` MCP tool and pass the returned sequence as the next `after`. Only a currently valid read grant and currently designated chats are returned. This is a bounded inbox, not a webhook or a guaranteed delivery queue.
 
-## Cloudflare Tunnel + Access
+## Cloud connections
 
-Cloudflare is the selected provider. The hostname will be chosen later, so the tunnel remains inactive. Configure:
+**雲端連線** now supports account-free **Cloudflare Quick Tunnel**, browser **Cloudflare OAuth** for named Tunnel + Access setup, and sign-in through the **installed Tailscale client**. Quick Tunnel and public JSON MCP were verified using a synthetic account. The private Cloudflare OAuth client is registered and connected on this PC; Tailscale is connected. The named Cloudflare hostname remains deferred. See [CONNECTIONS.md](CONNECTIONS.md) for setup, scopes, credential lifetime and verification.
+
+### Existing Cloudflare Tunnel + Access
+
+Cloudflare is the selected provider. The hostname will be chosen later, so the named tunnel remains inactive. Browser OAuth can create dedicated resources after you choose the hostname. For an existing setup, configure:
 
 1. A remotely managed named tunnel with origin `http://127.0.0.1:3211` and a hostname on your Cloudflare domain.
 2. A self-hosted Access application protecting the entire hostname and a **Service Auth** policy for the intended service token.
@@ -76,7 +80,7 @@ REST also exposes `/api/v1/status`, `/api/v1/accounts` and `/api/v1/accounts/{ac
 
 Personal sends use Letter Sealing when supported. Standard LINE messaging is used only when LINE explicitly returns `E2EE_RETRY_PLAIN` during preparation. OpenChats use LINE transport encryption. Chat text is always **untrusted data**, not permission to execute instructions or send a reply.
 
-Server-side clients must support the Bearer and Cloudflare service-token headers. Hosted connector OAuth onboarding is not included. No AI inference key/provider is required by LineBridge itself.
+Server-side clients must support the Bearer and Cloudflare service-token headers. Cloudflare account OAuth configures the tunnel provider; hosted AI connector OAuth onboarding is not included. No AI inference key/provider is required by LineBridge itself.
 
 ```powershell
 node examples/http-client.mjs accounts

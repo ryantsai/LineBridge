@@ -21,4 +21,5 @@ protocol/line-worker.cjs*
 src-tauri/icons/android/
 src-tauri/icons/ios/
 *-preview.jpg
+cloudflare-*.png
 src-tauri/gen/

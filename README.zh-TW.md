@@ -34,13 +34,21 @@ LINE 通訊仍使用非官方 `lineclientbot` 配接器，由隨附的 Node 程�
 
 雲端 AI 可使用 `line_poll_events` MCP 工具，或 `GET /api/v1/accounts/{accountId}/events?after=0&limit=100`。下次讀取將回傳的 `cursor` 放入 `after`，即可取得後續訊息。
 
-## Cloudflare 私人通道
+## 雲端連線
+
+在 **雲端連線** 可選擇三種方式：免帳號的 **Cloudflare Quick Tunnel**、透過瀏覽器 **Cloudflare OAuth** 設定固定網址與 Access，以及使用 **已安裝的 Tailscale 用戶端**。
+
+Quick Tunnel 選好後按 **啟動連線** 即可取得臨時 HTTPS 網址；仍需 LineBridge AI 權杖，停止後網址失效。此網址可從網際網路連接，適合短期測試。MCP 使用 JSON 回應，Quick Tunnel 不支援 SSE，也不保證持續可用。
+
+這台電腦的私人 Cloudflare OAuth 應用程式已註冊並連接，主機名稱留待你選擇。授權到期後需重新登入，目前尚未自動更新 OAuth 權杖。選擇帳戶、網域及新的完整主機名稱後，可建立專用 Tunnel、DNS、Access 與 30 天服務權杖；完成 Cloudflare Zero Trust 團隊設定是前提。之後按 **啟動連線** 才會啟動連接器。詳細權限、憑證期限與部分失敗的處理見 [CONNECTIONS.md](CONNECTIONS.md)。
+
+### 手動設定既有通道
 
 已選擇 Cloudflare Tunnel + Access；主機名稱待你選擇，因此目前沒有啟動通道。先在 Cloudflare 建立具名通道，將來源設為 `http://127.0.0.1:3211`，再用 Access 應用程式及 Service Auth 原則保護整個主機名稱。
 
 在 LineBridge 填入主機名稱、Access 團隊網域與應用程式 AUD，貼上連接器權杖後按 **啟動連線**。每個 AI 請求還需要 LineBridge Bearer 權杖及 Cloudflare 的 `CF-Access-Client-Id`／`CF-Access-Client-Secret`。連接器連通不等於 Access 已驗證；後者需要實際請求的有效 JWT。
 
-Tailscale Serve 是替代方案，使用私人 HTTPS 8443，AI 主機須加入同一個 tailnet。目前未實作 ngrok，也沒有提供雲端連接器的 OAuth 登入流程。
+選擇 Tailscale 後按 **連接 Tailscale**，即可沿用已安裝用戶端的帳號及網路偏好；只有需要驗證時才開啟瀏覽器。這台電腦已成功連接。再按 **啟動連線** 使用私人 HTTPS 8443，AI 主機須加入同一個 tailnet。既有衝突路由會被拒絕，不會啟用公開 Funnel。目前未實作 ngrok，雲端 AI 連接器本身的 OAuth 登入流程也尚未包含。
 
 ## 加密儲存與傳送
 

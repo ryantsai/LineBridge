@@ -45,7 +45,7 @@ export function createWizard(ctx){
     }
     if(step===4){
       const t=ctx.getState()?.tunnel;
-      root.innerHTML=frame('連接你的雲端 AI','透過私人連線，讓已授權的 AI 用戶端連接這台電腦。',`<div class="wizard-choice">${icon('arrows-left-right')}<div><h3>Cloudflare Tunnel + Access</h3><p>使用你的網域與 Access 服務權杖建立受保護的 HTTPS 連線。主機名稱也可以稍後再選。</p><button class="button" id="wizard-tunnel">開啟私人連線設定${icon('caret-right')}</button></div></div><div class="wizard-choice">${icon('plug')}<div><h3>先在這台電腦使用</h3><p>${t?.connected?'私人連線目前已連線。':'目前尚未連接雲端。你仍可使用本機介面與已指定聊天室的訊息監聽。'}</p></div></div>`,bottom('返回 AI 權限',null,t?.connected?'繼續':'稍後設定連線'));
+      root.innerHTML=frame('連接你的雲端 AI','透過私人連線，讓已授權的 AI 用戶端連接這台電腦。',`<div class="wizard-choice">${icon('arrows-left-right')}<div><h3>選擇你的連線方式</h3><p>Quick Tunnel 免註冊即可開始；固定網址可用 Cloudflare OAuth 設定，私人網路則可使用已安裝的 Tailscale。</p><button class="button" id="wizard-tunnel">開啟雲端連線設定${icon('caret-right')}</button></div></div><div class="wizard-choice">${icon('plug')}<div><h3>先在這台電腦使用</h3><p>${t?.connected?'私人連線目前已連線。':'目前尚未連接雲端。你仍可使用本機介面與已指定聊天室的訊息監聽。'}</p></div></div>`,bottom('返回 AI 權限',null,t?.connected?'繼續':'稍後設定連線'));
       listen('#wizard-tunnel',()=>ctx.go('tunnel',true));listen('#wizard-back',()=>{step=3;render();});listen('#wizard-next',()=>{step=5;render();});return;
     }
     const count=ctx.getChats().filter(c=>c.enabled).length,t=ctx.getState()?.tunnel;
