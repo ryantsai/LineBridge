@@ -1,0 +1,48 @@
+{
+  "at": "2026-09-30T15:46:15.449Z",
+  "scope": "Existing connected LINE accounts; discovery and up to three designated history reads only",
+  "accounts": [
+    {
+      "discovery": {
+        "direct": {
+          "status": "ok",
+          "count": 256,
+          "names": {
+            "aliases": 5,
+            "profiles": 251,
+            "unavailable": 0
+          }
+        },
+        "groups": {
+          "status": "ok",
+          "count": 46
+        },
+        "openchat": {
+          "status": "ok",
+          "count": 6
+        }
+      },
+      "history": [
+        {
+          "kind": "openchat",
+          "messages": 0,
+          "resolvedNames": 0,
+          "unavailableNames": 0
+        },
+        {
+          "kind": "openchat",
+          "messages": 0,
+          "resolvedNames": 0,
+          "unavailableNames": 0
+        },
+        {
+          "kind": "group",
+          "messages": 1,
+          "resolvedNames": 1,
+          "unavailableNames": 0
+        }
+      ]
+    }
+  ],
+  "liveSends": 0
+}

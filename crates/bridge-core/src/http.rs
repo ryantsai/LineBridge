@@ -153,6 +153,10 @@ async fn static_handler(request: Request) -> Response {
         "text/css; charset=utf-8"
     } else if name.ends_with(".svg") {
         "image/svg+xml"
+    } else if name.ends_with(".png") {
+        "image/png"
+    } else if name.ends_with(".woff2") {
+        "font/woff2"
     } else {
         "application/octet-stream"
     };

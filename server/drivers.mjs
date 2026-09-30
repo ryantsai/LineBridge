@@ -1,6 +1,7 @@
 import { BaseClient } from 'lineclientbot';
 import { randomUUID } from 'node:crypto';
 import { fail, SendRejectedError } from './errors.mjs';
+import {AliasResolver,contactName} from './aliases.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -61,7 +62,9 @@ export class LineDriver {
     return { displayName: this.client.profile.displayName, mid: this.client.profile.mid };
   }
   stop() { this.ready=false; this.client.disabled=true; this.abort.abort(); }
-  async check() { const p=await this.client.talk.getProfile(); return { displayName:p.displayName,mid:p.mid }; }
+  async check() { const p=await this.client.talk.getProfile(); this.client.profile=p;return { displayName:p.displayName,mid:p.mid }; }
+  get aliases(){return this.aliasResolver ??= new AliasResolver(this.client,this.storage);}
+  async resolveMessageNames(chat,messages){return this.aliases.resolveMessages(chat,messages);}
   async discover() {
     const result=[], warnings=[], stages={};
     try {
@@ -75,15 +78,17 @@ export class LineDriver {
     } catch(error) {stages.groups={status:'failed',errorCode:discoveryErrorCode(error)};warnings.push(`Group discovery failed (${stages.groups.errorCode}).`);}
     try {
       const mids=await this.client.talk.getAllContactIds();
+      const names={aliases:0,profiles:0,unavailable:0};
       for(let offset=0;offset<(mids?.length ?? 0);offset+=100) {
         const response=await this.client.talk.getContactsV2({ mids:mids.slice(offset,offset+100) });
+        await this.aliases.rememberContacts(response.contacts);
         for(const [mid,entry] of Object.entries(response.contacts ?? {})) {
           const contact=entry.contact ?? entry;
           const id=contact.mid ?? mid;
-          if(id) result.push({id,name:contact.displayName || id,kind:'direct'});
+          if(id){result.push({id,name:contactName(contact) || '名稱暫時無法取得',kind:'direct'});names[contact.displayNameOverridden?.trim()?'aliases':contact.displayName?.trim()?'profiles':'unavailable']++;}
         }
       }
-      stages.direct={status:'ok',count:result.filter(c=>c.kind==='direct').length};
+      stages.direct={status:'ok',count:result.filter(c=>c.kind==='direct').length,names};
     } catch(error) {stages.direct={status:'failed',errorCode:discoveryErrorCode(error)};warnings.push(`Contact discovery failed (${stages.direct.errorCode}).`);}
     try {
       let continuationToken;
@@ -106,7 +111,7 @@ export class LineDriver {
   async read(chat,limit,cursor) {
     if(chat.kind==='openchat') {
       const response=await this.client.square.fetchSquareChatEvents({squareChatMid:chat.id,limit,direction:'BACKWARD',...(cursor ? {syncToken:cursor} : {})});
-      return {messages:squareMessages(response).slice(-limit),cursor:response.syncToken ?? null,coverage:'A bounded page of OpenChat events; media content is not downloaded.'};
+      return {messages:await this.resolveMessageNames(chat,squareMessages(response).slice(-limit)),cursor:response.syncToken ?? null,coverage:'A bounded page of OpenChat events; media content is not downloaded.'};
     }
     if(cursor) fail(400,'cursor_unsupported','Personal chats support recent messages only in this version.');
     // v0.1.3 lacks the convenience wrapper. These field IDs match the LINE Talk RPC.
@@ -118,7 +123,7 @@ export class LineDriver {
       try { messages.push(normalizeMessage(await this.client.e2ee.decryptE2EEMessage(raw))); }
       catch { messages.push(normalizeMessage({...raw,text:''},{unavailableReason:'E2EE decryption failed; this message was not exposed.'})); }
     }
-    return {messages:messages.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp))),cursor:null,coverage:'Recent messages returned by LINE; full historical sync is not supported.'};
+    return {messages:await this.resolveMessageNames(chat,messages.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)))),cursor:null,coverage:'Recent messages returned by LINE; full historical sync is not supported.'};
   }
   async send(chat,text) {
     let options,protection=chat.kind==='openchat'?'line_transport':'letter_sealing';

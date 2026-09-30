@@ -1,24 +1,41 @@
 <!doctype html>
 <html lang="zh-TW">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LineBridge｜LINE 帳號橋接器</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"><script src="/app.js" type="module"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LineBridge｜LINE 帳號橋接器</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/fonts/noto-sans-tc.css"><link rel="stylesheet" href="/styles.css"><script src="/app.js" type="module"></script></head>
 <body>
   <aside class="sidebar">
-    <a class="brand" href="/"><span class="brand-mark">B<span></span></span><span>LineBridge<small>LINE 帳號橋接器</small></span></a>
-    <div class="nav-caption">工作區</div>
-    <nav><button class="nav active" data-tab="accounts"><span>▦</span> 帳號與聊天室</button><button class="nav" data-tab="access"><span>⌘</span> AI 存取權限</button><button class="nav" data-tab="tunnel"><span>⇄</span> 私人連線</button><button class="nav" data-tab="activity"><span>◷</span> 活動紀錄</button></nav>
-    <div class="sidebar-footer"><span class="status-dot"></span> 在這台電腦上執行<small>v0.2 · Rust + Tauri · SQLite</small></div>
+    <a class="brand" href="/" aria-label="LineBridge 首頁"><img src="/icon.svg" alt="" width="48" height="48"><span>LineBridge</span></a>
+    <nav aria-label="主要導覽">
+      <button class="nav active" data-tab="setup" aria-current="page"><span class="icon icon-play-circle" aria-hidden="true"></span><span class="nav-text">開始設定</span></button>
+      <button class="nav" data-tab="monitoring"><span class="icon icon-chats-circle" aria-hidden="true"></span><span class="nav-text">訊息監控</span></button>
+      <button class="nav" data-tab="accounts"><span class="icon icon-users" aria-hidden="true"></span><span class="nav-text">帳號與聊天室</span></button>
+      <div class="nav-divider"></div><div class="nav-caption">設定</div>
+      <button class="nav" data-tab="access"><span class="icon icon-key" aria-hidden="true"></span><span class="nav-text">AI 存取權限</span></button>
+      <button class="nav" data-tab="tunnel"><span class="icon icon-arrows-left-right" aria-hidden="true"></span><span class="nav-text">私人連線</span></button>
+      <button class="nav" data-tab="activity"><span class="icon icon-clock-counter-clockwise" aria-hidden="true"></span><span class="nav-text">活動紀錄</span></button>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot" id="local-status-dot"></span><span id="local-status-text">本機服務運作中</span></div>
   </aside>
   <main>
-    <header><div><div class="eyebrow">由你決定帳號、聊天室與存取權限</div><h1 id="page-title">帳號與聊天室</h1><p id="page-description">連接 LINE 與雲端 AI，隨時掌握連線狀態。</p></div><button class="button subtle" id="refresh">↻ 重新整理</button></header>
+    <header><div><div class="breadcrumb">工作區 <span>/</span> <span id="breadcrumb-page">開始設定</span></div><h1 id="page-title">開始設定</h1><p id="page-description">幾個簡單步驟，連接你的 LINE 與 AI。</p></div><button class="button icon-button" id="refresh" aria-label="重新整理" title="重新整理"><span class="icon icon-arrows-clockwise" aria-hidden="true"></span></button></header>
     <div id="service-error" class="notice danger" hidden></div>
-    <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 用戶端</span><strong id="metric-tokens">—</strong><small>有效的存取權杖</small></div><div class="metric"><span>私人連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">Cloudflare Tunnel + Access</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>
-    <section id="accounts" class="page active">
-      <div class="section-heading"><div><h2>帳號工作區</h2><p>選擇帳號，再勾選允許 AI 存取及監聽的聊天室。</p></div><button class="button primary" id="add-account">＋ 新增帳號</button></div>
+    <section id="setup" class="page active" aria-label="設定精靈">
+      <ol class="wizard-steps" aria-label="設定進度"><li class="current" aria-current="step"><span>1</span><strong>連接帳號</strong></li><li><span>2</span><strong>選擇聊天室</strong></li><li><span>3</span><strong>AI 權限</strong></li><li><span>4</span><strong>私人連線</strong></li><li><span>5</span><strong>完成</strong></li></ol>
+      <div class="wizard-card" id="wizard-content"></div>
+      <p class="wizard-footnote">可以先完成本機設定，稍後再連接雲端 AI。</p>
+    </section>
+    <section id="monitoring" class="page">
+      <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 用戶端</span><strong id="metric-tokens">—</strong><small>有效的存取權杖</small></div><div class="metric"><span>私人連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">Cloudflare Tunnel + Access</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>
+      <div class="section-heading"><div><h2>新訊息監聽</h2><p>追蹤指定聊天室的新訊息，隨時查看本機收件匣。</p></div><select id="monitor-account" aria-label="監控帳號"></select></div>
+      <div class="panel monitor-panel"><div class="monitor-bar"><div><strong id="monitor-account-name">選擇帳號</strong><p id="monitor-detail">選擇已連線的帳號以開始監聽。</p></div><button class="button" id="toggle-monitor" disabled>開始監聽</button></div><div id="monitor-streams" class="monitor-streams"></div><div id="monitor-feed" class="monitor-feed"><div class="empty"><span class="empty-icon"><span class="icon icon-chats-circle" aria-hidden="true"></span></span><h3>訊息會顯示在這裡</h3><p>啟用監聽後，新訊息會儲存到本機的加密收件匣。</p></div></div></div>
+      <p class="footnote">只保留已指定聊天室的近期訊息。離線期間與保留上限之外的訊息可能不完整。</p>
+    </section>
+    <section id="accounts" class="page">
+      <div class="section-heading"><div><h2>帳號工作區</h2><p>選擇帳號，再勾選允許 AI 存取及監聽的聊天室。</p></div><button class="button primary" id="add-account"><span class="icon icon-plus" aria-hidden="true"></span>新增帳號</button></div>
       <div class="workspace">
-        <div class="panel account-pane"><div class="pane-label">帳號 <span id="account-count">0</span></div><div id="account-list"></div><button class="sample-button" id="try-demo">＋ 試用沙盒帳號</button></div>
-        <div class="panel chat-pane" id="chat-pane"><div class="empty"><div class="empty-icon">↗</div><h3>連接第一個帳號</h3><p>新增 LINE 帳號並掃描 QR Code，<br>或使用模擬沙盒探索介面。</p><div class="empty-note">只有你授權的 AI 用戶端可以存取指定聊天室。</div></div></div>
+        <div class="panel account-pane"><div class="pane-label">帳號 <span id="account-count">0</span></div><div id="account-list"></div><button class="sample-button" id="try-demo"><span class="icon icon-plus" aria-hidden="true"></span>試用沙盒帳號</button></div>
+        <div class="panel chat-pane" id="chat-pane"><div class="empty"><div class="empty-icon"><span class="icon icon-users" aria-hidden="true"></span></div><h3>連接第一個帳號</h3><p>新增 LINE 帳號並掃描 QR Code，<br>或使用模擬沙盒探索介面。</p><div class="empty-note">只有你授權的 AI 用戶端可以存取指定聊天室。</div></div></div>
       </div>
-      <div class="footnote"><span>●</span> 登入憑證與監聽訊息由 Windows 使用者金鑰加密。OpenChat 支援仍需依帳號驗證。</div>
+      <div class="footnote">登入憑證與監聽訊息加密儲存在這台電腦。OpenChat 支援依帳號與 LINE 回應而定。</div>
     </section>
     <section id="access" class="page"><div class="section-heading"><div><h2>AI 用戶端權限</h2><p>依帳號授權，每次請求都會檢查指定聊天室與權限。</p></div><button class="button primary" id="new-token">＋ 建立存取權杖</button></div><div class="panel" id="token-list"></div><div class="panel connection-card"><div><div class="eyebrow">連接雲端 AI</div><h3>一個閘道，兩種介面</h3><p>使用可以設定驗證標頭的伺服器端用戶端。Cloudflare Access 另需提供服務權杖標頭。</p></div><div class="endpoint"><span>MCP · Streamable HTTP</span><code id="mcp-url">http://127.0.0.1:3211/mcp</code><span>HTTP API · OpenAPI 結構</span><code id="api-url">http://127.0.0.1:3211/openapi.json</code></div></div><div class="notice">此版本使用 Bearer 權杖，可供自訂代理與相容的 MCP 用戶端使用。各雲端平台的驗證方式不同，目前尚未提供 OAuth 連接器登入流程。</div></section>
     <section id="tunnel" class="page"><div class="section-heading"><div><h2>私人連線</h2><p>通道只轉送 AI 閘道，管理介面留在這台電腦。</p></div><span class="badge" id="tunnel-badge">尚未設定</span></div><div class="tunnel-grid"><form class="panel form-panel" id="tunnel-form"><h3>閘道設定</h3><label>連線提供者<select name="provider"><option value="cloudflare">Cloudflare Tunnel + Access</option><option value="tailscale">Tailscale Serve · 私人 tailnet</option></select></label><div id="cloudflare-fields"><label>閘道主機名稱<input name="hostname" placeholder="line.example.com" autocomplete="off"></label><label>Access 團隊網域<input name="teamDomain" placeholder="your-team.cloudflareaccess.com" autocomplete="off"></label><label>Access 應用程式 AUD<input name="audience" placeholder="應用程式的 audience tag" autocomplete="off"></label></div><button class="button" type="submit">儲存設定</button><div class="divider"></div><label id="connector-label">Tunnel 連接器權杖<input name="connectorToken" type="password" autocomplete="off" placeholder="加密儲存，不會提供給 AI 用戶端"></label><div class="button-row"><button class="button primary" type="button" id="start-tunnel">啟動連線</button><button class="button" type="button" id="stop-tunnel">停止</button></div><p class="muted" id="tunnel-health"></p></form><div class="panel setup-guide"><div class="eyebrow">CLOUDFLARE 設定</div><h3>先設定 Access，再啟動連線</h3><ol><li><strong>建立具名通道</strong><p>在 Cloudflare Zero Trust → Networks → Connectors 新增通道，將連接器權杖貼入左側表單。</p></li><li><strong>設定主機名稱</strong><p>將 published application 指向 <code>http://127.0.0.1:3211</code>，選用你管理的 Cloudflare 網域。</p></li><li><strong>建立 Access 應用程式</strong><p>建立 self-hosted Access 應用程式，保護整個主機名稱；新增 <b>Service Auth</b> 原則並指定服務權杖。將團隊網域與應用程式 AUD 填入左側。</p></li><li><strong>連接 AI 用戶端</strong><p>每次請求附上 <code>Authorization: Bearer …</code>、<code>CF-Access-Client-Id</code> 及 <code>CF-Access-Client-Secret</code>。</p></li></ol><a href="https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/" target="_blank" rel="noreferrer">Cloudflare 服務權杖指南 ↗</a><div class="notice">連接器健康狀態代表通道連通性。「Access 已驗證」只會在閘道成功驗證實際的 Access JWT 後顯示。</div><p class="muted">Tailscale：將此電腦與 AI 主機加入同一個 tailnet，選擇 Tailscale 並啟動。使用連接埠 8443 的私人 HTTPS。</p></div></div></section>

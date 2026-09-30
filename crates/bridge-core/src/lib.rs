@@ -23,3 +23,4 @@ pub fn data_path(root: &std::path::Path) -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("data"))
 }
+mod aliases;

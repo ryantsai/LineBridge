@@ -19,6 +19,10 @@ Both servers bind to loopback. Forward **only port 3211** through a tunnel. The 
 
 ## Connect and designate
 
+The opening page is a five-step setup wizard: connect an account, choose chats, grant AI permissions, configure a private connection, and finish. AI permissions and the tunnel can be configured later. **訊息監控** contains status and the local inbox; **帳號與聊天室** contains account management and manual chat reading/sending. Detailed permissions, connection settings and activity each have their own page.
+
+Message authors use the account's contact alias first, then the LINE profile name; OpenChat uses the member's community nickname. Names are cached in encrypted SQLite and added to history reads and monitored messages. Technical chat IDs remain available in expandable details. See [ALIASES.md](ALIASES.md) for lookup rules and limits, and [design-qa.md](design-qa.md) for the mockup comparison and interaction checks.
+
 1. Add an account and scan its QR code with LINE on your phone. Default device: iPad secondary client. An additional login may replace a session of the same device type.
 2. Use **恢復已儲存的工作階段** to resume credentials before trying a new QR login.
 3. Click **探索聊天室** or add a complete known chat ID. Adding an ID does not join a room. Discovery preserves chat permissions and reports groups, contacts and joined OpenChats separately.
@@ -29,7 +33,7 @@ LINE protocol access remains an **unofficial** adapter (`lineclientbot` 0.1.3). 
 
 ## New-message monitoring
 
-Click **開始監聽** for an account. Monitoring is opt-in and collects **only designated chats**. The interface shows running/retrying state, retained count and last-message time. No automatic AI reply is generated. An empty designation list waits until you choose a chat. Unchecking a room immediately prevents further database inserts and remote reads for that room.
+In **訊息監控**, select an account and click **開始監聽**. Monitoring is opt-in and collects **only designated chats**. The interface shows running/retrying state, retained count and last-message time. No automatic AI reply is generated. An empty designation list waits until you choose a chat. Unchecking a room immediately prevents further database inserts and remote reads for that room.
 
 Personal chats use LINE sync with bounded long polls. OpenChats poll event pages approximately every two seconds. Initial history establishes a cursor and is discarded; monitoring is not a full history import. Durable capture is acknowledged before advancing the encrypted protocol cursor. On restart, an enabled account resumes its listener after the saved session connects. Turning monitoring off and back on establishes a new baseline.
 

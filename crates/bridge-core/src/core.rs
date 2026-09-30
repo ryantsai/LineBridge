@@ -671,8 +671,20 @@ impl Core {
         }
         let rows=self.store.rows("SELECT m.* FROM messages m JOIN chats c ON c.account_id=m.account_id AND c.id=m.chat_id WHERE m.account_id=? AND c.enabled=1 AND m.seq>? ORDER BY m.seq LIMIT ?",&[&id,&(after as i64),&(limit as i64)])?;
         let mut events = Vec::new();
+        let names = crate::aliases::cached(&self.store, &self.vault, id);
+        let chats = self.store.chats(id)?;
         for row in rows {
-            events.push(json!({"sequence":row["seq"],"accountId":id,"chatId":row["chat_id"],"receivedAt":row["at"],"message":self.vault.unseal(text(&row,"cipher"),&format!("message:{}",text(&row,"event_id")))?}));
+            let mut message = self.vault.unseal(
+                text(&row, "cipher"),
+                &format!("message:{}", text(&row, "event_id")),
+            )?;
+            let kind = chats
+                .iter()
+                .find(|chat| chat["id"] == row["chat_id"])
+                .map(|chat| text(chat, "kind"))
+                .unwrap_or("");
+            crate::aliases::enrich(&mut message, kind, &names);
+            events.push(json!({"sequence":row["seq"],"accountId":id,"chatId":row["chat_id"],"receivedAt":row["at"],"message":message}));
         }
         let cursor = events
             .last()
@@ -723,7 +735,7 @@ impl Core {
                 let timestamp = now();
                 let cid = text(&params["chat"], "id");
                 let key = format!("{id}:{cid}");
-                let message = json!({"id":message_id,"senderId":"synthetic","text":params["text"],"timestamp":timestamp,"contentType":"NONE"});
+                let message = json!({"id":message_id,"senderId":"synthetic","senderName":"示範帳號","text":params["text"],"timestamp":timestamp,"contentType":"NONE"});
                 crate::monitor::capture(&self.store, &self.vault, id, cid, &message)?;
                 let mut demo = self.demo.lock().unwrap();
                 let messages = demo.entry(key).or_default();
@@ -873,19 +885,44 @@ impl Core {
         };
         if cursor.is_none() {
             let mut unique = HashMap::<String, Value>::new();
-            for m in result["messages"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .chain(local.iter())
-            {
+            for m in result["messages"].as_array().unwrap_or(&Vec::new()).iter() {
                 unique.insert(text(m, "id").into(), m.clone());
+            }
+            for m in &local {
+                unique
+                    .entry(text(m, "id").into())
+                    .or_insert_with(|| m.clone());
             }
             let mut messages = unique.into_values().collect::<Vec<_>>();
             messages.sort_by_key(|m| text(m, "timestamp").to_string());
             let start = messages.len().saturating_sub(limit as usize);
             result["messages"] = json!(messages[start..]);
         }
+        if self.store.account(id)?["kind"] == "line"
+            && result["messages"].as_array().is_some_and(|messages| {
+                messages.iter().any(|m| {
+                    !m["senderName"]
+                        .as_str()
+                        .is_some_and(|name| !name.is_empty())
+                })
+            })
+            && let Ok(messages) = self
+                .driver(
+                    &self.store.account(id)?,
+                    "resolve_names",
+                    json!({"chat":chat,"messages":result["messages"]}),
+                )
+                .await
+        {
+            result["messages"] = messages;
+        }
+        let names = crate::aliases::cached(&self.store, &self.vault, id);
+        if let Some(messages) = result["messages"].as_array_mut() {
+            for message in messages {
+                crate::aliases::enrich(message, text(&chat, "kind"), &names);
+            }
+        }
+        self.allow(actor, id, "read", Some(cid))?;
         result["accountId"] = json!(id);
         result["chatId"] = json!(cid);
         result["untrustedContent"] = json!(true);
@@ -1152,6 +1189,42 @@ mod tests {
         let secret = text(&result, "token").to_string();
         let actor = core.authenticate(&secret).unwrap();
         (secret, actor)
+    }
+    #[tokio::test]
+    async fn encrypted_alias_cache_enriches_old_inbox_without_crossing_accounts() {
+        let (_dir, core, id) = fixture().await;
+        core.designate(&id, "demo-group", &json!(true)).unwrap();
+        core.store
+            .set(&format!("monitor:{id}"), &json!(true))
+            .unwrap();
+        let (_secret, actor) = token(&core, &id, true, false);
+        let key = "bridge.aliases.v1";
+        let cache = json!([["talk:member", {"name":"本機聯絡人別名","source":"contact_alias","profileName":"公開名稱","expires":chrono::Utc::now().timestamp_millis()+60000}]]);
+        let cipher = core.vault.seal(&cache, &format!("{id}:{key}")).unwrap();
+        assert!(!cipher.contains("本機聯絡人別名"));
+        core.store
+            .exec("INSERT INTO secrets VALUES(?,?,?)", &[&id, &key, &cipher])
+            .unwrap();
+        crate::monitor::capture(
+            &core.store,
+            &core.vault,
+            &id,
+            "demo-group",
+            &json!({"id":"old-message","senderId":"member","text":"sample"}),
+        )
+        .unwrap();
+        let events = core.events(&actor, &id, 0, 100).unwrap();
+        assert_eq!(
+            events["events"][0]["message"]["senderName"],
+            "本機聯絡人別名"
+        );
+        assert_eq!(events["events"][0]["message"]["senderId"], "member");
+        assert!(crate::aliases::cached(&core.store, &core.vault, "another-account").is_empty());
+        core.designate(&id, "demo-group", &json!(false)).unwrap();
+        assert_eq!(
+            core.events(&actor, &id, 0, 100).unwrap()["events"],
+            json!([])
+        );
     }
     #[tokio::test]
     async fn scopes_designation_pause_revoke_and_local_control() {

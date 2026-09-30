@@ -40,7 +40,10 @@ export class LiveMonitor {
           let message;
           try{message=normalizeMessage(await this.driver.client.e2ee.decryptE2EEMessage(raw));}
           catch{message=normalizeMessage({...raw,text:''},{unavailableReason:'E2EE decryption failed; this message was not exposed.'});}
-          if(this.active&&this.allowed.has(chatId)&&message.id)await this.capture(chatId,message);
+          if(this.active&&this.allowed.has(chatId)&&message.id){
+            if(this.driver.resolveMessageNames)[message]=await this.driver.resolveMessageNames(this.allowed.get(chatId),[message]);
+            if(this.active&&this.allowed.has(chatId))await this.capture(chatId,message);
+          }
         }
         if(!this.active)break;
         cursor=nextTalkCursor(cursor,response);await this.driver.storage.set('monitor.talk',cursor);
@@ -58,7 +61,11 @@ export class LiveMonitor {
         if(!this.active||!room.active)break;
         // Drain the initial event snapshot in bounded pages without exposing it.
         // Persist readiness too: a restart during baseline must not import history.
-        if(!baseline)for(const message of squareMessages(response))if(this.active&&room.active&&this.allowed.has(chatId))await this.capture(chatId,message);
+        if(!baseline&&this.allowed.has(chatId)){
+          let messages=squareMessages(response);
+          if(this.driver.resolveMessageNames)messages=await this.driver.resolveMessageNames(this.allowed.get(chatId),messages);
+          for(const message of messages)if(this.active&&room.active&&this.allowed.has(chatId))await this.capture(chatId,message);
+        }
         if(!(response.events?.length))baseline=false;
         if(!response.syncToken)throw new Error('cursor_unavailable');
         cursor=response.syncToken;await this.driver.storage.set(`monitor.square:${chatId}`,{syncToken:cursor,ready:!baseline});
