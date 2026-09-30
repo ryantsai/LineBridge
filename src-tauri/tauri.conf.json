@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LineBridge",
+  "version": "0.2.0",
+  "identifier": "com.ryantsai.linebridge",
+  "build": {"frontendDist": "../public"},
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{"label":"main","title":"LineBridge｜LINE 帳號橋接器","width":1280,"height":900,"minWidth":800,"minHeight":600}],
+    "security": {"csp":"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"}
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": {"../protocol/line-worker.cjs":"protocol/line-worker.cjs","../protocol/line-worker.cjs.LEGAL.txt":"protocol/line-worker.cjs.LEGAL.txt","../protocol/third-party-notices.txt":"protocol/third-party-notices.txt","../runtime/node.exe":"runtime/node.exe","../runtime/node-LICENSE.txt":"runtime/node-LICENSE.txt","../runtime/node-source.json":"runtime/node-source.json","../tools/cloudflared.exe":"tools/cloudflared.exe","../tools/cloudflared-LICENSE.txt":"tools/cloudflared-LICENSE.txt"},
+    "icon": ["icons/icon.ico","icons/icon.png"],
+    "windows": {"nsis":{"languages":["TradChinese","English"],"displayLanguageSelector":true}}
+  }
+}

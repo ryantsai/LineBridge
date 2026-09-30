@@ -1,151 +1,114 @@
-# LINE Bridge
+# LineBridge
 
-A local dashboard and an authenticated gateway that lets cloud AI clients inspect and read/send through **designated LINE accounts and chats**. Built for this Windows PC with `lineclientbot` 0.1.3, Node.js, SQLite, Express and the official MCP SDK.
+**LineBridge** is a Windows desktop app and local gateway for cloud AI clients to inspect designated LINE accounts, read messages and send explicitly requested messages. Version 0.2 uses Rust 1.98.1, Tauri 2.12.0 and SQLite, with a Traditional Chinese (Taiwan) interface. [繁體中文使用說明](README.zh-TW.md).
 
 ## Open it
 
-Double-click **Start LINE Bridge.cmd**, or run:
+Double-click **Start LineBridge.cmd** for the desktop app. **Start LineBridge Headless.cmd** runs the Rust service and opens its browser interface; use this mode when a cloud client should keep working without a desktop window. **Stop LineBridge.cmd** stops the verified local service and its owned worker/connector processes.
 
-```powershell
-./scripts/start.ps1
-```
+The Windows installer is in `target/release/bundle/nsis/LineBridge_0.2.0_x64-setup.exe`. It bundles the LINE worker runtime and cloudflared. Microsoft WebView2 is required; the installer handles the standard WebView2 bootstrap. The installer is unsigned.
 
-- Dashboard: **http://localhost:3210**
-- AI gateway: **http://127.0.0.1:3211**
-- MCP endpoint: **/mcp** (stateless Streamable HTTP)
-- HTTP schema: **/openapi.json** (authentication required); a standalone `openapi.json` is also included for importing into your client.
+- Local browser interface: `http://localhost:3210`
+- Authenticated AI gateway: `http://127.0.0.1:3211`
+- MCP Streamable HTTP: `/mcp`
+- OpenAPI: `/openapi.json` (authentication required)
 
-The dashboard and gateway are separate servers, both bound to loopback. The dashboard is trusted to the local PC user and requires its local browser session, a permitted Host and same-origin mutation requests. **Only port 3211 belongs in a tunnel.**
+Both servers bind to loopback. Forward **only port 3211** through a tunnel. The desktop invokes the Rust admin commands through a narrowly scoped Tauri capability. The browser interface uses a local session cookie, Host/Origin checks and CSP. Closing the desktop app stops its gateway and listener. No OS autostart, background service or recurring task was installed.
 
-Use **Stop LINE Bridge.cmd** to stop the server. It verifies the recorded process identity before stopping it. Starting is manual; no scheduled task, startup entry or Windows service was installed. Keep the PC awake for remote access. Cloudflare connectors are started explicitly from the dashboard after each server start. Tailscale Serve can persist independently; stop it from the dashboard before shutting down the server.
+## Connect and designate
 
-## Connect an account
+1. Add an account and scan its QR code with LINE on your phone. Default device: iPad secondary client. An additional login may replace a session of the same device type.
+2. Use **恢復已儲存的工作階段** to resume credentials before trying a new QR login.
+3. Click **探索聊天室** or add a complete known chat ID. Adding an ID does not join a room. Discovery preserves chat permissions and reports groups, contacts and joined OpenChats separately.
+4. Check the chats AI clients may access. Unchecked chats remain available for local manual inspection and sending.
+5. In **AI 存取權限**, issue an expiring token with independent read/send grants. Copy the token once; only its hash is stored.
 
-1. Add an account label. The default is an iPad secondary client; Windows and Android secondary clients are also available.
-2. Click **Connect with QR**, scan with LINE on your phone, and complete the phone confirmation. The QR and any PIN stay in the authenticated local dashboard.
-3. Click **Discover chats**, or add a known complete chat ID. Adding an ID does not join that chat. Use **Resume saved session** after a disconnect or transient failure before starting another QR login.
-4. Check the chats you want to designate for AI access.
-5. In **AI access**, issue an expiring token with independent read/send permissions per account. Copy it once and give it only to the intended AI client.
+LINE protocol access remains an **unofficial** adapter (`lineclientbot` 0.1.3). It does not extract the installed LINE desktop app's session. Rust owns the gateway, policy, vault, SQLite, tunnel controls and synthetic sandbox. A bundled Node worker owns only LINE protocol calls through a private stdin/stdout pipe; it has no HTTP listener or database access. The original Express service remains as a legacy reference and regression test fixture, and is not the production launcher.
 
-**AI access off** means that the chat is not designated for remote AI clients. Local inspection and sending remain available. Use the chat-type filter to find groups, contacts or OpenChats. Discovery reports each category separately, so an upstream failure is not presented as an empty category. OpenChats come from the initial joined-membership event snapshot; the legacy joined-room endpoint is not implemented by LINE. New discoveries do not automatically grant AI access.
+## New-message monitoring
 
-A secondary client login can replace another session of the same device type. LINE authentication, personal history/E2EE and OpenChat behavior use an **unofficial protocol** and need verification with your account. This project does not claim live compatibility until that verification succeeds. It does not reuse or extract the installed desktop app’s session.
+Click **開始監聽** for an account. Monitoring is opt-in and collects **only designated chats**. The interface shows running/retrying state, retained count and last-message time. No automatic AI reply is generated. An empty designation list waits until you choose a chat. Unchecking a room immediately prevents further database inserts and remote reads for that room.
 
-The included sandbox is synthetic. Sandbox sends affect only memory; messages reset on restart. Sandbox status is shown separately from connected LINE accounts. You can remove the sandbox from the dashboard when done.
+Personal chats use LINE sync with bounded long polls. OpenChats poll event pages approximately every two seconds. Initial history establishes a cursor and is discarded; monitoring is not a full history import. Durable capture is acknowledged before advancing the encrypted protocol cursor. On restart, an enabled account resumes its listener after the saved session connects. Turning monitoring off and back on establishes a new baseline.
+
+Messages are encrypted with the local vault and retained in SQLite, up to **1,000 per account**. Offline periods, LINE retention, decryption failures and protocol changes may cause gaps. A failed encrypted message exposes an unavailable marker, never its ciphertext. The interface refreshes status every three seconds and preserves an in-progress draft when new messages arrive. Reads do not call read-receipt APIs.
+
+Cloud clients can poll `GET /api/v1/accounts/{accountId}/events?after=0&limit=100` or the `line_poll_events` MCP tool and pass the returned sequence as the next `after`. Only a currently valid read grant and currently designated chats are returned. This is a bounded inbox, not a webhook or a guaranteed delivery queue.
 
 ## Cloudflare Tunnel + Access
 
-The official `cloudflared` Windows binary 2026.9.3 is included in `tools/`, with a verified SHA-256 recorded in `tools/cloudflared-source.json`. **The tunnel is inactive until you choose your hostname and configure your Cloudflare account.** No temporary public tunnel is started.
+Cloudflare is the selected provider. The hostname will be chosen later, so the tunnel remains inactive. Configure:
 
-1. In [Cloudflare Zero Trust](https://one.dash.cloudflare.com/), create a remotely managed named tunnel. Use its connector token in the local dashboard; you do not need to install another system service.
-2. Add a published application hostname on a domain you manage in Cloudflare. Its origin service must be `http://127.0.0.1:3211`.
-3. Create a **self-hosted Access application protecting the entire hostname**. Add a **Service Auth** policy whose Include rule selects a designated service token. Do not create a Bypass policy. Keep interactive SSO and machine policy configuration appropriate to your intended clients.
-4. Copy the Access **team domain**, such as `your-team.cloudflareaccess.com`, and application **AUD** to the local dashboard. Save the hostname there too.
-5. Paste the tunnel connector token and click **Start connection**. It is stored encrypted; the child process receives it through its environment, not a command-line argument.
-6. Configure the AI client with these headers:
+1. A remotely managed named tunnel with origin `http://127.0.0.1:3211` and a hostname on your Cloudflare domain.
+2. A self-hosted Access application protecting the entire hostname and a **Service Auth** policy for the intended service token.
+3. The hostname, `your-team.cloudflareaccess.com` team domain and application AUD in LineBridge.
+4. The encrypted tunnel connector token, then **啟動連線**.
+
+Each AI request supplies:
 
 ```text
-Authorization: Bearer <LINE Bridge AI token>
-CF-Access-Client-Id: <Cloudflare service token client ID>
+Authorization: Bearer <LineBridge token>
+CF-Access-Client-Id: <Cloudflare service token ID>
 CF-Access-Client-Secret: <Cloudflare service token secret>
 ```
 
-Cloudflare authenticates the service token and supplies `Cf-Access-Jwt-Assertion` to the origin. The gateway independently verifies its **RS256 signature, issuer, audience and expiration** using the Access team’s JWKS. Once a Cloudflare hostname is configured, this applies to **all authenticated gateway traffic**, even requests using a localhost Host. Do not fabricate that assertion on your AI client.
+Cloudflare supplies the origin's Access assertion. The gateway validates its RS256 signature, issuer, audience and expiration using the team JWKS. Once a Cloudflare hostname is configured, the assertion is enforced even with a localhost Host. Generic `/health` liveness remains available. Connector readiness does not prove the Access policy is configured correctly; “Access 已驗證” requires an actual validated JWT. See the [Cloudflare service token guide](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/).
 
-`/health` returns only a generic service liveness result. It does not expose accounts, credentials or messages. “Connected” in the dashboard is based on cloudflared’s local `/ready` response after a connection registers. “Access verified” appears only after this gateway validates a real Access JWT; connector connectivity alone does not prove your Access policy or hostname works end to end.
-
-See the official [named tunnel instructions](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/) and [Access service token guide](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/).
-
-## Tailscale alternative
-
-Connect Tailscale on this PC, select **Tailscale Serve** in the dashboard, and click **Start connection**. It forwards the gateway through private HTTPS on **8443**, checks for a conflicting route, and never uses Funnel. The cloud agent’s host must join the same tailnet and be permitted by its grants/ACLs. Generic hosted AI connectors without tailnet connectivity cannot reach this private endpoint. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
-
-ngrok is not installed or implemented in this version. Cloudflare is the selected provider; adding another provider belongs in `server/tunnels.mjs` with authenticated routing and a real status probe.
+Tailscale Serve is an alternative, using private HTTPS on 8443 and requiring the AI host on the same tailnet. Existing routes are checked before changes. ngrok is not implemented.
 
 ## AI interfaces
 
-The four MCP tools use the same authorization and send handling as the REST API:
-
-| Tool | Purpose |
+| MCP tool | Purpose |
 | --- | --- |
-| `line_list_accounts` | Inspect granted account connection status and basic profile |
-| `line_list_chats` | List only designated chats, with read permission |
-| `line_read_messages` | Read up to 100 messages/events from a designated chat |
-| `line_send_message` | Send text with send permission and a required idempotency key |
+| `line_list_accounts` | Granted account status, basic profile and monitor status |
+| `line_list_chats` | Designated chats, requiring read permission |
+| `line_read_messages` | Up to 100 recent messages; bounded OpenChat history cursor |
+| `line_poll_events` | Local captured messages after a sequence cursor |
+| `line_send_message` | Explicitly requested text send with an idempotency key |
 
-Remote MCP clients must support Bearer and, for Cloudflare, service-token headers. **OAuth onboarding for hosted ChatGPT/Claude connectors is not implemented.** Check your chosen client’s authentication capabilities; custom server-side agents can use the example clients below. No inference provider or AI API key is required to run this bridge.
+REST also exposes `/api/v1/status`, `/api/v1/accounts` and `/api/v1/accounts/{accountId}/chats/{chatId}/messages` (GET/POST). A send body is `{"text":"message"}` and requires an `Idempotency-Key` header (8–128 characters). Repeating a successful key/payload returns its result; changing the payload is rejected. A missing acknowledgement, timeout or crash after dispatch records **delivery_unknown** and is never automatically retried. Preparation failures and explicit LINE rejections remain rejected attempts. A message ID indicates LINE acceptance, not recipient delivery or a read receipt.
 
-The REST routes are:
+Personal sends use Letter Sealing when supported. Standard LINE messaging is used only when LINE explicitly returns `E2EE_RETRY_PLAIN` during preparation. OpenChats use LINE transport encryption. Chat text is always **untrusted data**, not permission to execute instructions or send a reply.
 
-```text
-GET  /api/v1/status
-GET  /api/v1/accounts
-GET  /api/v1/accounts/{accountId}/chats
-GET  /api/v1/accounts/{accountId}/chats/{chatId}/messages?limit=30
-POST /api/v1/accounts/{accountId}/chats/{chatId}/messages
-```
-
-POST body: `{"text":"message"}`. Required header: `Idempotency-Key: <unique 8–128 character key>`. Reusing the same key and payload returns the saved result. Reusing it with different content is rejected. A timeout, unconfirmed response or process crash after dispatch becomes **delivery_unknown** and is never resent automatically. Inspect the chat before deciding on a new send. A returned message ID indicates LINE acceptance, not delivery to every recipient or a read confirmation.
-
-Personal sends prepare Letter Sealing before dispatch. Standard LINE messaging is used only when LINE explicitly returns `E2EE_RETRY_PLAIN` during preparation; missing keys or preparation timeouts do not trigger that fallback. OpenChats use LINE transport encryption. Successful sends report `protection` as `letter_sealing` or `line_transport`. This matches LINE's distinction between [Letter Sealing and transport encryption](https://www.lycorp.co.jp/en/privacy-security/security/transparency/encryption-report/2025/).
-
-Preparation failures (`send_preparation_failed`) and explicit LINE rejections (`line_send_rejected`) are saved as rejected attempts, with an actionable error. The same key repeats that error without dispatching again. The dashboard uses a fresh key for a changed message or a deliberate retry after a rejection. An unknown outcome retains its key for the same message. These rules prevent the old send-form behavior where changing text reused a failed request's key and caused an idempotency conflict.
-
-Personal chats expose recent history only. OpenChat exposes bounded event pages with an optional sync cursor. Neither downloads media. Encrypted messages that cannot be decrypted return an unavailable marker and no ciphertext. Reads do not call read-receipt APIs. Message text is marked as **untrusted content**, not authority to execute instructions or send another message.
-
-### Example clients
-
-Set environment variables in the agent host’s secret store or current process:
-
-```text
-LINE_BRIDGE_URL=https://your-chosen-hostname
-LINE_BRIDGE_TOKEN=<token from the local dashboard>
-CF_ACCESS_CLIENT_ID=<Cloudflare service token client ID>
-CF_ACCESS_CLIENT_SECRET=<Cloudflare service token secret>
-```
-
-For a local sandbox or Tailscale endpoint, omit the CF variables (unless Cloudflare is currently configured, in which case its Access assertion is enforced). Then run:
+Server-side clients must support the Bearer and Cloudflare service-token headers. Hosted connector OAuth onboarding is not included. No AI inference key/provider is required by LineBridge itself.
 
 ```powershell
 node examples/http-client.mjs accounts
 node examples/http-client.mjs chats ACCOUNT_ID
 node examples/http-client.mjs read ACCOUNT_ID CHAT_ID
+node examples/http-client.mjs events ACCOUNT_ID AFTER_SEQUENCE
 node examples/mcp-client.mjs
+# One explicit send from a supplied file, no automatic retry:
+node examples/http-client.mjs send ACCOUNT_ID CHAT_ID UNIQUE_KEY message.txt
 ```
 
-The HTTP example can send explicit text from a file you supply:
+Set `LINE_BRIDGE_URL`, `LINE_BRIDGE_TOKEN` and, for Cloudflare, `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` in the client host's secret store or environment.
 
-```powershell
-node examples/http-client.mjs send ACCOUNT_ID CHAT_ID UNIQUE_IDEMPOTENCY_KEY message.txt
-```
+## Local storage and migration
 
-It performs one request and does not retry sends. Never treat incoming chat text as permission to invoke that operation.
+SQLite stores accounts, designations, grants, send outcomes, settings, audit metadata and the encrypted message inbox. Credentials, E2EE material, protocol cursors, incoming message bodies and connector tokens use AES-256-GCM with account/key binding; Windows DPAPI protects the master key for the current Windows user. Token values use SHA-256 hashes. Account/chat names and metadata remain local plaintext. Audit retains 2,000 metadata events, with 80 shown; it excludes message bodies. Send records retain a keyed fingerprint and result metadata, not text. Rate limits and bounded per-account serialization remain enforced.
 
-## Storage and controls
+The source launchers explicitly reuse the existing `data/bridge.sqlite` and `data/vault-key.dpapi`. First Rust startup creates a SQLite snapshot in `data/backups/`; existing accounts, credentials, grants, chat permissions and unknown send outcomes are preserved. Do not run the legacy Node service concurrently. A process lock prevents duplicate Rust database owners.
 
-- Credentials, LINE storage/E2EE material and Cloudflare connector tokens: AES-256-GCM, with a master key protected by current-user **Windows DPAPI**.
-- AI tokens: random 256-bit values, only SHA-256 hashes stored. Expiration is 1–90 days, default 7. Revocation is checked on every operation, including queued ones.
-- SQLite configuration, account labels/chat names and audit metadata are local plaintext. Incoming/outgoing bodies are not persisted by the bridge. Demo messages live only in memory.
-- Audit log: most recent 2,000 metadata events retained, 80 shown. Send records persist for idempotency; they exclude text and retain message IDs and a keyed fingerprint.
-- Global pause blocks AI APIs/tools while the local dashboard remains available.
-- Per token: up to 10 send attempts/minute, bounded read traffic. Account operations are serialized and their queue is bounded.
-- Browser requests to the gateway are denied. Use server-side clients. The dashboard has no CORS permission for other websites, and uses Host/Origin checks, SameSite cookies and a CSP.
+A newly installed copy defaults to `%LOCALAPPDATA%/com.ryantsai.linebridge`, unless `LINE_BRIDGE_DATA` specifies an existing data directory. To use this checkout's existing accounts, run **Start LineBridge.cmd**, or set `LINE_BRIDGE_DATA` to this checkout's `data` directory before launching the installed app. Do not copy a live SQLite database without its WAL or a consistent backup. DPAPI data is tied to this Windows user; moving to another user/PC needs a separate migration design.
 
-Treat the whole `data/` directory as private. Do not sync it to a repository. A different Windows user or PC cannot unlock its DPAPI key without an explicit migration design. Another process running as the same Windows user is inside the local trust boundary. This version is a working local foundation, not a guarantee that LINE’s private protocol will remain compatible.
+`data/`, credentials, runtime binaries, generated protocol bundles and build outputs are Git-ignored. The repository is local, on `main`, with no remote or push configured.
 
-## Develop and verify
+## Build and verify
 
-Node.js **24 or newer** is required. Dependencies and the lockfile are already installed here. For another checkout:
+Requires Rust 1.98.1 (pinned), Node ≥24, the Visual Studio C++ build tools and WebView2. Versions are pinned in Cargo/npm lockfiles. The build bundles the actual Node runtime (not an nvm shim), verifies it against official Node.js SHA-256 checksums and includes third-party license notices.
 
 ```powershell
 npm ci --ignore-scripts
+npm run desktop:build
+cargo build --release -p line-bridge-core --bin line-bridge-service
 npm run check
 npm test
-npm start
+cargo test -p line-bridge-core
+cargo clippy --workspace --all-targets -- -D warnings
+node tests/rust-smoke.mjs
 ```
 
-Tests use synthetic accounts and fake LINE RPC responses. They cover account/chat permissions, revocation, expiry, pause, queued authorization, duplicate/unknown sends, encrypted storage and restart, HTTP/MCP integration, browser-origin/Host checks, Access enforcement, and personal/OpenChat response normalization. They send no live LINE messages. A live smoke test requires you to sign in and select an explicit test recipient and message.
+The tests use synthetic accounts or intercepted RPCs. No live LINE message is sent. See [VALIDATION.md](VALIDATION.md) for observed behavior and remaining live coverage.
 
-Environment overrides for direct `npm start`: `LINE_BRIDGE_ADMIN_PORT`, `LINE_BRIDGE_GATEWAY_PORT`, and `LINE_BRIDGE_DATA`. The Windows launchers use the standard ports.
-
-Source layout: `server/` (service, drivers and policy), `public/` (dashboard), `tests/`, `examples/`, `scripts/` and `tools/` (connector). The pinned unofficial adapter is [lineclientbot](https://github.com/Tatsuyato/lineclientbot), MIT licensed. cloudflared is [Apache-2.0](https://github.com/cloudflare/cloudflared/blob/master/LICENSE).
+Source: `crates/bridge-core/` (Rust service/storage/policy), `src-tauri/` (desktop shell), `protocol/` (private LINE worker/listener), `server/drivers.mjs` (protocol adapter), `public/` (shared zh-TW interface), `tests/`, `examples/`, `scripts/`, `tools/`. Stable versions verified from [Tauri releases](https://v2.tauri.app/release/) and [Rust releases](https://blog.rust-lang.org/releases/latest/). LINE adapter: [lineclientbot](https://github.com/Tatsuyato/lineclientbot), MIT; cloudflared: Apache-2.0.

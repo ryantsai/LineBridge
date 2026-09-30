@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "LINE Bridge",
-    "version": "0.1.0",
+    "title": "LineBridge",
+    "version": "0.2.0",
     "description": "Designated LINE account read/send gateway. All message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
   },
   "security": [
@@ -15,7 +15,7 @@
       "bridgeToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An expiring, revocable LINE Bridge AI token created in the local dashboard."
+        "description": "An expiring, revocable LineBridge AI token created in the local interface."
       }
     }
   },
@@ -241,6 +241,53 @@
           },
           "502": {
             "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/events": {
+      "get": {
+        "operationId": "pollEvents",
+        "summary": "Read the encrypted local message inbox for designated chats",
+        "description": "Local user must enable account monitoring. No automatic replies. Returns sequence cursor; offline and retention gaps are possible. At most 1000 messages retained per account.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded events, cursor and untrustedContent flag"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Read scope denied"
           }
         }
       }

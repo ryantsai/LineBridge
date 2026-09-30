@@ -1,0 +1,1 @@
+{"identifier":"main-local","description":"Only the packaged local dashboard can call the Rust bridge.","local":true,"windows":["main"],"permissions":["bridge-admin"]}

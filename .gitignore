@@ -14,3 +14,9 @@ zh-TW-preview.png
 *.dpapi
 .env.*
 !.env.example
+protocol/line-worker.cjs*
+*-preview.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
+*-preview.jpg
+src-tauri/gen/
