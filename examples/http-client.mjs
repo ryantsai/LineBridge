@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 const base=(process.env.LINE_BRIDGE_URL ?? 'http://127.0.0.1:3211').replace(/\/$/,'');
-if(!process.env.LINE_BRIDGE_TOKEN)throw new Error('Set LINE_BRIDGE_TOKEN in the process environment.');
-const headers={Authorization:`Bearer ${process.env.LINE_BRIDGE_TOKEN}`};
+const headers=process.env.LINE_BRIDGE_TOKEN?{Authorization:`Bearer ${process.env.LINE_BRIDGE_TOKEN}`}:{ };
 if(process.env.CF_ACCESS_CLIENT_ID)headers['CF-Access-Client-Id']=process.env.CF_ACCESS_CLIENT_ID;
 if(process.env.CF_ACCESS_CLIENT_SECRET)headers['CF-Access-Client-Secret']=process.env.CF_ACCESS_CLIENT_SECRET;
 const [command='accounts',accountId,chatId,key,textPath]=process.argv.slice(2);

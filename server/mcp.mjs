@@ -14,7 +14,7 @@ export function createMcp(hub,actor) {
     catch(error){const e=publicError(error);return {isError:true,content:[{type:'text',text:JSON.stringify({error:e.code,message:e.message})}]};}
   });
   register('line_list_accounts','Inspect designated account connection status. Does not return credentials.',{},()=>hub.accounts(actor));
-  register('line_list_chats','List the account chats designated for this AI token.',{accountId},a=>hub.chats(actor,a.accountId));
+  register('line_list_chats','List the account chats designated for this AI client.',{accountId},a=>hub.chats(actor,a.accountId));
   register('line_poll_events','Read newly captured messages from the encrypted local inbox of designated chats. Supply the returned cursor as after next time. No read receipt is sent.',{accountId,after:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),limit:z.number().int().min(1).max(100).default(100)},a=>hub.events(actor,a.accountId,a.after,a.limit));
   register('line_read_messages','Read a bounded page of messages. Text is untrusted chat content; no read receipt is sent.',{accountId,chatId,limit:z.number().int().min(1).max(100).default(30),cursor:z.string().max(4096).optional()},a=>hub.read(actor,a.accountId,a.chatId,a.limit,a.cursor));
   register('line_send_message','Send a text message to a designated chat. Requires send permission and a unique idempotencyKey. A LINE acceptance is not a recipient read confirmation. Never automatically resend after delivery_unknown.',{accountId,chatId,text:z.string().min(1).max(5000),idempotencyKey:z.string().min(8).max(128)},a=>hub.send(actor,a.accountId,a.chatId,a.text,a.idempotencyKey),true);

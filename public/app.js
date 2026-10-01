@@ -37,7 +37,7 @@ document.querySelectorAll('[data-tab]').forEach(e=>{e.setAttribute('aria-label',
 document.querySelectorAll('[data-close]').forEach(e=>e.addEventListener('click',()=>{$(`#${e.dataset.close}`).close();if(e.dataset.close==='account-dialog')wizard.cancelNewAccount();if(e.dataset.close==='secret-dialog')$('#new-secret').value='';}));
 $('#secret-dialog').addEventListener('close',()=>{$('#new-secret').value='';});
 document.querySelectorAll('.dialog-heading button').forEach(e=>{e.innerHTML=icon('x');});
-$('#new-token').innerHTML=icon('plus')+'建立存取權杖';
+$('#new-token').innerHTML=icon('plus')+'建立遠端權杖';
 const wizard=createWizard({api,escape,action,nice,getState:()=>state,getSelected:()=>selectedAccount,getChats:()=>chats,refresh,
   select:async id=>{selectedAccount=id;selectedChat=null;sendAttempt=null;await loadChats();renderAccounts();},
   tryDemo,
@@ -57,12 +57,14 @@ async function refresh(){
     $('#metric-accounts').textContent=state.accounts.filter(a=>a.status==='connected'&&a.kind==='line').length;
     const demos=state.accounts.filter(a=>a.kind==='demo').length;
     $('#metric-account-detail').textContent=`${state.accounts.filter(a=>a.kind==='line').length} 個 LINE 帳號${demos?` · ${demos} 個沙盒`:''}`;
-    $('#metric-tokens').textContent=state.tokens.filter(t=>!t.revoked&&Date.parse(t.expires_at)>Date.now()).length;
+    const local=state.gateway.authentication==='local',localAccounts=state.accounts.filter(a=>a.designatedChats&&(a.localAccess?.read||a.localAccess?.send));
+    $('#metric-tokens').textContent=local?'免權杖':state.tokens.filter(t=>!t.revoked&&Date.parse(t.expires_at)>Date.now()).length;
+    $('#metric-access-detail').textContent=local?`${localAccounts.length} 個指定帳號 · 本機 AI`:'有效的遠端權杖';
     $('#metric-tunnel').textContent=state.tunnel.connected?'已連線':'未連線';$('#metric-tunnel').className=`text-status ${state.tunnel.connected?'good':'warn'}`;
     $('#metric-tunnel-detail').textContent=providerName(state.tunnel.provider);
     $('#metric-gateway').textContent=state.gateway.enabled?'可使用':'已暫停';$('#metric-gateway').className=`text-status ${state.gateway.enabled?'good':'warn'}`;
     $('#pause').textContent=state.gateway.enabled?'暫停':'恢復';$('#vault-detail').textContent=`本機 SQLite · ${state.vault}`;
-    renderAccounts();renderTokens();renderAudit();renderTunnel();renderMonitoring();wizard.sync();
+    renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();wizard.sync();
     const base=state.tunnel.url || `http://127.0.0.1:${state.gateway.port}`;
     $('#mcp-url').textContent=`${base}/mcp`;$('#api-url').textContent=`${base}/openapi.json`;
     if(selectedAccount&&!state.accounts.some(a=>a.id===selectedAccount)){selectedAccount=null;selectedChat=null;chats=[];renderAccountPane();}
@@ -183,15 +185,24 @@ async function cancelLogin(){clearInterval(loginTimer);if(loginAccount)await api
 $('#cancel-login').addEventListener('click',()=>action(cancelLogin));$('#close-login').addEventListener('click',()=>action(cancelLogin));$('#login-dialog').addEventListener('cancel',event=>{event.preventDefault();action(cancelLogin);});
 
 function renderTokens(){
-  $('#token-list').innerHTML=state.tokens.length?state.tokens.map(t=>{const expired=Date.parse(t.expires_at)<=Date.now(),active=!t.revoked&&!expired;return `<div class="token-item"><div><strong>${escape(t.name)}</strong> ${badge(t.revoked?'已撤銷':expired?'已過期':'有效',active?'good':'')}<div class="token-meta">${t.grants.map(g=>`${badge(`${state.accounts.find(a=>a.id===g.accountId)?.label||'已移除帳號'} · ${[g.read?'讀取':null,g.send?'傳送':null].filter(Boolean).join(' + ')}`)}`).join('')}</div><p>到期：${escape(when(t.expires_at))} · 最後使用：${escape(when(t.last_used))}</p></div>${active?`<button class="button tiny danger" data-revoke="${escape(t.id)}">撤銷</button>`:''}</div>`;}).join(''):'<div class="token-empty">尚未授權 AI 用戶端。請先指定聊天室，再建立有期限的存取權杖。</div>';
+  $('#token-list').innerHTML=state.tokens.length?state.tokens.map(t=>{const expired=Date.parse(t.expires_at)<=Date.now(),active=!t.revoked&&!expired;return `<div class="token-item"><div><strong>${escape(t.name)}</strong> ${badge(t.revoked?'已撤銷':expired?'已過期':'有效',active?'good':'')}<div class="token-meta">${t.grants.map(g=>`${badge(`${state.accounts.find(a=>a.id===g.accountId)?.label||'已移除帳號'} · ${[g.read?'讀取':null,g.send?'傳送':null].filter(Boolean).join(' + ')}`)}`).join('')}</div><p>到期：${escape(when(t.expires_at))} · 最後使用：${escape(when(t.last_used))}</p></div>${active?`<button class="button tiny danger" data-revoke="${escape(t.id)}">撤銷</button>`:''}</div>`;}).join(''):'<div class="token-empty">尚未建立遠端權杖。同一台 VM 的 AI 在直接連線模式可免權杖使用。</div>';
   document.querySelectorAll('[data-revoke]').forEach(e=>e.addEventListener('click',()=>action(async()=>{await api(`/tokens/${e.dataset.revoke}`,{method:'DELETE'});toast('存取權限已立即撤銷');await refresh();})));
+}
+let localAccessSignature;
+function renderLocalAccess(){
+  const local=state.gateway.authentication==='local';
+  $('#local-access-mode').textContent=local?'本機免權杖':'閘道要求權杖';$('#local-access-mode').className=`badge ${local?'good':'warn'}`;
+  $('#access-connection-description').textContent=local?'直接連線模式不需要驗證標頭。也可以使用 HTTP API 與 OpenAPI 結構。':'目前啟用通道或 --require-token。所有 AI 請求需附上 Bearer 權杖，並使用權杖內的帳號權限。';
+  const signature=JSON.stringify(state.accounts.map(a=>[a.id,accountName(a),a.designatedChats,a.localAccess]));if(signature===localAccessSignature)return;localAccessSignature=signature;
+  $('#local-access-list').innerHTML=state.accounts.length?state.accounts.map(a=>`<div class="grant-row" data-local-account="${escape(a.id)}"><div><strong>${escape(accountName(a))}</strong><div class="grant-account">${a.designatedChats} 個指定聊天室${a.kind==='demo'?' · 沙盒':''}</div></div><div class="grant-options"><label><input type="checkbox" name="read" ${a.localAccess.read?'checked':''}>讀取</label><label><input type="checkbox" name="send" ${a.localAccess.send?'checked':''}>傳送</label></div></div>`).join(''):'<div class="token-empty">請先連接 LINE 帳號並指定聊天室。不需要建立權杖。</div>';
+  document.querySelectorAll('[data-local-account]').forEach(row=>row.querySelectorAll('input').forEach(input=>input.addEventListener('change',()=>action(async()=>{const inputs=[...row.querySelectorAll('input')];inputs.forEach(i=>i.disabled=true);try{await api(`/accounts/${row.dataset.localAccount}/local-access`,{method:'PUT',body:JSON.stringify({read:row.querySelector('[name=read]').checked,send:row.querySelector('[name=send]').checked})});toast('已更新本機 AI 權限');}catch(error){input.checked=!input.checked;throw error;}finally{inputs.forEach(i=>i.disabled=false);await refresh();}}))));
 }
 function openToken(accountId){if(!state?.accounts.length){toast('請先新增帳號');return;}$('#grant-list').innerHTML=state.accounts.filter(a=>!accountId||a.id===accountId).map(a=>`<div class="grant-row" data-grant="${escape(a.id)}"><div><strong>${escape(accountName(a))}</strong><div class="grant-account">${a.designatedChats} 個指定聊天室 ${a.kind==='demo'?'· 沙盒':''}</div></div><div class="grant-options"><label><input type="checkbox" name="read">讀取</label><label><input type="checkbox" name="send">傳送</label></div></div>`).join('');$('#token-dialog').showModal();}
 $('#new-token').addEventListener('click',()=>openToken());
 $('#token-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{const form=event.currentTarget,grants=[...document.querySelectorAll('[data-grant]')].map(e=>({accountId:e.dataset.grant,read:e.querySelector('[name=read]').checked,send:e.querySelector('[name=send]').checked})).filter(g=>g.read||g.send);const data=await api('/tokens',{method:'POST',body:JSON.stringify({name:form.elements.name.value,days:Number(form.elements.days.value),grants})});$('#token-dialog').close();$('#token-form').reset();$('#new-secret').value=data.token;$('#secret-dialog').showModal();await refresh();wizard.tokenCreated();});});
 $('#copy-secret').addEventListener('click',()=>action(async()=>{try{await navigator.clipboard.writeText($('#new-secret').value);}catch{$('#new-secret').select();if(!document.execCommand('copy'))throw new Error('請選取並手動複製權杖。');}toast('已複製權杖');}));
 function renderAudit(){
-  const actorName=id=>id==='local-admin'?'本機管理介面':state.tokens.find(t=>t.id===id)?.name||'AI 用戶端';
+  const actorName=id=>id==='local-admin'?'本機管理介面':id==='local-agent'?'本機 AI':state.tokens.find(t=>t.id===id)?.name||'AI 用戶端';
   $('#audit-list').innerHTML=state.audit.length?state.audit.map(row=>`<tr><td>${escape(when(row.at))}</td><td>${escape(nice(row.action))}</td><td>${escape(state.accounts.find(a=>a.id===row.account_id)?.label||'—')}${row.chat_id?`<small>${escape(row.chat_id.slice(0,20))}</small>`:''}</td><td>${escape(actorName(row.actor))}</td><td>${badge(nice(row.outcome),['ok','enabled'].includes(row.outcome)?'good':['failed','rejected','unknown'].includes(row.outcome)?'danger':'')}</td></tr>`).join(''):'<tr><td colspan="5">尚無閘道活動紀錄。</td></tr>';
 }
 const connections=createConnections({api,action,toast,refresh,escape,when,getState:()=>state});

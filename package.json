@@ -1,6 +1,6 @@
 {
   "name": "line-bridge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "LineBridge: headless LINE MCP/HTTP gateway with an encrypted SQLite inbox and a zh-TW web dashboard",
   "license": "UNLICENSED",

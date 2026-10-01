@@ -9,7 +9,9 @@ import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
 const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean()}).strict()).min(1).max(30)}).strict();
+const localAccessInput=z.object({read:z.boolean(),send:z.boolean()}).strict();
 export const adminActor={id:'local-admin',admin:true};
+export const localActor=Object.freeze({id:'local-agent',local:true});
 export const digest=value=>createHash('sha256').update(value).digest('hex');
 
 export class Hub {
@@ -28,11 +30,20 @@ export class Hub {
   }
   accounts(actor) {
     const active=this.actor(actor);
-    return this.store.accounts().filter(a=>active.admin || active.grants.some(g=>g.accountId===a.id)).map(a=>this.view(a));
+    return this.store.accounts().filter(a=>active.admin || active.grants.some(g=>g.accountId===a.id)).map(a=>({...this.view(a),...(!active.admin?{permissions:active.grants.find(g=>g.accountId===a.id)}:{})}));
+  }
+  localAccess(id) {this.record(id);return this.store.setting(`localAccess:${id}`,{read:true,send:true});}
+  setLocalAccess(id,input) {
+    const access=localAccessInput.parse(input);this.record(id);this.store.setSetting(`localAccess:${id}`,access);
+    this.store.audit('local-admin','local-access.update',id,null,'ok');return access;
+  }
+  localGrants() {
+    return this.store.accounts().filter(a=>this.store.chats(a.id).some(c=>c.enabled)).map(a=>({accountId:a.id,...this.localAccess(a.id)})).filter(g=>g.read||g.send);
   }
   actor(actor) {
     if(actor.admin) return actor;
     if(!this.store.setting('aiEnabled',true))fail(503,'gateway_paused','The user has paused AI access.');
+    if(actor.local===true&&actor.id===localActor.id)return {...localActor,grants:this.localGrants()};
     const token=this.store.token(actor.id);
     if(!token || token.revoked || Date.parse(token.expires_at)<=Date.now()) fail(401,'invalid_token','The access token is expired or revoked.');
     return {id:token.id,grants:token.grants};
@@ -47,7 +58,7 @@ export class Hub {
     actor=this.actor(actor);
     if(!actor.admin) {
       const grant=actor.grants.find(g=>g.accountId===accountId);
-      if(!grant || (permission && !grant[permission])) fail(403,'scope_denied','This token does not have the required account permission.');
+      if(!grant || (permission && !grant[permission])) fail(403,'scope_denied','This AI client does not have the required account permission.');
     }
     this.record(accountId);
     if(chatId) {

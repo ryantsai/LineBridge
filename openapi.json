@@ -2,10 +2,11 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LineBridge",
-    "version": "0.3.0",
-    "description": "Designated LINE account read/send gateway. All message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare Access deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
+    "version": "0.4.0",
+    "description": "Designated LINE account read/send gateway. In the default direct-local mode, server-side AI clients on the same VM need no token. Local account read/send permissions, designated chats and pause still apply. All requests require a scoped Bearer token when a tunnel provider or --require-token is enabled; proxied requests cannot use local trust. Browser requests are denied. Message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare Access deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
   },
   "security": [
+    {},
     {
       "bridgeToken": []
     }
@@ -15,7 +16,7 @@
       "bridgeToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An expiring, revocable LINE Bridge AI token created in the local dashboard."
+        "description": "Required for tunnel, proxied and --require-token access. Optional for direct loopback clients in local mode. A supplied token always uses its own expiring, revocable account grants."
       }
     }
   },

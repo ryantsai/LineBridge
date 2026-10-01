@@ -1,23 +1,23 @@
 # LineBridge
 
-LineBridge 0.3 是 **headless npm 服務**，提供繁體中文網頁管理介面、SQLite 加密儲存，以及讓 AI 讀取與傳送指定 LINE 聊天室訊息的 MCP／HTTP API。只需 **Node.js 24 以上**；無需 Rust、Tauri、桌面安裝程式或編譯器。
+LineBridge 0.4 是 **headless npm 服務**，提供繁體中文網頁管理介面、SQLite 加密儲存，以及讓 AI 讀取與傳送指定 LINE 聊天室訊息的 MCP／HTTP API。讓雲端 AI 在自己的 VM 安裝並執行，預設 localhost 連線**不需要建立或複製權杖**。只需 **Node.js 24 以上**；無需 Rust、Tauri、桌面安裝程式或編譯器。
 
 ## 安裝到 Linux AI VM
 
-目前提供可直接安裝的 npm 壓縮包，**尚未發布到 npm registry**。將 `release/npm/line-bridge-0.3.0.tgz` 複製到 VM 後：
+目前提供可直接安裝的 npm 壓縮包，**尚未發布到 npm registry**。將 `release/npm/line-bridge-0.4.0.tgz` 複製到 VM 後：
 
 ```sh
-npm install -g ./line-bridge-0.3.0.tgz
+npm install -g ./line-bridge-0.4.0.tgz
 linebridge serve --data-dir /可持續保存且可寫入的路徑/linebridge-data
 ```
 
 如果不想全域安裝，可執行：
 
 ```sh
-npm exec --package=./line-bridge-0.3.0.tgz -- linebridge serve --data-dir ./linebridge-data
+npm exec --package=./line-bridge-0.4.0.tgz -- linebridge serve --data-dir ./linebridge-data
 ```
 
-AI 和 LineBridge 在同一台 VM 時，直接使用 `http://127.0.0.1:3211/mcp`，每次請求附上 `Authorization: Bearer …`。**不需要通道或向通道服務註冊。** HTTP API 位於 `/api/v1`。
+AI 和 LineBridge 在同一台 VM 時，直接使用 `http://127.0.0.1:3211/mcp`，**不需要權杖、通道或額外服務帳號。** HTTP API 位於 `/api/v1`。AI 可先呼叫 `/api/v1/status` 或執行 `linebridge status --data-dir DIR`，取得設定步驟、帳號狀態與 MCP 網址。尚未配對帳號、指定聊天室前，帳號清單為空。
 
 從自己的電腦開啟管理頁面：
 
@@ -31,11 +31,25 @@ ssh -L 3210:127.0.0.1:3210 user@your-vm
 
 1. 依首頁精靈新增 LINE 帳號，使用手機掃描 QR Code。先嘗試恢復已儲存的工作階段；重新登入可能取代相同裝置類型的工作階段。
 2. 探索一對一、群組與已加入的 OpenChat，並指定 AI 可存取的聊天室。手動加入 ID 不會加入聊天室。
-3. 建立有到期日的 AI 權杖，分別授予讀取、傳送權限。權杖只顯示一次，資料庫只儲存雜湊。
+3. 指定聊天室預設允許同一台 VM 的 AI 讀取與傳送。可在精靈或「AI 存取權限」分別關閉讀取、傳送；兩者皆關閉即停用該帳號的本機 AI。每次請求、排程執行及讀取回傳前都會重新檢查權限，無需建立權杖。
 4. 在「訊息監控」啟用監聽。僅儲存已指定聊天室的新訊息，每個帳號最多保留 1,000 則，支援事件游標及去重。
 5. AI 與服務同一台主機時直接使用 localhost；跨主機時才需要選用 Cloudflare 或 Tailscale。
 
 帳號、監控、AI 權限、詳細連線設定及活動紀錄各有獨立頁面。名稱使用聯絡人別名、LINE 顯示名稱或 OpenChat 暱稱。讀取不送出已讀回條；聊天內容一律視為不可信資料。傳送需有權限並提供冪等識別碼；結果不明時不會自動重送。
+
+## 給雲端 AI 的安裝指令
+
+可將 npm 壓縮包與以下指令交給 AI：
+
+> 請在你的 VM 安裝附上的 LineBridge npm 壓縮包，使用 Node.js 24 以上版本。以持續儲存的資料目錄執行 `linebridge serve`，交由 VM 程序管理器維持執行。MCP 連接 `http://127.0.0.1:3211/mcp`，不提供驗證標頭。協助我在管理介面取得 LINE QR Code、用手機配對並指定你可以存取的聊天室。同一台 VM 不需要建立權杖或通道。完成後回報服務狀態與帳號權限。
+
+手機掃 QR Code 與聊天室選擇仍由你完成。同一台 VM 的其他程序共用本機 AI 權限；如需區分不同用戶端，可選用權杖模式。
+
+## 選用的遠端存取
+
+選擇任何通道提供者後，**整個閘道（包含 localhost）都要求 Bearer 權杖**，即使通道尚未啟動。遠端權杖位於「AI 存取權限」的選用區段，可分別授權帳號讀取／傳送及到期日；只顯示一次，資料庫只儲存雜湊。Cloudflare Access 另需服務憑證。停止通道後須切回「同一台主機 · 直接連線」才恢復本機免權杖。
+
+自行設定反向代理或需要同一台 VM 的用戶端隔離時，使用 `linebridge serve --require-token` 或 `LINE_BRIDGE_REQUIRE_TOKEN=1`。瀏覽器與含代理標頭的請求不適用本機免權杖。已提供的權杖一律驗證其自身權限，不會在失效時改用本機權限。舊版權杖仍可使用。
 
 ## 資料與執行方式
 

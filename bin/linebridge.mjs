@@ -13,23 +13,27 @@ Usage: linebridge [serve|status|stop] [options]
   --data-dir DIR           Persistent SQLite and encrypted vault directory
   --admin-port PORT        Local dashboard (default 3210)
   --gateway-port PORT      Local AI gateway (default 3211)
+  --require-token          Require a Bearer token even for direct localhost
   --version                Print version
   --help                   Print this help
 
 Node.js 24+ required. No desktop runtime, Rust or compiler.
-Environment: LINE_BRIDGE_DATA, LINE_BRIDGE_ADMIN_PORT, LINE_BRIDGE_GATEWAY_PORT.
-Both listeners bind to 127.0.0.1. AI requests require a scoped Bearer token.
+Environment: LINE_BRIDGE_DATA, LINE_BRIDGE_ADMIN_PORT, LINE_BRIDGE_GATEWAY_PORT,
+             LINE_BRIDGE_REQUIRE_TOKEN=1.
+Both listeners bind to 127.0.0.1. Direct local AI clients need no token.
+Selecting a tunnel provider requires scoped Bearer tokens on the gateway.
 `;
 async function main(){
-  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},version:{type:'boolean'},help:{type:'boolean'}}});
+  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'require-token':{type:'boolean'},version:{type:'boolean'},help:{type:'boolean'}}});
   if(values.help){console.log(help);return;}if(values.version){console.log(VERSION);return;}
   if(Number(process.versions.node.split('.')[0])<24)throw new Error('LineBridge requires Node.js 24 or newer.');
   const command=positionals[0]??'serve';if(positionals.length>1||!['serve','status','stop'].includes(command))throw new Error('Use linebridge serve, status or stop. See --help.');
   const {startService,defaultDataDirectory,metadata,validPort}=await import('../server/main.mjs');
   const dataDir=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
   if(command==='serve'){
-    const service=await startService({dataDir,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{})});
-    console.log(`LineBridge ${VERSION}\nDashboard: http://localhost:${service.adminPort}\nAI gateway: http://127.0.0.1:${service.gatewayPort}\nData: ${service.dataDir}`);return;
+    const service=await startService({dataDir,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{}),...(values['require-token']!==undefined?{requireToken:values['require-token']}:{})});
+    const local=!values['require-token']&&process.env.LINE_BRIDGE_REQUIRE_TOKEN!=='1'&&service.tunnels.config().provider==='local';
+    console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'direct localhost; no token required':'scoped Bearer token required'}\nSetup: pair LINE on your phone, then select chats in the dashboard.\nData: ${service.dataDir}`);return;
   }
   const m=await metadata(dataDir);
   if(!m||m.runtime!=='node'||!validPort(m.adminPort)||typeof m.instance!=='string'||m.dataDir!==dataDir){console.log(JSON.stringify({status:'stopped',dataDir}));return;}
@@ -41,7 +45,7 @@ async function main(){
     const response=await request('/admin/state',{headers:{Cookie:cookie}});if(!response.ok)throw new Error('No service state.');state=await response.json();
   }catch{console.log(JSON.stringify({status:'unavailable',dataDir,pid:m.pid}));process.exitCode=1;return;}
   if(state.instance!==m.instance)throw new Error('The service instance has changed. Refusing to stop an unrelated process.');
-  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,accounts:state.accounts.length}));return;}
+  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,authentication:state.gateway.authentication,mcpUrl:`http://127.0.0.1:${m.gatewayPort}/mcp`,apiUrl:`http://127.0.0.1:${m.gatewayPort}/api/v1`,dashboardUrl:base,accounts:state.accounts.length}));return;}
   const response=await request('/admin/shutdown',{method:'POST',headers:{Cookie:cookie,Origin:base,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body:JSON.stringify({instance:m.instance})});
   if(!response.ok)throw new Error('The service could not be stopped.');
   console.log(JSON.stringify({status:'stopping',dataDir}));

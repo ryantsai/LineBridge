@@ -43,7 +43,7 @@ async function migrationBackup(data){
   }finally{db.close();}
 }
 function listen(app,port){return new Promise((ok,reject)=>{const server=app.listen(port,'127.0.0.1',()=>ok(server));server.once('error',reject);});}
-export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211)}={}){
+export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1'}={}){
   const data=resolve(dataDir),instance=randomUUID();
   if(![adminPort,gatewayPort,gatewayPort+1].every(validPort)||adminPort===gatewayPort||adminPort===gatewayPort+1)throw new HubError(400,'invalid_ports','Use distinct ports between 1025 and 65534; reserve gateway+1 for connector health.');
   await mkdir(data,{recursive:true,mode:0o700});if(process.platform!=='win32')await chmod(data,0o700);
@@ -64,7 +64,7 @@ export async function startService({dataDir=defaultDataDirectory(),adminPort=Num
     store=new Store(join(data,'bridge.sqlite'));if(savedBackup)store.setSetting('nodeMigrationBackup',savedBackup);
     if(process.platform!=='win32')for(const name of ['bridge.sqlite','service-lock.sqlite'])await chmod(join(data,name),0o600);
     hub=new Hub(store,vault);tunnels=new Tunnels(store,vault,root,gatewayPort,gatewayPort+1,data);
-    const apps=createApps({hub,tunnels,root,adminPort,gatewayPort,instance,shutdown});
+    const apps=createApps({hub,tunnels,root,adminPort,gatewayPort,instance,shutdown,requireToken});
     adminServer=await listen(apps.admin,adminPort);gatewayServer=await listen(apps.gateway,gatewayPort);
     await writeFile(join(data,'service.json'),JSON.stringify({runtime:'node',pid:process.pid,instance,adminPort,gatewayPort,dataDir:data}),{mode:0o600});
     await writeFile(join(data,'server.pid'),String(process.pid),{mode:0o600});

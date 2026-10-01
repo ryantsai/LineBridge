@@ -27,6 +27,7 @@ export function createConnections({api,action,toast,refresh,escape,when,getState
   $('#copy-connection-url').addEventListener('click',()=>run(async()=>{await navigator.clipboard.writeText(getState().tunnel.url);toast('已複製連線網址');}));
   function render(){
     const {tunnel:t,cloudflare:cf}=getState(), next=JSON.stringify([t.provider,t.provider==='cloudflare'?t.hostname:'',t.teamDomain,t.audience]);
+    $('#connection-auth').textContent=getState().gateway.authentication==='local'?'同一台 VM 的 AI 不需要權杖。指定聊天室與本機讀取、傳送權限仍會檢查。':'目前整個閘道要求 Authorization: Bearer …，使用遠端權杖的帳號權限。停止通道並切回直接連線模式後，可恢復本機免權杖存取。';
     if(signature!==next){form.elements.provider.value=t.provider;for(const key of ['hostname','teamDomain','audience'])form.elements[key].value=t.provider==='cloudflare'?t[key]||'':'';signature=next;updateProvider();}
     $('#tunnel-badge').className=`badge ${t.connected?'good':'warn'}`;$('#tunnel-badge').textContent=t.connected?'已連線':label(t.status);
     $('#connection-url').textContent=t.url||'啟動後會顯示連線網址';$('#copy-connection-url').disabled=!t.url;

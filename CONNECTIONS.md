@@ -1,6 +1,10 @@
 # Cloud connections
 
-Open **雲端連線** in the LineBridge web dashboard. **同一台主機 · 直接連線** is the default: AI clients in the same VM use `http://127.0.0.1:3211/mcp` or `/api/v1` without a tunnel or provider account. Every API/MCP request needs an expiring LineBridge Bearer token; account grants, designated chats, pause and revocation still apply.
+Open **雲端連線** in the LineBridge web dashboard. **同一台主機 · 直接連線** is the default: server-side AI clients in the same VM use `http://127.0.0.1:3211/mcp` or `/api/v1` without a token, tunnel or provider account. Only accounts with designated chats and local read/send permissions appear. Designations, local permissions and global pause remain enforced; local requests are logged as `local-agent`.
+
+Selecting any tunnel provider disables token-free trust on the whole listener, even before starting the tunnel. Every API/MCP request then needs a scoped, expiring LineBridge Bearer token. Stopping a tunnel leaves that requirement active; switch the provider back to direct-local mode to restore token-free local access. A supplied token is always authenticated with its own grants, even in direct-local mode. Browser and forwarding metadata never qualifies for local trust.
+
+Use `linebridge serve --require-token` or `LINE_BRIDGE_REQUIRE_TOKEN=1` for custom reverse proxies/port forwarding or when clients on this VM need separate scopes. An unconfigured proxy can strip identifying headers and appear as a local process, so the default trusted-local listener must not be exposed that way.
 
 For cross-host clients the three optional tunnel providers forward only the AI gateway on loopback port 3211. The administrator interface remains on local port 3210. To manage a Linux VM from your browser, run `ssh -L 3210:127.0.0.1:3210 user@vm` and open `http://127.0.0.1:3210`. No tunnel is needed when the AI and gateway share the VM.
 

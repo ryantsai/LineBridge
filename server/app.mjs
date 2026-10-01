@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ZodError } from 'zod';
-import { adminActor } from './hub.mjs';
+import { adminActor, localActor } from './hub.mjs';
+import { directLocalRequest, browserRequest } from './local-access.mjs';
 import { fail, publicError } from './errors.mjs';
 import { mcpHandler } from './mcp.mjs';
 import { openapi } from './openapi.mjs';
@@ -23,7 +24,7 @@ function errors(error,req,res,next) {
   const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
   res.status(e.status).json({error:e.code,message:e.message});
 }
-export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown}) {
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=false}) {
   const admin=express(),gateway=express();harden(admin);harden(gateway);
   const session=randomBytes(32).toString('base64url');
   const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
@@ -46,8 +47,9 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     try{await cloudflare.finish(req.query);res.type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 已連接</h1><p>可以關閉這個分頁，返回 LineBridge。</p></html>');}
     catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
   }));
-  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,accounts:hub.accounts(adminActor).map(a=>({...a,discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
-    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
+  const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
+  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,accounts:hub.accounts(adminActor).map(a=>({...a,localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
+    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
   admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
   admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
   admin.post('/admin/accounts/:id/login',(req,res)=>res.json(hub.beginLogin(req.params.id)));
@@ -56,6 +58,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.post('/admin/accounts/:id/disconnect',(req,res)=>{hub.disconnect(req.params.id,req.body.forget===true);res.json({ok:true});});
   admin.delete('/admin/accounts/:id',(req,res)=>{hub.remove(req.params.id);res.json({ok:true});});
   admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
+  admin.put('/admin/accounts/:id/local-access',(req,res)=>res.json(hub.setLocalAccess(req.params.id,req.body)));
   admin.get('/admin/accounts/:id/events',(req,res)=>res.json(hub.events(adminActor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
   admin.get('/admin/accounts/:id/chats',(req,res)=>res.json(hub.chats(adminActor,req.params.id)));
   admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
@@ -83,7 +86,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   gateway.use((req,res,next)=>{
     const hosts=new Set([`localhost:${gatewayPort}`,`127.0.0.1:${gatewayPort}`,tunnels.gatewayHostname()].filter(Boolean));
     if(!hosts.has(req.headers.host))return res.status(403).json({error:'host_denied'});
-    if(req.headers.origin)return res.status(403).json({error:'browser_origin_denied',message:'Use a server-side AI client. The dashboard is on its separate local port.'});
+    if(browserRequest(req))return res.status(403).json({error:'browser_origin_denied',message:'Use a server-side AI client. The dashboard is on its separate local port.'});
     next();
   });
   gateway.get('/health',(req,res)=>res.json({service:'LineBridge',version:VERSION,status:'running'}));
@@ -101,11 +104,13 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     }
     if(!hub.store.setting('aiEnabled',true))fail(503,'gateway_paused','The user has paused AI access.');
     const header=req.headers.authorization;
-    req.actor=hub.authenticate(header?.startsWith('Bearer ')?header.slice(7):undefined);
+    // A supplied credential is always validated; invalid credentials never
+    // silently fall back to the VM's local permissions.
+    req.actor=header===undefined&&directLocalRequest(req,gatewayPort,c.provider,requireToken)?localActor:hub.authenticate(header?.startsWith('Bearer ')?header.slice(7):undefined);
     hub.limit(req.actor);next();
   }));
   gateway.use(express.json({limit:'32kb'}));
-  gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,accounts:hub.accounts(req.actor)}));
+  gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,authentication:req.actor.local?'local':'token',accounts:hub.accounts(req.actor),setup:{dashboard:`http://127.0.0.1:${adminPort}`,mcp:`http://127.0.0.1:${gatewayPort}/mcp`,steps:['Pair your LINE account by scanning its QR code on your phone.','Select the chats this AI may access.','Connect to MCP or the HTTP API on this VM.']}}));
   gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
   gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));
   gateway.get('/api/v1/accounts/:id/events',(req,res)=>res.json(hub.events(req.actor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));

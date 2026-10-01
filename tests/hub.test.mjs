@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { Store } from '../server/store.mjs';
 import { Vault, VaultStorage } from '../server/vault.mjs';
-import { Hub, adminActor } from '../server/hub.mjs';
+import { Hub, adminActor, localActor } from '../server/hub.mjs';
 import { SendRejectedError } from '../server/errors.mjs';
 
 async function setup(t,factory){
@@ -13,6 +13,37 @@ async function setup(t,factory){
   return {store,vault,hub,account};
 }
 const mint=(hub,account,send=false)=>hub.createToken({name:'Test AI',days:7,grants:[{accountId:account.id,read:true,send}]});
+
+test('the local AI needs no token but sees only selected accounts/chats and obeys local permissions',async t=>{
+  const {hub,store,account}=await setup(t),other=await hub.addAccount({label:'Other sandbox',kind:'demo'});
+  assert.deepEqual(hub.accounts(localActor),[]);
+  hub.designate(account.id,'demo-group',true);
+  assert.equal(hub.accounts(localActor).length,1);
+  assert.deepEqual(hub.accounts(localActor)[0].permissions,{accountId:account.id,read:true,send:true});
+  assert.equal((await hub.read(localActor,account.id,'demo-group')).untrustedContent,true);
+  await assert.rejects(hub.read(localActor,other.id,'demo-group'),{code:'scope_denied'});
+  await assert.rejects(hub.read(localActor,account.id,'demo-openchat'),{code:'chat_not_designated'});
+  hub.setLocalAccess(account.id,{read:true,send:false});
+  await assert.rejects(hub.send(localActor,account.id,'demo-group','hello','local-send-001'),{code:'scope_denied'});
+  hub.setLocalAccess(account.id,{read:false,send:true});
+  await assert.rejects(hub.read(localActor,account.id,'demo-group'),{code:'scope_denied'});
+  const sent=await hub.send(localActor,account.id,'demo-group','hello','local-send-002');assert.equal(sent.delivery,'sandbox_only');
+  assert.equal((await hub.send(localActor,account.id,'demo-group','hello','local-send-002')).replayed,true);
+  assert.ok(store.audits().some(a=>a.actor==='local-agent'&&a.action==='messages.send'));
+  hub.setLocalAccess(account.id,{read:false,send:false});assert.deepEqual(hub.accounts(localActor),[]);
+  store.setSetting('aiEnabled',false);assert.throws(()=>hub.accounts(localActor),{code:'gateway_paused'});
+  assert.equal(hub.tokens().length,0);
+});
+
+test('local access changes are checked before queued sends and after upstream reads',async t=>{
+  const {hub,account}=await setup(t);hub.designate(account.id,'demo-group',true);
+  let release;const first=hub.serialized(account.id,()=>new Promise(resolve=>{release=resolve;}));await new Promise(resolve=>setImmediate(resolve));
+  const send=hub.send(localActor,account.id,'demo-group','hello','queued-local-001');hub.setLocalAccess(account.id,{read:true,send:false});release();await first;
+  await assert.rejects(send,{code:'scope_denied'});
+  const original=hub.driver(account.id).read.bind(hub.driver(account.id));
+  hub.driver(account.id).read=async(...args)=>{const result=await original(...args);hub.setLocalAccess(account.id,{read:false,send:false});return result;};
+  await assert.rejects(hub.read(localActor,account.id,'demo-group'),{code:'scope_denied'});
+});
 
 test('an AI sees only granted accounts and designated chats, with independent send permission',async t=>{
   const {hub,account}=await setup(t),other=await hub.addAccount({label:'Other account',kind:'demo'}),token=mint(hub,account),actor=hub.authenticate(token.token);
