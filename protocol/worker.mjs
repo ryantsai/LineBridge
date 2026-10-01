@@ -2,10 +2,10 @@ import {createInterface} from 'node:readline';
 import {randomUUID} from 'node:crypto';
 import {BaseStorage} from 'lineclientbot';
 import {LineDriver} from '../server/drivers.mjs';
-import {SendRejectedError,publicError} from '../server/errors.mjs';
+import {HubError,SendRejectedError,publicError} from '../server/errors.mjs';
 import {LiveMonitor} from './monitor.mjs';
 
-// This process owns only LINE RPCs. Rust owns policy, storage and network listeners.
+// This process owns only LINE RPCs. The parent owns policy, storage and HTTP.
 // stdout is a private JSON pipe; never attach the adapter's raw logging events.
 console.log=()=>{};console.error=()=>{};
 const drivers=new Map(),writes=new Map(),monitors=new Map();
@@ -40,7 +40,7 @@ async function handle(request){
       driver=new LineDriver(params.account,storage,{qr:v=>event('qr',v),pin:v=>event('pin',v),fault:v=>event('fault',v)});
       drivers.set(accountId,driver);result=await driver.login(!!params.qr);
     }else{
-      const driver=drivers.get(accountId);if(!driver)throw Object.assign(new Error('Account is not connected.'),{status:409,code:'account_disconnected'});
+      const driver=drivers.get(accountId);if(!driver)throw new HubError(409,'account_disconnected','Account is not connected.');
       switch(method){
         case 'disconnect':monitors.get(accountId)?.stop();monitors.delete(accountId);driver.stop();drivers.delete(accountId);result={ok:true};break;
         case 'check':result=await driver.check();break;

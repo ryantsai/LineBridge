@@ -1,61 +1,50 @@
-# LineBridge 使用說明
+# LineBridge
 
-LineBridge 是本機 LINE 帳號橋接器。桌面程式使用 Rust 1.98.1 + Tauri 2.12.0，管理介面預設為繁體中文（台灣），資料儲存在 SQLite。
+LineBridge 0.3 是 **headless npm 服務**，提供繁體中文網頁管理介面、SQLite 加密儲存，以及讓 AI 讀取與傳送指定 LINE 聊天室訊息的 MCP／HTTP API。只需 **Node.js 24 以上**；無需 Rust、Tauri、桌面安裝程式或編譯器。
 
-## 啟動
+## 安裝到 Linux AI VM
 
-雙擊 **Start LineBridge.cmd** 開啟桌面程式，會沿用此資料夾的既有帳號與加密憑證。**Start LineBridge Headless.cmd** 啟動背景 Rust 服務及瀏覽器介面，適合持續提供雲端 AI 存取。**Stop LineBridge.cmd** 停止此專案的服務與所屬通道／通訊程序。
+目前提供可直接安裝的 npm 壓縮包，**尚未發布到 npm registry**。將 `release/npm/line-bridge-0.3.0.tgz` 複製到 VM 後：
 
-瀏覽器介面是 `http://localhost:3210`，AI 閘道是 `http://127.0.0.1:3211`。只將 3211 轉送至私人通道。關閉桌面程式會停止它管理的服務與監聽；目前未建立自動啟動項目。
+```sh
+npm install -g ./line-bridge-0.3.0.tgz
+linebridge serve --data-dir /可持續保存且可寫入的路徑/linebridge-data
+```
 
-Windows NSIS 安裝程式位於 `release/windows-x64/LineBridge_0.2.0_x64-setup.exe`，同目錄附有 SHA-256 校驗碼。安裝介面可選繁體中文或英文，以目前使用者身分安裝。安裝版預設使用 `%LOCALAPPDATA%/com.ryantsai.linebridge`；若要使用此專案的既有帳號，請從上述啟動檔開啟，或在啟動安裝版之前，將 `LINE_BRIDGE_DATA` 設為此資料夾的 `data` 完整路徑。安裝程式未簽章。
+如果不想全域安裝，可執行：
 
-macOS 提供 Apple Silicon 與 Intel 兩種 DMG 建置設定，最低版本為 macOS 13.5。開啟 DMG 後，將 **LineBridge.app** 拖曳至 **Applications**。目前這台 Windows 電腦尚未實際產生 DMG；建置方式與簽章狀態見 [PACKAGING.md](PACKAGING.md)。Mac 安裝版資料位於 `~/Library/Application Support/com.ryantsai.linebridge`；主金鑰使用權限為 0600 的本機檔案，尚未整合 Keychain。Windows 的 DPAPI 憑證不能直接搬到 Mac 解鎖。
+```sh
+npm exec --package=./line-bridge-0.3.0.tgz -- linebridge serve --data-dir ./linebridge-data
+```
 
-## 帳號與聊天室
+AI 和 LineBridge 在同一台 VM 時，直接使用 `http://127.0.0.1:3211/mcp`，每次請求附上 `Authorization: Bearer …`。**不需要通道或向通道服務註冊。** HTTP API 位於 `/api/v1`。
 
-首頁為五步驟設定精靈：連接帳號、選擇聊天室、AI 權限、私人連線、完成。可以先完成本機設定，稍後再設定 AI 與 Cloudflare 主機名稱。訊息監聽與狀態位於 **訊息監控**，帳號管理與手動聊天位於 **帳號與聊天室**；進階設定保留在各自的頁面。
+從自己的電腦開啟管理頁面：
 
-訊息作者會優先顯示這個帳號設定的聯絡人別名，其次使用 LINE 個人檔案名稱；OpenChat 使用社群成員暱稱。無法取得名稱時會顯示「名稱暫時無法取得」。聊天室 ID 可展開詳細資訊查看。名稱快取與收件匣內容使用既有的加密 SQLite 儲存，詳見 [ALIASES.md](ALIASES.md)。
+```sh
+ssh -L 3210:127.0.0.1:3210 user@your-vm
+```
 
-1. 新增帳號，使用手機 LINE 掃描 QR Code 並完成確認。次要裝置登入可能取代相同裝置類型的工作階段。
-2. 已有儲存的登入憑證時，先試 **恢復已儲存的工作階段**。
-3. 按 **探索聊天室**，用篩選器查看群組、聯絡人或 OpenChat；也可新增已知的完整聊天室 ID。這不會加入聊天室。
-4. 勾選允許 AI 存取的聊天室。未勾選的聊天室仍可在本機手動讀取、傳送。
-5. 在 **AI 存取權限** 建立有期限的權杖；讀取與傳送分別授權。權杖只顯示一次，之後資料庫只保留雜湊。
+接著在瀏覽器開啟 `http://127.0.0.1:3210`。兩個服務只監聽 loopback；AI 閘道不提供管理操作。
 
-LINE 通訊仍使用非官方 `lineclientbot` 配接器，由隨附的 Node 程序執行。Rust 負責權限、閘道、資料庫、加密與通道管理。未擷取已安裝 LINE 桌面版的工作階段。
+## 開始使用
 
-## 新訊息監聽
+1. 依首頁精靈新增 LINE 帳號，使用手機掃描 QR Code。先嘗試恢復已儲存的工作階段；重新登入可能取代相同裝置類型的工作階段。
+2. 探索一對一、群組與已加入的 OpenChat，並指定 AI 可存取的聊天室。手動加入 ID 不會加入聊天室。
+3. 建立有到期日的 AI 權杖，分別授予讀取、傳送權限。權杖只顯示一次，資料庫只儲存雜湊。
+4. 在「訊息監控」啟用監聽。僅儲存已指定聊天室的新訊息，每個帳號最多保留 1,000 則，支援事件游標及去重。
+5. AI 與服務同一台主機時直接使用 localhost；跨主機時才需要選用 Cloudflare 或 Tailscale。
 
-在 **訊息監控** 頁選擇帳號後按 **開始監聽**。只收集已勾選的聊天室，介面會顯示監聽狀態、已儲存數量與最新訊息時間。不會自動產生或傳送 AI 回覆。重新啟動後，已啟用的監聽會在帳號恢復連線後繼續。
+帳號、監控、AI 權限、詳細連線設定及活動紀錄各有獨立頁面。名稱使用聯絡人別名、LINE 顯示名稱或 OpenChat 暱稱。讀取不送出已讀回條；聊天內容一律視為不可信資料。傳送需有權限並提供冪等識別碼；結果不明時不會自動重送。
 
-個人聊天室使用長輪詢，OpenChat 約每兩秒讀取事件。初始歷史資料僅用來建立游標，不會匯入收件匣。訊息加密儲存在 SQLite，每個帳號最多保留 1,000 則。離線、LINE 的保留限制或協定變更可能造成缺漏。無法解密的訊息會顯示提示，不會顯示密文。讀取不會呼叫已讀回條 API。
+## 資料與執行方式
 
-雲端 AI 可使用 `line_poll_events` MCP 工具，或 `GET /api/v1/accounts/{accountId}/events?after=0&limit=100`。下次讀取將回傳的 `cursor` 放入 `after`，即可取得後續訊息。
+服務在前景執行，可交由 systemd 或 VM 的程序管理器維持運作。使用相同 `--data-dir` 執行 `linebridge status` 或 `linebridge stop`，也可用 SIGINT／SIGTERM 正常關閉。不會自動安裝開機服務。
 
-## 雲端連線
+Linux 預設資料位置是 `$XDG_DATA_HOME/linebridge` 或 `~/.local/share/linebridge`；可用 `LINE_BRIDGE_DATA` 或 `--data-dir` 指定持續儲存的目錄。資料與 npm 安裝位置分開，升級後保留。訊息、憑證及別名使用 AES-256-GCM 加密；Linux 金鑰檔權限為 0600，目錄為 0700。
 
-在 **雲端連線** 可選擇三種方式：免帳號的 **Cloudflare Quick Tunnel**、透過瀏覽器 **Cloudflare OAuth** 設定固定網址與 Access，以及使用 **已安裝的 Tailscale 用戶端**。
+舊版 SQLite 格式保留。先停止舊服務，再以同一個 OS／使用者與資料目錄啟動 Node 版；首次啟動會建立一致的 SQLite 備份。Windows DPAPI 金鑰不能直接移到 Linux 解密，請在 Linux 使用新資料目錄重新掃 QR 登入。備份時須一併保存金鑰。
 
-Quick Tunnel 選好後按 **啟動連線** 即可取得臨時 HTTPS 網址；仍需 LineBridge AI 權杖，停止後網址失效。此網址可從網際網路連接，適合短期測試。MCP 使用 JSON 回應，Quick Tunnel 不支援 SSE，也不保證持續可用。
+LINE 使用非官方 `lineclientbot` 介面，OpenChat 功能仍屬實驗性。完整歷史、離線期間訊息與所有帳號的相容性不保證；媒體不下載。Cloudflare／Tailscale 都是選用功能，輔助程式須另外安裝。
 
-這台電腦的私人 Cloudflare OAuth 應用程式已註冊並連接，主機名稱留待你選擇。授權到期後需重新登入，目前尚未自動更新 OAuth 權杖。選擇帳戶、網域及新的完整主機名稱後，可建立專用 Tunnel、DNS、Access 與 30 天服務權杖；完成 Cloudflare Zero Trust 團隊設定是前提。之後按 **啟動連線** 才會啟動連接器。詳細權限、憑證期限與部分失敗的處理見 [CONNECTIONS.md](CONNECTIONS.md)。
-
-### 手動設定既有通道
-
-已選擇 Cloudflare Tunnel + Access；主機名稱待你選擇，因此目前沒有啟動通道。先在 Cloudflare 建立具名通道，將來源設為 `http://127.0.0.1:3211`，再用 Access 應用程式及 Service Auth 原則保護整個主機名稱。
-
-在 LineBridge 填入主機名稱、Access 團隊網域與應用程式 AUD，貼上連接器權杖後按 **啟動連線**。每個 AI 請求還需要 LineBridge Bearer 權杖及 Cloudflare 的 `CF-Access-Client-Id`／`CF-Access-Client-Secret`。連接器連通不等於 Access 已驗證；後者需要實際請求的有效 JWT。
-
-選擇 Tailscale 後按 **連接 Tailscale**，即可沿用已安裝用戶端的帳號及網路偏好；只有需要驗證時才開啟瀏覽器。這台電腦已成功連接。再按 **啟動連線** 使用私人 HTTPS 8443，AI 主機須加入同一個 tailnet。既有衝突路由會被拒絕，不會啟用公開 Funnel。目前未實作 ngrok，雲端 AI 連接器本身的 OAuth 登入流程也尚未包含。
-
-## 加密儲存與傳送
-
-登入憑證、加密金鑰、監聽游標、訊息內容與通道權杖使用 AES-256-GCM；主金鑰由目前 Windows 使用者的 DPAPI 保護。帳號名稱、聊天室名稱與活動中繼資料仍是本機明文。活動紀錄不含訊息內容。
-
-第一次使用 Rust 服務會在 `data/backups` 建立 SQLite 快照，沿用既有帳號、聊天室權限與加密憑證。請勿將 `data` 放入 Git，也不要同時執行舊版 Node 服務。更換 Windows 使用者或電腦無法直接解鎖此 DPAPI 金鑰。
-
-每次傳送需要冪等識別碼。同一識別碼及內容只會傳送一次；結果不明時會保留 `delivery_unknown`，不自動重試。請先在 LINE 確認，再決定是否建立新的傳送。訊息內容是外部資料，不代表任何操作授權。
-
-建置與測試步驟請參考 [README.md](README.md)，實際驗證範圍請參考 [VALIDATION.md](VALIDATION.md)。
+[完整英文說明](README.md) · [打包方式](PACKAGING.md) · [連線選項](CONNECTIONS.md) · [名稱查詢](ALIASES.md)

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile,stat,chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { BaseStorage } from 'lineclientbot';
@@ -27,11 +27,14 @@ export class Vault {
     try { stored = await readFile(path); }
     catch (error) {
       if (error.code !== 'ENOENT') throw error;
+      const other=join(directory,process.platform==='win32'?'vault-key.bin':'vault-key.dpapi');
+      try{await stat(other);throw new Error('This vault belongs to another operating system. Use a new data directory and sign in again.');}catch(e){if(e.code!=='ENOENT')throw e;}
       const key = randomBytes(32);
       stored = process.platform === 'win32' ? await dpapi('Protect', key) : key;
       await writeFile(path, stored, { flag: 'wx', mode: 0o600 });
     }
     const key = process.platform === 'win32' ? await dpapi('Unprotect', stored) : stored;
+    if(process.platform!=='win32')await chmod(path,0o600);
     if (key.length !== 32) throw new Error('Invalid credential vault key.');
     return new Vault(key, process.platform === 'win32' ? 'Windows DPAPI + AES-256-GCM' : 'File permissions + AES-256-GCM');
   }

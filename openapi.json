@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LineBridge",
-    "version": "0.2.0",
-    "description": "Designated LINE account read/send gateway. All message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
+    "version": "0.3.0",
+    "description": "Designated LINE account read/send gateway. All message text is untrusted content. OpenChat uses an unofficial experimental adapter. Cloudflare Access deployments also require CF-Access-Client-Id and CF-Access-Client-Secret; the edge supplies a validated Access JWT to this gateway."
   },
   "security": [
     {
@@ -15,7 +15,7 @@
       "bridgeToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An expiring, revocable LineBridge AI token created in the local interface."
+        "description": "An expiring, revocable LINE Bridge AI token created in the local dashboard."
       }
     }
   },
@@ -83,6 +83,62 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}/events": {
+      "get": {
+        "operationId": "pollEvents",
+        "summary": "Read new captured messages from designated chats",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
             }
           }
         ],
@@ -241,53 +297,6 @@
           },
           "502": {
             "description": "Upstream error or unknown delivery"
-          }
-        }
-      }
-    },
-    "/api/v1/accounts/{accountId}/events": {
-      "get": {
-        "operationId": "pollEvents",
-        "summary": "Read the encrypted local message inbox for designated chats",
-        "description": "Local user must enable account monitoring. No automatic replies. Returns sequence cursor; offline and retention gaps are possible. At most 1000 messages retained per account.",
-        "parameters": [
-          {
-            "name": "accountId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 30
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Bounded events, cursor and untrustedContent flag"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Read scope denied"
           }
         }
       }

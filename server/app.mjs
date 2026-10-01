@@ -7,6 +7,8 @@ import { adminActor } from './hub.mjs';
 import { fail, publicError } from './errors.mjs';
 import { mcpHandler } from './mcp.mjs';
 import { openapi } from './openapi.mjs';
+import {Cloudflare,CALLBACK} from './cloudflare.mjs';
+import {VERSION} from './version.mjs';
 
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 function harden(app) {
@@ -21,14 +23,15 @@ function errors(error,req,res,next) {
   const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
   res.status(e.status).json({error:e.code,message:e.message});
 }
-export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown}) {
   const admin=express(),gateway=express();harden(admin);harden(gateway);
   const session=randomBytes(32).toString('base64url');
   const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
   admin.use((req,res,next)=>{
     if(!adminHosts.has(req.headers.host))return res.status(403).json({error:'local_dashboard_only'});
-    if(req.headers.origin && ![`http://localhost:${adminPort}`,`http://127.0.0.1:${adminPort}`].includes(req.headers.origin))return res.status(403).json({error:'origin_denied'});
-    if(req.headers['sec-fetch-site']==='cross-site')return res.status(403).json({error:'origin_denied'});
+    const callback=req.method==='GET'&&req.path===CALLBACK;
+    if(!callback&&req.headers.origin && ![`http://localhost:${adminPort}`,`http://127.0.0.1:${adminPort}`].includes(req.headers.origin))return res.status(403).json({error:'origin_denied'});
+    if(!callback&&req.headers['sec-fetch-site']==='cross-site')return res.status(403).json({error:'origin_denied'});
     if(req.path==='/' && req.method==='GET')res.cookie('lb_admin',session,{httpOnly:true,sameSite:'strict',path:'/',maxAge:86400000});
     next();
   });
@@ -39,7 +42,11 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
     next();
   });
   admin.use(express.json({limit:'32kb'}));
-  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:'0.1.0',accounts:hub.accounts(adminActor).map(a=>({...a,discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),
+  admin.get(CALLBACK,asyncRoute(async(req,res)=>{
+    try{await cloudflare.finish(req.query);res.type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 已連接</h1><p>可以關閉這個分頁，返回 LineBridge。</p></html>');}
+    catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
+  }));
+  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,accounts:hub.accounts(adminActor).map(a=>({...a,discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
     gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
   admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
   admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
@@ -48,6 +55,8 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
   admin.post('/admin/accounts/:id/reconnect',asyncRoute(async(req,res)=>res.json(await hub.connect(req.params.id))));
   admin.post('/admin/accounts/:id/disconnect',(req,res)=>{hub.disconnect(req.params.id,req.body.forget===true);res.json({ok:true});});
   admin.delete('/admin/accounts/:id',(req,res)=>{hub.remove(req.params.id);res.json({ok:true});});
+  admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
+  admin.get('/admin/accounts/:id/events',(req,res)=>res.json(hub.events(adminActor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
   admin.get('/admin/accounts/:id/chats',(req,res)=>res.json(hub.chats(adminActor,req.params.id)));
   admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
   admin.post('/admin/accounts/:id/chats',(req,res)=>res.status(201).json(hub.addChat(req.params.id,req.body)));
@@ -59,17 +68,25 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
   admin.put('/admin/tunnel',(req,res)=>res.json(tunnels.configure(req.body)));
   admin.post('/admin/tunnel/start',asyncRoute(async(req,res)=>res.json(await tunnels.start(req.body.connectorToken))));
   admin.post('/admin/tunnel/stop',asyncRoute(async(req,res)=>res.json(await tunnels.stop())));
+  admin.post('/admin/tunnel/tailscale/connect',asyncRoute(async(req,res)=>res.json(await tunnels.connectTailscale())));
+  admin.put('/admin/cloudflare/client',(req,res)=>res.json(cloudflare.configure(req.body)));
+  admin.post('/admin/cloudflare/login',(req,res)=>res.json(cloudflare.begin()));
+  admin.post('/admin/cloudflare/disconnect',asyncRoute(async(req,res)=>res.json(await cloudflare.disconnect())));
+  admin.get('/admin/cloudflare/resources',asyncRoute(async(req,res)=>res.json(await cloudflare.resources(req.query.accountId))));
+  admin.post('/admin/cloudflare/setup',asyncRoute(async(req,res)=>res.json(await cloudflare.provision(tunnels,gatewayPort,req.body))));
+  admin.post('/admin/cloudflare/service-token',(req,res)=>res.json(cloudflare.serviceToken()));
+  if(shutdown)admin.post('/admin/shutdown',(req,res)=>{if(req.body.instance!==instance)fail(409,'instance_mismatch','The service instance has changed.');res.once('finish',()=>{void shutdown();});res.json({stopping:true});});
   admin.use(express.static(join(root,'public'),{index:'index.html',etag:false,maxAge:0}));
   admin.use((req,res)=>res.status(404).json({error:'not_found'}));admin.use(errors);
 
   let accessKeyset,accessIssuer;
   gateway.use((req,res,next)=>{
-    const c=tunnels.config(),hosts=new Set([`localhost:${gatewayPort}`,`127.0.0.1:${gatewayPort}`,c.hostname].filter(Boolean));
+    const hosts=new Set([`localhost:${gatewayPort}`,`127.0.0.1:${gatewayPort}`,tunnels.gatewayHostname()].filter(Boolean));
     if(!hosts.has(req.headers.host))return res.status(403).json({error:'host_denied'});
     if(req.headers.origin)return res.status(403).json({error:'browser_origin_denied',message:'Use a server-side AI client. The dashboard is on its separate local port.'});
     next();
   });
-  gateway.get('/health',(req,res)=>res.json({service:'line-bridge',status:'running'}));
+  gateway.get('/health',(req,res)=>res.json({service:'LineBridge',version:VERSION,status:'running'}));
   gateway.use(asyncRoute(async(req,res,next)=>{
     const c=tunnels.config();
     // Once configured, enforce Access on ALL gateway requests, independent of spoofable Host/forwarding headers.
@@ -91,6 +108,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211}) {
   gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,accounts:hub.accounts(req.actor)}));
   gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
   gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));
+  gateway.get('/api/v1/accounts/:id/events',(req,res)=>res.json(hub.events(req.actor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
   gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
   gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key']))));
   gateway.get('/openapi.json',(req,res)=>res.json(openapi));

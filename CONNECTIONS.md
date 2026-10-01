@@ -1,18 +1,20 @@
 # Cloud connections
 
-Open **雲端連線** in LineBridge. All three providers forward only the AI gateway on loopback port 3211. The administrator interface remains on local port 3210. Every API/MCP request needs an expiring LineBridge Bearer token; account grants, designated chats, pause and revocation still apply.
+Open **雲端連線** in the LineBridge web dashboard. **同一台主機 · 直接連線** is the default: AI clients in the same VM use `http://127.0.0.1:3211/mcp` or `/api/v1` without a tunnel or provider account. Every API/MCP request needs an expiring LineBridge Bearer token; account grants, designated chats, pause and revocation still apply.
+
+For cross-host clients the three optional tunnel providers forward only the AI gateway on loopback port 3211. The administrator interface remains on local port 3210. To manage a Linux VM from your browser, run `ssh -L 3210:127.0.0.1:3210 user@vm` and open `http://127.0.0.1:3210`. No tunnel is needed when the AI and gateway share the VM.
 
 ## Quick Tunnel
 
-Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. The bundled cloudflared obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it from the connection panel and append `/mcp` or `/api/v1` in the AI client. Stop closes the owned connector and clears its URL; restarting obtains another URL. Public DNS may need a short time to propagate.
+Install cloudflared separately and make it available on PATH (or set `LINE_BRIDGE_CLOUDFLARED` to its absolute executable path). Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. cloudflared obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it from the connection panel and append `/mcp` or `/api/v1` in the AI client. Stop closes the owned connector and clears its URL; restarting obtains another URL. Public DNS may need a short time to propagate. No helper binaries are bundled or automatically downloaded by the npm package.
 
 This URL is reachable over the Internet. Authentication comes from the LineBridge token, without Cloudflare Access. Quick Tunnel is for temporary testing, has no uptime guarantee, limits concurrent requests and does not support SSE. LineBridge uses JSON responses for MCP. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
 ## Cloudflare account sign-in
 
-This PC's private LineBridge OAuth application is registered and connected. Its Client ID is saved locally. The hostname remains unchosen, so a named tunnel has not been created or started.
+The OAuth Client ID is a local setting, not bundled with the npm distribution. Existing settings and encrypted grants carry over when the same data directory and vault are reused on the same OS.
 
-Use **連接 Cloudflare** to authorize in the browser. The desktop opens the system browser, so an existing Chrome session can be reused. The callback is `http://127.0.0.1:3210/oauth/cloudflare/callback`. LineBridge verifies a ten-minute, one-use state and PKCE S256 before exchanging the authorization code. OAuth and connector tokens are encrypted in the existing SQLite vault; the interface exposes status and expiration only. Expired authorization needs another sign-in; automatic refresh is not implemented. An already configured tunnel uses its separate connector token.
+Use **連接 Cloudflare** to authorize in the browser. The dashboard opens a browser tab and also shows a login link. The callback is `http://127.0.0.1:3210/oauth/cloudflare/callback` (use the same loopback hostname through the SSH forward when managing a VM). LineBridge verifies a ten-minute, one-use state and PKCE S256 before exchanging the authorization code. OAuth and connector tokens are encrypted in SQLite; the interface exposes status and expiration only. Expired authorization needs another sign-in; automatic refresh is not implemented. An already configured tunnel uses its separate connector token.
 
 To configure a different account or a separately installed copy, register a private client using **Authorization Code**, response **Code**, authentication **None (PKCE)**, and the exact callback above. Save its Client ID under **OAuth 應用程式設定**. Private Cloudflare clients are limited to members of their owning account. A distributable public OAuth application requires a separate verified-domain registration. See [Cloudflare client registration](https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/) and [OAuth integration](https://developers.cloudflare.com/fundamentals/oauth/integrate-with-cloudflare/).
 
@@ -57,7 +59,7 @@ Once connected, **啟動連線** configures private HTTPS Serve on port 8443. Th
 
 ## Verification
 
-Rust tests exercise the OAuth code exchange, state/PKCE replay protection, encrypted secrets, provisioning order, DNS conflict refusal and partial failures against a local synthetic Cloudflare server. HTTP tests cover the loopback callback exception and gateway authentication. `tests/tunnel-smoke.mjs` explicitly starts a disposable Quick Tunnel with a synthetic-only database and checks live HTTPS, token enforcement, inaccessible admin routes, official-client MCP and cleanup.
+Node tests exercise the OAuth code exchange, state/PKCE replay protection, encrypted secrets, provisioning order, DNS conflict refusal and partial failures using a synthetic HTTP transport. HTTP tests cover the loopback callback exception and gateway authentication. `tests/tunnel-smoke.mjs` explicitly starts a disposable Quick Tunnel with a synthetic-only database and checks live HTTPS, token enforcement, inaccessible admin routes, official-client MCP and cleanup.
 
 ```powershell
 node tests/tunnel-smoke.mjs

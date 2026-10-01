@@ -35,7 +35,7 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const client=new Client({name:'integration-test',version:'1.0.0'});
   const transport=new StreamableHTTPClientTransport(new URL(`${base}/mcp`),{requestInit:{headers}});
   await client.connect(transport);t.after(()=>client.close());
-  const toolList=await client.listTools();assert.equal(toolList.tools.length,4);
+  const toolList=await client.listTools();assert.equal(toolList.tools.length,5);
   const result=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-group',limit:10}});
   assert.equal(JSON.parse(result.content[0].text).untrustedContent,true);
   const denied=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-openchat'}});assert.equal(denied.isError,true);
@@ -44,6 +44,13 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const index=await fetch(`${local}/`),cookie=index.headers.getSetCookie()[0].split(';')[0];assert.equal(index.status,200);
   assert.equal((await fetch(`${local}/admin/pause`,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{"enabled":false}'})).status,403);
   assert.equal(await rawStatus(`${local}/admin/state`,{Cookie:cookie,Host:'evil.example'}),403);
+  const badCallback=await fetch(`${local}/oauth/cloudflare/callback?state=wrong&code=untrusted-secret`,{headers:{'Sec-Fetch-Site':'cross-site'}});
+  assert.equal(badCallback.status,400);assert.equal(badCallback.headers.getSetCookie().length,0);assert.ok(!(await badCallback.text()).includes('untrusted-secret'));
+  assert.equal(await rawStatus(`${local}/oauth/cloudflare/callback`,{Host:'evil.example','Sec-Fetch-Site':'cross-site'}),403);
+  store.setSetting('tunnel',{provider:'cloudflare_quick',hostname:'',teamDomain:'',audience:''});tunnels.quickHost='test-tunnel.trycloudflare.com';
+  assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...headers,Host:tunnels.quickHost}),200);
+  assert.equal(await rawStatus(`${base}/api/v1/accounts`,{Host:tunnels.quickHost}),401);
+  tunnels.quickHost=null;assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...headers,Host:'test-tunnel.trycloudflare.com'}),403);
   store.setSetting('tunnel',{provider:'cloudflare',hostname:'line.example.com',teamDomain:'example.cloudflareaccess.com',audience:'test-audience'});
   // A localhost or forwarded-host header cannot disable the configured Access requirement.
   assert.equal((await fetch(`${base}/api/v1/accounts`,{headers})).status,401);

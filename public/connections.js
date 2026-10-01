@@ -1,12 +1,12 @@
 import {label} from './locale.js';
-export const providerName=value=>({cloudflare:'Cloudflare Tunnel + Access',cloudflare_quick:'Cloudflare Quick Tunnel',tailscale:'Tailscale · 私人 tailnet'}[value]||value);
+export const providerName=value=>({local:'同一台主機 · 直接連線',cloudflare:'Cloudflare Tunnel + Access',cloudflare_quick:'Cloudflare Quick Tunnel',tailscale:'Tailscale · 私人 tailnet'}[value]||value);
 export function createConnections({api,action,toast,refresh,escape,when,getState}) {
   const $=s=>document.querySelector(s), form=$('#tunnel-form');
   let signature,clientId,resourcesLoaded=false,resourcesAttempted=false,busy=false;
   const post=(path,body={})=>api(path,{method:'POST',body:JSON.stringify(body)});
   const run=job=>action(async()=>{if(busy)return;busy=true;$('#tunnel').classList.add('connection-busy');try{await job();}finally{busy=false;$('#tunnel').classList.remove('connection-busy');await refresh();}});
-  async function openLogin(url,id){const link=$(id);link.href=url;link.hidden=false;const invoke=window.__TAURI__?.core?.invoke;if(invoke)await invoke('open_provider_login',{url});else window.open(url,'_blank','noopener,noreferrer');}
-  function updateProvider(){const p=form.elements.provider.value;$('#cloudflare-fields').hidden=p!=='cloudflare';$('#cloudflare-oauth').hidden=p!=='cloudflare';$('#quick-tunnel-info').hidden=p!=='cloudflare_quick';$('#tailscale-connect').hidden=p!=='tailscale';}
+  async function openLogin(url,id){const link=$(id);link.href=url;link.hidden=false;window.open(url,'_blank','noopener,noreferrer');}
+  function updateProvider(){const p=form.elements.provider.value;$('#local-connection-info').hidden=p!=='local';$('#cloudflare-fields').hidden=p!=='cloudflare';$('#cloudflare-oauth').hidden=p!=='cloudflare';$('#quick-tunnel-info').hidden=p!=='cloudflare_quick';$('#tailscale-connect').hidden=p!=='tailscale';$('#start-tunnel').hidden=p==='local';$('#stop-tunnel').hidden=p==='local';}
   async function save(){const cf=form.elements.provider.value==='cloudflare';return api('/tunnel',{method:'PUT',body:JSON.stringify({provider:form.elements.provider.value,hostname:cf?form.elements.hostname.value:'',teamDomain:cf?form.elements.teamDomain.value:'',audience:cf?form.elements.audience.value:''})});}
   form.elements.provider.addEventListener('change',()=>{if(form.elements.provider.value==='cloudflare'){const c=getState().tunnel.namedConfig||{};for(const key of ['hostname','teamDomain','audience'])form.elements[key].value=c[key]||'';}updateProvider();});
   form.addEventListener('submit',e=>{e.preventDefault();run(async()=>{await save();toast('已儲存連線設定');});});
@@ -30,7 +30,7 @@ export function createConnections({api,action,toast,refresh,escape,when,getState
     if(signature!==next){form.elements.provider.value=t.provider;for(const key of ['hostname','teamDomain','audience'])form.elements[key].value=t.provider==='cloudflare'?t[key]||'':'';signature=next;updateProvider();}
     $('#tunnel-badge').className=`badge ${t.connected?'good':'warn'}`;$('#tunnel-badge').textContent=t.connected?'已連線':label(t.status);
     $('#connection-url').textContent=t.url||'啟動後會顯示連線網址';$('#copy-connection-url').disabled=!t.url;
-    $('#tunnel-health').textContent=t.provider==='cloudflare'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · ${t.accessLastValidated?`Access 已驗證 ${when(t.accessLastValidated)}`:'Access 等待實際請求驗證'}`:t.provider==='cloudflare_quick'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · 每次啟動取得新的暫時網址`:`Tailscale ${label(t.tailscale.state)} · HTTPS 8443`;
+    $('#tunnel-health').textContent=t.provider==='local'?'AI 可透過此主機的 localhost 連接，無需通道或服務帳號。':t.provider==='cloudflare'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · ${t.accessLastValidated?`Access 已驗證 ${when(t.accessLastValidated)}`:'Access 等待實際請求驗證'}`:t.provider==='cloudflare_quick'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · 每次啟動取得新的暫時網址`:`Tailscale ${label(t.tailscale.state)} · HTTPS 8443`;
     $('#tailscale-state').textContent=t.tailscale.installed?`已安裝 · ${label(t.tailscale.state)}`:'尚未安裝 Tailscale';$('#connect-tailscale').disabled=!t.tailscale.installed||t.tailscale.state==='Running';if(t.tailscale.state==='Running')$('#tailscale-login-link').hidden=true;
     if(clientId!==cf.clientId){$('#cf-client-id').value=cf.clientId||'';clientId=cf.clientId;}
     $('#cf-callback').textContent=cf.callback;$('#cf-login').disabled=!cf.clientId;$('#cf-disconnect').hidden=!cf.connected;$('#cf-setup').hidden=!cf.connected;

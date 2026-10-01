@@ -1,25 +1,22 @@
 {
   "name": "line-bridge",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0",
   "type": "module",
-  "description": "LineBridge: Rust/Tauri LINE account interface with encrypted SQLite storage and a scoped MCP/HTTP gateway",
+  "description": "LineBridge: headless LINE MCP/HTTP gateway with an encrypted SQLite inbox and a zh-TW web dashboard",
+  "license": "UNLICENSED",
+  "bin": {"linebridge": "bin/linebridge.mjs"},
+  "files": ["bin/", "server/*.mjs", "protocol/*.mjs", "protocol/third-party-notices.txt", "public/", "examples/", "openapi.json", "README.zh-TW.md", "PACKAGING.md", "CONNECTIONS.md", "ALIASES.md"],
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
-    "start": "powershell -NoProfile -File scripts/start.ps1",
-    "start:headless": "powershell -NoProfile -File scripts/start.ps1 -Headless",
-    "build:protocol": "node scripts/build-protocol.mjs",
-    "prepare:runtime": "node scripts/prepare-runtime.mjs",
-    "desktop:dev": "node scripts/desktop.mjs --dev",
-    "desktop:build": "node scripts/desktop.mjs",
-    "desktop:build:windows": "node scripts/desktop.mjs --platform=windows",
-    "desktop:build:mac": "node scripts/desktop.mjs --platform=macos",
-    "verify:mac": "node scripts/verify-macos.mjs",
-    "test:rust": "cargo test -p line-bridge-core",
-    "start:legacy": "node server/main.mjs",
+    "start": "node bin/linebridge.mjs serve",
+    "status": "node bin/linebridge.mjs status",
+    "stop": "node bin/linebridge.mjs stop",
     "test": "node --test tests/*.test.mjs",
+    "test:smoke": "node tests/service-smoke.mjs",
+    "test:tunnel": "node tests/tunnel-smoke.mjs",
+    "package": "node scripts/package.mjs",
     "check": "node scripts/check.mjs"
   },
   "dependencies": {
@@ -29,11 +26,5 @@
     "lineclientbot": "0.1.3",
     "qrcode": "^1.5.4",
     "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "@fontsource-variable/noto-sans-tc": "5.3.0",
-    "@phosphor-icons/core": "2.1.1",
-    "@tauri-apps/cli": "^2.12.0",
-    "esbuild": "^0.28.2"
   }
 }

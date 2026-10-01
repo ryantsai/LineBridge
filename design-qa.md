@@ -4,7 +4,7 @@ Date: 2026-10-01, Asia/Taipei.
 
 final result: passed
 
-The requested Apple-inspired redesign is applied to the running shared browser/Tauri interface. The opening page is a five-step setup wizard. Monitoring and detailed settings have their own pages. No P0, P1 or P2 finding remains in the checked flows.
+The requested Apple-inspired redesign is applied to the browser interface. The opening page is a five-step setup wizard. Monitoring and detailed settings have their own pages. No P0, P1 or P2 finding remains in the checked flows. Version 0.3 retains this interface in the headless npm service; desktop packaging was retired.
 
 ## Target and comparison method
 

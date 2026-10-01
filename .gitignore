@@ -2,10 +2,7 @@ node_modules/
 data/
 .env
 *.log
-target/
-dist/
 release/
-runtime/
 tools/*.exe
 tools/cloudflared
 tools/cloudflared-*-apple-darwin
@@ -16,10 +13,10 @@ zh-TW-preview.png
 *.dpapi
 .env.*
 !.env.example
-protocol/line-worker.cjs*
+*.tgz
+vault-key.bin
+service.json
+server.pid
 *-preview.png
-src-tauri/icons/android/
-src-tauri/icons/ios/
 *-preview.jpg
 cloudflare-*.png
-src-tauri/gen/

@@ -11,7 +11,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 const root=process.cwd(),data=mkdtempSync(join(tmpdir(),'linebridge-tunnel-test-'));
 const admin='http://127.0.0.1:4520',gateway='http://127.0.0.1:4521';
-const service=spawn(join(root,`target/release/line-bridge-service${process.platform==='win32'?'.exe':''}`),[],{cwd:root,env:{...process.env,LINE_BRIDGE_ROOT:root,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4520',LINE_BRIDGE_GATEWAY_PORT:'4521'},stdio:'ignore',windowsHide:true});
+const service=spawn(process.execPath,[join(root,'bin/linebridge.mjs'),'serve'],{cwd:root,env:{...process.env,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4520',LINE_BRIDGE_GATEWAY_PORT:'4521'},stdio:'ignore',windowsHide:true});
 let call,client;
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 async function dohFetchFor(hostname) {
@@ -37,7 +37,7 @@ async function dohFetchFor(hostname) {
 try {
   for(let i=0;i<100;i++){try{if((await fetch(`${gateway}/health`)).ok)break;}catch{}await wait(100);}
   const page=await fetch(admin),cookie=page.headers.get('set-cookie').split(';')[0];
-  call=async(path,method='GET',value)=>{const res=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});const result=await res.json();assert.equal(res.status,200,JSON.stringify(result));return result;};
+  call=async(path,method='GET',value)=>{const res=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});const result=await res.json();assert.equal(res.ok,true,JSON.stringify(result));return result;};
   const account=await call('/accounts','POST',{label:'synthetic tunnel check',kind:'demo'});
   const token=await call('/tokens','POST',{name:'synthetic reader',days:1,grants:[{accountId:account.id,read:true,send:false}]});
   await call('/tunnel','PUT',{provider:'cloudflare_quick'});
@@ -53,7 +53,7 @@ try {
   const tunnelFetch=process.env.LINE_BRIDGE_TUNNEL_DOH?await dohFetchFor(new URL(tunnel.url).hostname):fetch;
   let health,lastError;
   for(let i=0;i<45;i++){try{health=await tunnelFetch(`${tunnel.url}/health`,{signal:AbortSignal.timeout(6000)});if(health.ok)break;lastError=`HTTP ${health.status}`;}catch(error){lastError=error.cause?.code||error.message;}await wait(2000);}
-  assert.equal(health?.status,200,`Public endpoint did not respond: ${lastError}`);assert.equal((await health.json()).service,'line-bridge');
+  assert.equal(health?.status,200,`Public endpoint did not respond: ${lastError}`);assert.equal((await health.json()).service,'LineBridge');
   assert.equal((await tunnelFetch(`${tunnel.url}/api/v1/accounts`)).status,401);
   const headers={Authorization:`Bearer ${token.token}`};
   const accounts=await tunnelFetch(`${tunnel.url}/api/v1/accounts`,{headers});assert.equal(accounts.status,200);assert.equal((await accounts.json()).length,1);

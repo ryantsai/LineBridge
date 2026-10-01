@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "bridge-admin"
-description = "Administer the local bridge and open validated provider sign-in URLs from the packaged dashboard."
-commands.allow = ["admin_request", "open_provider_login"]

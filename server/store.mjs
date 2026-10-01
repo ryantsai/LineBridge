@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 export class Store {
   constructor(path) {
-    this.db = new DatabaseSync(path);
+    this.db = new DatabaseSync(path,{timeout:5000});
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,label TEXT NOT NULL,kind TEXT NOT NULL,device TEXT NOT NULL,connected INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS secrets(account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(account_id,key));
@@ -11,7 +11,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS tokens(id TEXT PRIMARY KEY,name TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,grants TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,last_used TEXT);
       CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,at TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,account_id TEXT,chat_id TEXT,outcome TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sends(actor TEXT NOT NULL,key TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,result TEXT,at TEXT NOT NULL,PRIMARY KEY(actor,key));
-      CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
+      CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE,account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,chat_id TEXT NOT NULL,message_id TEXT NOT NULL,cipher TEXT NOT NULL,at TEXT NOT NULL,UNIQUE(account_id,chat_id,message_id));
+      CREATE INDEX IF NOT EXISTS messages_chat ON messages(account_id,chat_id,seq);`);
     // A process crash after dispatch leaves an unknown outcome; never resend it automatically.
     this.db.prepare("UPDATE sends SET state='unknown' WHERE state='pending'").run();
   }
@@ -53,5 +56,6 @@ export class Store {
   finishSend(actor,key,state,result) { this.db.prepare('UPDATE sends SET state=?,result=? WHERE actor=? AND key=?').run(state,result ? JSON.stringify(result) : null,actor,key); }
   setting(key,defaultValue) { const r=this.db.prepare('SELECT value FROM settings WHERE key=?').get(key); return r ? JSON.parse(r.value) : defaultValue; }
   setSetting(key,value) { this.db.prepare('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value)); }
+  transaction(job){this.db.exec('BEGIN IMMEDIATE');try{const result=job();this.db.exec('COMMIT');return result;}catch(error){this.db.exec('ROLLBACK');throw error;}}
   close() { this.db.close(); }
 }

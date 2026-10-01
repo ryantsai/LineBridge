@@ -45,11 +45,11 @@ export function createWizard(ctx){
     }
     if(step===4){
       const t=ctx.getState()?.tunnel;
-      root.innerHTML=frame('連接你的雲端 AI','透過私人連線，讓已授權的 AI 用戶端連接這台電腦。',`<div class="wizard-choice">${icon('arrows-left-right')}<div><h3>選擇你的連線方式</h3><p>Quick Tunnel 免註冊即可開始；固定網址可用 Cloudflare OAuth 設定，私人網路則可使用已安裝的 Tailscale。</p><button class="button" id="wizard-tunnel">開啟雲端連線設定${icon('caret-right')}</button></div></div><div class="wizard-choice">${icon('plug')}<div><h3>先在這台電腦使用</h3><p>${t?.connected?'私人連線目前已連線。':'目前尚未連接雲端。你仍可使用本機介面與已指定聊天室的訊息監聽。'}</p></div></div>`,bottom('返回 AI 權限',null,t?.connected?'繼續':'稍後設定連線'));
+      root.innerHTML=frame('連接你的 AI','AI 與 LineBridge 在同一台 VM 時，可以直接使用 localhost。',`<div class="wizard-choice">${icon('plug')}<div><h3>同一台主機，直接連線</h3><p>把 AI 連到 <code>http://127.0.0.1:${ctx.getState()?.gateway.port||3211}/mcp</code>，並提供剛建立的 Bearer 權杖。無需安裝桌面程式或設定通道。</p></div></div><div class="wizard-choice">${icon('arrows-left-right')}<div><h3>跨主機連線（選用）</h3><p>AI 在另一台主機時，可使用 Cloudflare Quick Tunnel、Cloudflare Access 或 Tailscale。</p><button class="button" id="wizard-tunnel">開啟連線設定${icon('caret-right')}</button></div></div>`,bottom('返回 AI 權限',null,t?.connected?'繼續':'稍後設定連線'));
       listen('#wizard-tunnel',()=>ctx.go('tunnel',true));listen('#wizard-back',()=>{step=3;render();});listen('#wizard-next',()=>{step=5;render();});return;
     }
     const count=ctx.getChats().filter(c=>c.enabled).length,t=ctx.getState()?.tunnel;
-    root.innerHTML=frame('你的 LineBridge 已準備就緒','開始使用本機工作區，或前往訊息監控開啟新訊息監聽。',`<div class="wizard-finish-icon">${icon('check')}</div><dl class="wizard-summary"><dt>LINE 帳號</dt><dd>${escape(accountName(a))}${a.kind==='demo'?' · 沙盒':''}</dd><dt>指定聊天室</dt><dd>${count} 個</dd><dt>AI 用戶端</dt><dd>${activeTokens().length?`${activeTokens().length} 個有效權杖`:'稍後設定'}</dd><dt>私人連線</dt><dd>${t?.connected?'已連線':'稍後設定'}</dd><dt>訊息監聽</dt><dd>${a.monitor?.enabled?'已啟用':'可在訊息監控頁啟用'}</dd></dl>`,bottom('返回連線設定',null,'前往訊息監控'));
+    root.innerHTML=frame('你的 LineBridge 已準備就緒','開始使用本機工作區，或前往訊息監控開啟新訊息監聽。',`<div class="wizard-finish-icon">${icon('check')}</div><dl class="wizard-summary"><dt>LINE 帳號</dt><dd>${escape(accountName(a))}${a.kind==='demo'?' · 沙盒':''}</dd><dt>指定聊天室</dt><dd>${count} 個</dd><dt>AI 用戶端</dt><dd>${activeTokens().length?`${activeTokens().length} 個有效權杖`:'稍後設定'}</dd><dt>AI 連線</dt><dd>${t?.connected?t.provider==='local'?'同一台主機 · 直接連線':'已連線':'稍後設定'}</dd><dt>訊息監聽</dt><dd>${a.monitor?.enabled?'已啟用':'可在訊息監控頁啟用'}</dd></dl>`,bottom('返回連線設定',null,'前往訊息監控'));
     listen('#wizard-back',()=>{step=4;render();});listen('#wizard-next',()=>ctx.go('monitoring'));
   }
   function renderChatChoices(){

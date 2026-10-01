@@ -13,8 +13,6 @@ let refreshRunning=false,reading=false,sending=false;
 let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='',wizardReturn=false;
 const observedSequences=new Map();
 async function api(path,options={}) {
-  const invoke=window.__TAURI__?.core?.invoke;
-  if(invoke){try{return await invoke('admin_request',{method:options.method || 'GET',path:`/admin${path}`,body:options.body?JSON.parse(options.body):{}});}catch(result){const error=new Error(errorText(result.code || result.error,result.message));error.code=result.code || result.error;throw error;}}
   const res=await fetch(`/admin${path}`,{...options,headers:{'Content-Type':'application/json','X-Line-Bridge':'dashboard',...options.headers}});
   const result=await res.json();if(!res.ok){const error=new Error(errorText(result.error,result.message));error.code=result.error;throw error;}return result;
 }
@@ -28,7 +26,7 @@ function switchTab(tab,fromWizard=false){
   document.querySelectorAll('.page').forEach(e=>e.classList.toggle('active',e.id===tab));
   $('#page-title').textContent={setup:'開始設定',monitoring:'訊息監控',accounts:'帳號與聊天室',access:'AI 存取權限',tunnel:'雲端連線',activity:'活動紀錄'}[tab];
   $('#breadcrumb-page').textContent=$('#page-title').textContent;
-  $('#page-description').textContent={setup:'幾個簡單步驟，連接你的 LINE 與 AI。',monitoring:'每一則新訊息，都在你的掌握之中。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'建立雲端 AI 主機與這台電腦之間的受保護連線。',activity:'查看用戶端的讀取、傳送與異動紀錄。'}[tab];
+  $('#page-description').textContent={setup:'幾個簡單步驟，連接你的 LINE 與 AI。',monitoring:'每一則新訊息，都在你的掌握之中。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'同一台主機可直接連線；跨主機時可選擇私人通道。',activity:'查看用戶端的讀取、傳送與異動紀錄。'}[tab];
   $('#setup-return')?.remove();
   if(fromWizard&&tab==='tunnel')wizardReturn=true;
   if(wizardReturn&&tab==='tunnel'){const banner=document.createElement('div');banner.id='setup-return';banner.className='wizard-return';banner.innerHTML='設定完成後，可以返回精靈繼續。<button class="text-button" id="return-to-wizard">返回設定精靈'+icon('caret-right')+'</button>';$('#tunnel').prepend(banner);$('#return-to-wizard').addEventListener('click',()=>switchTab('setup'));}
