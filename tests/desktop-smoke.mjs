@@ -10,7 +10,7 @@ import {VERSION} from '../server/version.mjs';
 
 const root=process.cwd(),serviceOnly=process.argv.includes('--service-only');
 const data=await mkdtemp(join(tmpdir(),'linebridge-desktop-'));
-const native=process.platform==='win32'?join(root,'target/release/LineBridge.exe'):join(root,'target/release/bundle/macos/LineBridge.app/Contents/MacOS/LineBridge');
+const native=process.env.LINE_BRIDGE_DESKTOP_BINARY??(process.platform==='win32'?join(root,'target/release/LineBridge.exe'):join(root,'target/release/bundle/macos/LineBridge.app/Contents/MacOS/LineBridge'));
 const node=join(root,'runtime',process.platform==='win32'?'node.exe':'node');
 if(!existsSync(serviceOnly?node:native))throw new Error('Build the desktop first, or use --service-only after bundling the service.');
 const admin='http://127.0.0.1:4530',gateway='http://127.0.0.1:4531';

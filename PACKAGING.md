@@ -15,7 +15,7 @@ npm run build:macos       # native Apple Silicon or Intel Mac
 npm run test:desktop     # synthetic native startup, auth, persistence and shutdown
 ```
 
-The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` checks signatures, architecture and native startup.
+The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
 
 Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows.
 
