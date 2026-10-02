@@ -19,6 +19,8 @@ The build bundles the service/private worker into `runtime/app`, vendors the das
 
 Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows.
 
+The private repository's **Build LineBridge desktop installers** workflow can also be started manually with `platform` set to `all`, `windows` or `macos`. Download the matching `LineBridge-windows-x64`, `LineBridge-macos-arm64` or `LineBridge-macos-x64` artifact from its successful run; each includes its checksum and build metadata. A workflow run is verified only after the native lifetime/signature checks pass, not merely when an installer file is produced.
+
 Windows installers are unsigned. Mac apps are ad-hoc signed with Node JIT entitlements, not Developer ID signed or notarized. Production distribution requires the developer's signing credentials; the build does not invent them.
 
 ## Process and data ownership

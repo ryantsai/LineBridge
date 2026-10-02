@@ -21,9 +21,17 @@ The copied database contains **6 accounts, 310 chat records, 2 token records, 3 
 
 LINE's saved session now returns `NOT_AUTHORIZED_DEVICE`; the same response was reproduced with the unbundled adapter. The app presents this as requiring a fresh phone QR login. Archive search remains available offline. No real LINE message was sent, no new chat was designated, and live capture must not be claimed until the account is reauthorized and its monitor is running.
 
+The installed service's final read-only state check reports version 0.5.0, token authentication and AI access enabled. All account monitors are disabled, and Quick Tunnel is selected but not started. Reauthorize the LINE account with the phone, enable its monitor and start the connector to begin collecting new messages for a remote AI.
+
 ## Distribution and limits
 
-The private repository's workflows build native Windows NSIS and Apple Silicon/Intel Mac DMGs, verify bundled helper architectures/signatures and exercise native service lifetime. A separate portable-package workflow tests Node 24/26 on Linux and Windows. Remote results are recorded after those jobs finish; a workflow definition alone is not proof of a successful Mac build.
+Verified remote results:
+
+- [Portable verification](https://github.com/ryantsai/LineBridge/actions/runs/37048547455): Node 24 and 26 on Linux and Windows all passed the tests, HTTP/MCP smoke and package validation.
+- [Windows native job](https://github.com/ryantsai/LineBridge/actions/runs/37048547461): the Windows x64 NSIS job passed, including native startup, encrypted multilingual archive persistence across restart and shutdown. The downloaded installer matches its SHA-256 manifest.
+- [Mac native verification](https://github.com/ryantsai/LineBridge/actions/runs/37050789266): both Apple Silicon and Intel DMGs passed checksum, strict code signatures, helper architectures/versions, private worker and native startup/archive/shutdown checks. The downloaded DMGs match their SHA-256 manifests.
+
+The native builds bundle the same shared service. Mac verification mounts and launches the delivered DMG read-only; it does not rely on Tauri's removed intermediate app folder. Test sends and archived messages use isolated synthetic accounts.
 
 Windows installers are unsigned. Mac apps use ad-hoc signatures and JIT entitlements, with no Developer ID signature or notarization. Production signing needs the developer's credentials. The operator npm archive is not published to the registry. Fixed-hostname Cloudflare DNS/Access provisioning remains deferred because no hostname was chosen.
 
