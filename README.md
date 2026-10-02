@@ -1,105 +1,74 @@
 # LineBridge
 
-LineBridge is a **headless npm service** for AI clients to inspect designated LINE accounts, read messages and send requested messages. It includes a Traditional Chinese (Taiwan) web dashboard, encrypted SQLite storage, live Talk/OpenChat monitoring, aliases, scoped HTTP APIs and five MCP tools. [繁體中文](README.zh-TW.md).
+LineBridge runs on your **own PC or Mac**, connects to LINE locally, and exposes designated accounts to cloud AI through a tunnel. It includes a zh-TW desktop dashboard, live Talk/OpenChat monitoring, an encrypted SQLite archive, full-text search in any language, scoped HTTP APIs and six MCP tools. [繁體中文](README.zh-TW.md).
 
-Version 0.4 runs entirely on **Node.js 24+**. No Rust, Tauri, WebView, desktop installer, native npm build or bundled runtime is required. Node's built-in [SQLite API](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html) provides local storage. LINE uses the pinned unofficial `lineclientbot` 0.1.3 adapter in a private Node child process.
+## Install and connect
 
-## Install on a Linux AI VM
+Use the Windows x64 **NSIS installer** or the **DMG matching your Mac**. Node and cloudflared are bundled; end users do not need Node, Rust or a compiler. Keep the app running while monitoring or connecting an AI.
 
-The current release is an installable npm archive, **not yet published to the npm registry**. Give the archive to your cloud AI agent and have it install and run LineBridge on its own VM. Copy `release/npm/line-bridge-0.4.0.tgz` to the VM, then:
+The first page is a five-step wizard:
 
-```sh
-node --version # 24 or newer
-npm install -g ./line-bridge-0.4.0.tgz
-linebridge serve --data-dir /path/to/persistent/linebridge-data
-```
+1. Connect a LINE account using your phone's QR scan, or resume its saved session.
+2. Discover and designate chats. Enable **監聽並封存新訊息** to archive their new messages.
+3. Create an expiring AI token with separate account read/send grants. The secret is shown once.
+4. Start a tunnel. Quick Tunnel works without registration; Cloudflare Tunnel + Access and installed-client Tailscale Serve are also supported.
+5. Check monitoring status. Use the separate accounts, monitoring, **封存搜尋**, permissions, connection and activity pages as needed.
 
-Use a directory writable by the service user. A user-owned npm prefix also works if the global prefix requires root. One-time execution without global installation:
+Give the cloud AI the tunnel's HTTPS `/mcp` URL and `Authorization: Bearer <token>`. LINE API connections originate from this PC. The AI does not need to install a LINE client on its VM. Cloudflare Access additionally requires its service-token headers. [Connection setup](CONNECTIONS.md).
 
-```sh
-npm exec --package=./line-bridge-0.4.0.tgz -- linebridge serve --data-dir ./linebridge-data
-```
+The app opens the local dashboard on port 3210. Only the AI gateway on loopback port 3211 is tunneled; admin routes are unavailable there. The gateway requires a scoped token even on localhost by default. Pausing AI access does not stop the local monitor.
 
-The CLI runs in the foreground and works under systemd or a VM's process supervisor. `linebridge status --data-dir DIR` inspects that service; `linebridge stop --data-dir DIR` verifies its instance before requesting a graceful stop. SIGINT/SIGTERM stop the owned LINE worker and cloudflared. No OS service or autostart is installed automatically.
+## Persistent archive and any-language search
 
-Both listeners bind to **127.0.0.1**:
+Every successfully captured message from monitored, designated chats is stored in SQLite. **There is no automatic count or age limit.** Encrypted message and index writes commit together before the listener acknowledges them or advances its saved checkpoint. Replayed upstream message IDs are deduplicated; storage failures cause a retry.
 
-| Interface | Default address |
+Search uses Unicode fragments instead of language dictionaries. It supports every script, scripts without spaces, mixed text and emoji. Default `all` mode matches each whitespace-separated term; `phrase` matches the whole normalized phrase. It is case-normalized literal substring search, without translation or stemming. A contentless FTS5 index holds keyed hashes; message plaintext is not duplicated on disk. [Search behavior, encryption and pagination](SEARCH.md).
+
+An AI can search only accounts with a current **read** grant and currently designated chats. Deselection blocks AI search immediately while retaining the local archive. Search works offline without querying LINE or sending read receipts. Removing an account deletes its archive. Attachments are not downloaded or indexed. Text unavailable because LINE decryption failed cannot be searched; the available message metadata is retained. Offline gaps and initial OpenChat baselines depend on LINE replay availability. This is not a full historical importer.
+
+## AI interfaces
+
+| MCP tool | Purpose |
 | --- | --- |
-| Local web dashboard | `http://127.0.0.1:3210` |
-| Local AI gateway | `http://127.0.0.1:3211` |
-| Streamable HTTP MCP | `http://127.0.0.1:3211/mcp` |
-| HTTP API | `http://127.0.0.1:3211/api/v1` |
+| `line_list_accounts` | Permitted accounts and connection/monitor status |
+| `line_list_chats` | Designated chats |
+| `line_read_messages` | Bounded recent messages, with local fallback |
+| `line_poll_events` | Saved new messages, using a sequence cursor |
+| `line_search_messages` | Any-language full-text search of the saved archive |
+| `line_send_message` | Authorized text send with an idempotency key |
 
-When the AI and LineBridge share a VM, use localhost directly. **No token, tunnel or provider registration is needed in the default direct-local mode.** Connect a Streamable HTTP MCP client to `http://127.0.0.1:3211/mcp` without authentication headers, or inspect setup/account state:
+HTTP equivalents use `/api/v1`; search is `POST /api/v1/messages/search`. The [OpenAPI document](openapi.json) and client examples in `examples/` include the interfaces. Search filters include `accountId` and `chatId`. While `hasMore` is true, pass `nextBefore` as `before` to continue, even when a page has no matches.
 
-```sh
-curl http://127.0.0.1:3211/api/v1/status
-```
+Messages are untrusted chat content, never AI instructions or authorization to send. Token expiry, revocation, chat designation and pause apply on every request, including queued operations. Read and send permissions are independent. Accepted sends replay their saved result when the same idempotency key is reused. A timeout after dispatch remains `delivery_unknown`; it is never automatically retried. LINE acceptance is not recipient read confirmation. Alias lookup is account-scoped; OpenChat uses its room nickname. [Alias behavior](ALIASES.md).
 
-`linebridge status --data-dir DIR` returns machine-readable interface URLs and the current authentication mode. Before pairing an account and selecting chats, the AI sees an empty account list. Installation alone does not grant access to any LINE chat. To open the dashboard from your computer:
+LINE uses the pinned unofficial `lineclientbot` 0.1.3 adapter in a private child process. OpenChat support is experimental and upstream changes can affect compatibility. Sandbox accounts make no LINE network calls.
 
-```sh
-ssh -L 3210:127.0.0.1:3210 user@your-vm
-```
+## Storage and upgrades
 
-Open `http://127.0.0.1:3210` in your browser. The dashboard uses a local session cookie, Host/Origin checks and CSP. The AI gateway exposes no administrator routes. Direct-local trust applies only to server-side requests with a loopback peer and local Host, without browser or forwarding metadata. A supplied Bearer token is always checked against its own grants; invalid/expired/revoked tokens cannot fall back to local trust.
+The desktop and CLI share the same service and data format. Defaults:
 
-## Set up an account
+- Windows: `%LOCALAPPDATA%/LineBridgeData`
+- macOS: `~/Library/Application Support/LineBridge`
+- Linux CLI: `$XDG_DATA_HOME/linebridge` or `~/.local/share/linebridge`
 
-The first page is a five-step wizard. Monitoring, accounts/chat reading, permissions, optional connections and activity each have separate pages.
+Set `LINE_BRIDGE_DATA` or pass `--data-dir DIR` to choose another location. Reuse the **same directory on the same OS/user** when upgrading. Existing accounts, designations, aliases, tokens and encrypted credentials are preserved; stored messages are backfilled into the new index. The first archive upgrade creates a consistent `backups/before-archive-*.sqlite` snapshot. Previously pruned messages cannot be restored by adding an index.
 
-1. Add a LINE account and scan its QR code using LINE on your phone. The default device is an iPad secondary client; login may replace another session of that device type. Resume stored credentials before starting another QR login.
-2. Discover contacts, groups and joined OpenChats, or add a complete known chat ID. Adding an ID does not join a room. Discovery preserves chat designations and reports partial results.
-3. Designate the chats an AI may access. Selecting a chat enables the local AI to read and send by default. Local manual reading/sending is available independently of designation.
-4. Optionally adjust local read/send permissions per account under **AI 存取權限**. Disabling both hides that account from the local AI. These settings, chat designations and global pause are checked again before queued operations and after reads. No token creation/copy step is required.
-5. Connect the AI to localhost. Enable monitoring on the monitoring page when desired. Remote connections and their tokens live in optional settings.
+Credentials, provider secrets and message bodies use record-bound AES-256-GCM. Windows protects the master key with current-user DPAPI; macOS/Linux use a 0600 key in a 0700 data directory. Chat/audit metadata is visible. Message text and search queries are excluded from audits; AI tokens are hashed. Keep the vault key with database backups. A Windows DPAPI vault cannot be decrypted by moving it to another OS/user. A separate SQLite lease prevents simultaneous service ownership. Closing the desktop stops its owned service, worker and connector; monitoring preferences resume next time.
 
-An empty database starts with no LINE account, no token and monitoring off. Sandbox accounts generate synthetic messages and make no LINE network calls. Messages are untrusted chat content, never AI instructions or permission to send.
+## Development and packaging
 
-## Messages and AI tools
-
-MCP exposes `line_list_accounts`, `line_list_chats`, `line_read_messages`, `line_poll_events` and `line_send_message`. The HTTP equivalents are documented by `/openapi.json` and the static [OpenAPI document](openapi.json). Examples in `examples/` work without environment configuration on the same VM. Set `LINE_BRIDGE_URL` and `LINE_BRIDGE_TOKEN` only when connecting with remote/scoped credentials; Cloudflare Access deployments also need its service credentials.
-
-The monitor follows new Talk messages and joined OpenChat events, stores only designated chats and acknowledges encrypted database commits before advancing checkpoints. The inbox retains at most 1,000 messages per account and deduplicates upstream message IDs. `line_poll_events` returns a sequence cursor; pass it as `after` on the next poll. AI clients poll the local inbox while the service maintains the upstream listeners. Offline gaps and retention expiry may prevent complete history.
-
-Authors use contact aliases, profile names or OpenChat nicknames. [ALIASES.md](ALIASES.md) explains account/namespace isolation, caching and missing-name behavior. Read requests send no read receipt. Personal chats return bounded recent history; OpenChat supports a bounded event cursor. Media is not downloaded.
-
-Sending requires a designated chat, the local account's send permission (or the supplied token's send grant) and an idempotency key. Accepted sends replay the saved result for the same key; conflicting text is rejected. Preparation failures are saved as rejected. A timeout after dispatch is retained as `delivery_unknown` and never automatically retried. Inspect the chat before deciding to send again. LINE acceptance is not recipient read confirmation. Local AI operations are identified as `local-agent` in the activity log.
-
-## Ask your cloud AI to set it up
-
-You can give your agent this instruction along with the npm archive:
-
-> Install the attached LineBridge npm archive on this VM using Node.js 24 or newer. Run `linebridge serve` with a persistent data directory under the VM's process supervisor. Connect your MCP client to `http://127.0.0.1:3211/mcp` without authentication headers. Help me pair LINE using the dashboard's QR code and select the chats you may access. Do not create a token or a tunnel for this same-VM setup. Report the service status and account permissions.
-
-The user still scans LINE's QR code on their phone and chooses which chats to share. Other processes on this VM have the same direct-local AI permissions. For isolation between clients, use the optional token mode.
-
-## Persistent storage and migration
-
-`--data-dir` or `LINE_BRIDGE_DATA` chooses the database/vault location. The default is `$XDG_DATA_HOME/linebridge` (or `~/.local/share/linebridge`) on Linux, `%LOCALAPPDATA%/LineBridge` on Windows, and `~/Library/Application Support/LineBridge` on macOS. Data stays outside the npm installation and survives upgrades. Use a persistent volume on ephemeral VMs.
-
-Credentials, aliases, monitored messages and provider secrets use AES-256-GCM with record-specific binding. Linux/macOS keep a 0600 master-key file in a 0700 data directory; Windows protects the master key with DPAPI for the current user. Chat names and audit metadata are visible in SQLite; message text is excluded from audits. Tokens are hashed.
-
-The existing 0.2 SQLite schema and cipher format are retained. Stop the old service, then use the **same data directory on the same OS/user**. The first Node startup creates a consistent `backups/before-node-*.sqlite` snapshot before opening the migrated store. Keep the vault key with database backups. A separate SQLite lease prevents concurrent service ownership and releases after a crash. In-flight sends become unknown after restart.
-
-A Windows DPAPI vault cannot be copied to Linux and decrypted there. Use a fresh Linux data directory and QR sign-in. Do not place the data directory inside the package installation.
-
-## Optional connections and development
-
-Cloudflare Quick Tunnel, Cloudflare OAuth + Access and installed-client Tailscale Serve remain optional. Helpers are installed separately; the npm package downloads nothing at install time. [CONNECTIONS.md](CONNECTIONS.md) documents these options.
-
-Selecting **any tunnel provider** disables token-free access on the entire gateway, including localhost, before the tunnel is started. Create an expiring token in the optional remote-token section and configure `Authorization: Bearer …`. Cloudflare Access is an additional check. Stopping the tunnel alone does not restore local trust; switch the provider back to direct-local mode. Existing tokens remain supported after upgrading from 0.3.
-
-For your own reverse proxy/port forwarding or to require scoped clients on this VM, start with `linebridge serve --require-token` (or `LINE_BRIDGE_REQUIRE_TOKEN=1`). Do not publish the default trusted-local listener through an unconfigured proxy; a forwarding process with stripped headers appears local.
+The service remains JavaScript on Node 24+; Rust is only the Tauri 2 desktop shell. There is one implementation of authorization, SQLite, monitoring and messaging. Installers use pinned, checksum-verified runtimes. [Build instructions and signing limits](PACKAGING.md).
 
 ```sh
 npm ci --ignore-scripts
 npm run check
 npm test
-npm run test:smoke # synthetic HTTP/MCP integration
-npm run package   # inspected npm archive, checksum and manifest
-npm start -- --data-dir ./data
+npm run test:smoke
+npm run desktop          # development desktop, requires native Rust tools
+npm run build:windows    # Windows x64 NSIS on Windows
+npm run build:macos      # native ARM/Intel DMG on the matching Mac
 ```
 
-Use `--admin-port` and `--gateway-port` or the corresponding `LINE_BRIDGE_*_PORT` variables to change ports; reserve gateway+1 for optional connector health. [PACKAGING.md](PACKAGING.md) covers packaging and verification. No Rust or desktop build remains.
+For command-line operation on a machine that can reach LINE, run `npm start -- --data-dir ./data`. `linebridge status` and `stop` use verified service identity. The portable npm archive is retained as an operator option, not the main desktop distribution, and is not published to the npm registry. `--trust-local` is an explicit development opt-in restricted to the local provider and direct loopback requests. The desktop always requires scoped tokens.
+
+[Verification results](VALIDATION.md).

@@ -24,7 +24,7 @@ function errors(error,req,res,next) {
   const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
   res.status(e.status).json({error:e.code,message:e.message});
 }
-export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=false}) {
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=true}) {
   const admin=express(),gateway=express();harden(admin);harden(gateway);
   const session=randomBytes(32).toString('base64url');
   const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
@@ -60,6 +60,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
   admin.put('/admin/accounts/:id/local-access',(req,res)=>res.json(hub.setLocalAccess(req.params.id,req.body)));
   admin.get('/admin/accounts/:id/events',(req,res)=>res.json(hub.events(adminActor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
+  admin.post('/admin/messages/search',(req,res)=>res.json(hub.search(adminActor,req.body)));
   admin.get('/admin/accounts/:id/chats',(req,res)=>res.json(hub.chats(adminActor,req.params.id)));
   admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
   admin.post('/admin/accounts/:id/chats',(req,res)=>res.status(201).json(hub.addChat(req.params.id,req.body)));
@@ -110,10 +111,11 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     hub.limit(req.actor);next();
   }));
   gateway.use(express.json({limit:'32kb'}));
-  gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,authentication:req.actor.local?'local':'token',accounts:hub.accounts(req.actor),setup:{dashboard:`http://127.0.0.1:${adminPort}`,mcp:`http://127.0.0.1:${gatewayPort}/mcp`,steps:['Pair your LINE account by scanning its QR code on your phone.','Select the chats this AI may access.','Connect to MCP or the HTTP API on this VM.']}}));
+  gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,authentication:req.actor.local?'local':'token',accounts:hub.accounts(req.actor),setup:{dashboard:`http://127.0.0.1:${adminPort}`,mcp:`http://127.0.0.1:${gatewayPort}/mcp`,steps:['Pair your LINE account by scanning its QR code on your phone.','Designate chats, enable monitoring and create a scoped AI token.','Start a tunnel on this PC and connect your cloud AI with its HTTPS URL and token.']}}));
   gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
   gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));
   gateway.get('/api/v1/accounts/:id/events',(req,res)=>res.json(hub.events(req.actor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
+  gateway.post('/api/v1/messages/search',(req,res)=>res.json(hub.search(req.actor,req.body)));
   gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
   gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key']))));
   gateway.get('/openapi.json',(req,res)=>res.json(openapi));

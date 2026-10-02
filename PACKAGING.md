@@ -1,19 +1,36 @@
-# npm distribution
+# Desktop packaging
 
-LineBridge 0.4 has one distribution: the headless `line-bridge` npm package with executable `linebridge`. Runtime requirement: Node.js 24+. SQLite uses `node:sqlite`; all application dependencies are portable JavaScript/WASM. There are no application native build steps, desktop installers or bundled Node/cloudflared binaries. The browser dashboard is included.
+LineBridge 0.5 restores the Windows/macOS desktop application as the main distribution. The native Tauri shell launches one bundled Node service; the same service implements LINE, authorization, encrypted SQLite and full-text search. Users need no Node installation or Rust compiler. The CLI/npm package remains an operator option.
+
+## Build on the target OS
+
+Use Node 26.5.0, Rust 1.98.1 and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.0 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
 
 ```sh
 npm ci --ignore-scripts
 npm run check
 npm test
-npm run test:smoke
-npm run package
+npm run build:windows     # Windows x64 only
+npm run build:macos       # native Apple Silicon or Intel Mac
+npm run test:desktop     # synthetic native startup, auth, persistence and shutdown
 ```
 
-`release/npm/` receives `line-bridge-0.4.0.tgz`, `SHA256SUMS.txt` and `package-info.json`. Packaging validates the npm file list before and after packing. The archive includes only the CLI, server, private protocol worker, dashboard/assets, examples and documentation. It excludes account data, SQLite databases, vault keys, provider configuration, generated desktop files, build trees, developer tests and logs.
+The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` checks signatures, architecture and native startup.
 
-Install the archive using `npm install -g ./line-bridge-0.4.0.tgz`, then `linebridge serve --data-dir DIR`. Node and npm must already be installed. A user-owned prefix can avoid root access. Package installation performs no download/build/start lifecycle script. Runtime data is placed outside the installation directory. Same-VM AI clients use the localhost MCP URL without token configuration in the default direct-local mode; tunnel providers or `--require-token` turn on token enforcement.
+Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows.
 
-The archive has **not been published to the npm registry**. Registry name `line-bridge` differs from the unrelated existing `linebridge` package; executable and product name remain LineBridge. Publication requires registry ownership, access and a separate release decision. Do not install an unrelated registry package by guessing its name.
+Windows installers are unsigned. Mac apps are ad-hoc signed with Node JIT entitlements, not Developer ID signed or notarized. Production distribution requires the developer's signing credentials; the build does not invent them.
 
-CI validates Node 24/26 on Linux and Windows, runs the synthetic gateway smoke test and uploads the npm archive/checksum. The CI definition is provided; remote CI execution requires a repository remote. Local Linux checks use a checksum-verified official Node 24 runtime under Ubuntu WSL. An optional live Quick Tunnel test (`npm run test:tunnel`) requires separately installed cloudflared and uses synthetic accounts only.
+## Process and data ownership
+
+The Rust shell owns a private readiness/shutdown pipe to Node and focuses the existing window on a second launch. Normal exit requests graceful shutdown; an abruptly ended parent closes the pipe and the service stops its worker and owned connector. A separate SQLite lease rejects concurrent use of the same data directory. The admin dashboard is loaded from its own loopback HTTP origin, with no privileged IPC access granted to remote content. Provider sign-in opens the system browser; its callback remains local.
+
+The desktop and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA` or pass `--data-dir DIR` to reuse an existing installation's accounts. App updates do not replace data. Back up the database and vault key together before changing machines/users.
+
+## CLI archive
+
+`npm run package` produces `release/npm/line-bridge-0.5.0.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.5.0.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
+
+## Verification
+
+`npm run test:smoke` tests HTTP and the official MCP client with synthetic accounts. `npm run test:desktop` tests the native app, bundled runtime, multilingual archive across restart and process shutdown. `npm run test:tunnel` explicitly starts a disposable live Quick Tunnel, checking HTTPS, scoped API/MCP/search and inaccessible admin routes. It sends only synthetic messages. Build scripts preserve third-party licenses and verify runtime hashes before packaging.

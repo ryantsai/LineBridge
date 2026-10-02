@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname,join,resolve} from 'node:path';
 import {homedir} from 'node:os';
 import {mkdir,readFile,writeFile,rm,stat,chmod} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {randomUUID} from 'node:crypto';
 import {Store} from './store.mjs';
@@ -15,7 +16,12 @@ export const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export function defaultDataDirectory(){
   if(process.env.LINE_BRIDGE_DATA)return resolve(process.env.LINE_BRIDGE_DATA);
   const base=process.platform==='win32'?process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'):process.platform==='darwin'?join(homedir(),'Library','Application Support'):process.env.XDG_DATA_HOME??join(homedir(),'.local','share');
-  return join(base,process.platform==='linux'?'linebridge':'LineBridge');
+  const current=join(base,process.platform==='win32'?'LineBridgeData':process.platform==='linux'?'linebridge':'LineBridge');
+  // Keep fresh Windows data separate from NSIS's application directory, while
+  // reusing legacy vaults in place rather than moving account credentials.
+  if(existsSync(join(current,'bridge.sqlite')))return current;
+  for(const legacy of [join(base,'LineBridge'),join(base,'com.ryantsai.linebridge')])if(existsSync(join(legacy,'bridge.sqlite')))return legacy;
+  return current;
 }
 export const validPort=p=>Number.isInteger(p)&&p>1024&&p<65536;
 export async function metadata(data){try{return JSON.parse(await readFile(join(data,'service.json'),'utf8'));}catch{return null;}}
@@ -36,14 +42,14 @@ async function migrationBackup(data){
   const path=join(data,'bridge.sqlite');try{await stat(path);}catch{return;}
   const db=new DatabaseSync(path,{readOnly:true});
   try{
-    const marker=db.prepare("SELECT value FROM settings WHERE key='nodeMigrationBackup'").get();if(marker)return;
+    const marker=db.prepare("SELECT value FROM settings WHERE key IN ('archiveMigrationBackup','messageSearchVersion')").get();if(marker)return;
     const directory=join(data,'backups');await mkdir(directory,{recursive:true,mode:0o700});
-    const name=`before-node-${new Date().toISOString().replace(/[:.]/g,'-')}.sqlite`,destination=join(directory,name);
+    const name=`before-archive-${new Date().toISOString().replace(/[:.]/g,'-')}.sqlite`,destination=join(directory,name);
     await backup(db,destination);if(process.platform!=='win32')await chmod(destination,0o600);return name;
   }finally{db.close();}
 }
 function listen(app,port){return new Promise((ok,reject)=>{const server=app.listen(port,'127.0.0.1',()=>ok(server));server.once('error',reject);});}
-export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1'}={}){
+export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_TRUST_LOCAL!=='1'||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1',defaultProvider=requireToken?'cloudflare_quick':'local'}={}){
   const data=resolve(dataDir),instance=randomUUID();
   if(![adminPort,gatewayPort,gatewayPort+1].every(validPort)||adminPort===gatewayPort||adminPort===gatewayPort+1)throw new HubError(400,'invalid_ports','Use distinct ports between 1025 and 65534; reserve gateway+1 for connector health.');
   await mkdir(data,{recursive:true,mode:0o700});if(process.platform!=='win32')await chmod(data,0o700);
@@ -60,9 +66,11 @@ export async function startService({dataDir=defaultDataDirectory(),adminPort=Num
   }
   const signal=()=>{void shutdown().catch(()=>{process.exitCode=1;});};
   try{
+    const existingDatabase=existsSync(join(data,'bridge.sqlite'));
     const vault=await Vault.open(data),savedBackup=await migrationBackup(data);
-    store=new Store(join(data,'bridge.sqlite'));if(savedBackup)store.setSetting('nodeMigrationBackup',savedBackup);
+    store=new Store(join(data,'bridge.sqlite'));if(savedBackup)store.setSetting('archiveMigrationBackup',savedBackup);
     if(process.platform!=='win32')for(const name of ['bridge.sqlite','service-lock.sqlite'])await chmod(join(data,name),0o600);
+    if(!existingDatabase&&!store.setting('tunnel',null))store.setSetting('tunnel',{provider:defaultProvider,hostname:'',teamDomain:'',audience:''});
     hub=new Hub(store,vault);tunnels=new Tunnels(store,vault,root,gatewayPort,gatewayPort+1,data);
     const apps=createApps({hub,tunnels,root,adminPort,gatewayPort,instance,shutdown,requireToken});
     adminServer=await listen(apps.admin,adminPort);gatewayServer=await listen(apps.gateway,gatewayPort);

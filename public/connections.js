@@ -27,11 +27,11 @@ export function createConnections({api,action,toast,refresh,escape,when,getState
   $('#copy-connection-url').addEventListener('click',()=>run(async()=>{await navigator.clipboard.writeText(getState().tunnel.url);toast('已複製連線網址');}));
   function render(){
     const {tunnel:t,cloudflare:cf}=getState(), next=JSON.stringify([t.provider,t.provider==='cloudflare'?t.hostname:'',t.teamDomain,t.audience]);
-    $('#connection-auth').textContent=getState().gateway.authentication==='local'?'同一台 VM 的 AI 不需要權杖。指定聊天室與本機讀取、傳送權限仍會檢查。':'目前整個閘道要求 Authorization: Bearer …，使用遠端權杖的帳號權限。停止通道並切回直接連線模式後，可恢復本機免權杖存取。';
+    $('#connection-auth').textContent=getState().gateway.authentication==='local'?'已明確啟用本機開發信任；直接連線可免權杖。所有通道連線仍要求 Bearer 權杖。':'雲端 AI 使用 Authorization: Bearer …，依權杖的帳號權限讀取、全文搜尋或傳送。Cloudflare Access 另需服務憑證。';
     if(signature!==next){form.elements.provider.value=t.provider;for(const key of ['hostname','teamDomain','audience'])form.elements[key].value=t.provider==='cloudflare'?t[key]||'':'';signature=next;updateProvider();}
     $('#tunnel-badge').className=`badge ${t.connected?'good':'warn'}`;$('#tunnel-badge').textContent=t.connected?'已連線':label(t.status);
     $('#connection-url').textContent=t.url||'啟動後會顯示連線網址';$('#copy-connection-url').disabled=!t.url;
-    $('#tunnel-health').textContent=t.provider==='local'?'AI 可透過此主機的 localhost 連接，無需通道或服務帳號。':t.provider==='cloudflare'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · ${t.accessLastValidated?`Access 已驗證 ${when(t.accessLastValidated)}`:'Access 等待實際請求驗證'}`:t.provider==='cloudflare_quick'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · 每次啟動取得新的暫時網址`:`Tailscale ${label(t.tailscale.state)} · HTTPS 8443`;
+    $('#tunnel-health').textContent=t.provider==='local'?'僅可從這台電腦連線。要連接雲端 AI，請啟動 Cloudflare 或 Tailscale 通道。':t.provider==='cloudflare'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · ${t.accessLastValidated?`Access 已驗證 ${when(t.accessLastValidated)}`:'Access 等待實際請求驗證'}`:t.provider==='cloudflare_quick'?`連接器：${t.cloudflaredInstalled?'已安裝':'尚未安裝'} · ${label(t.status)} · 每次啟動取得新的暫時網址`:`Tailscale ${label(t.tailscale.state)} · HTTPS 8443`;
     $('#tailscale-state').textContent=t.tailscale.installed?`已安裝 · ${label(t.tailscale.state)}`:'尚未安裝 Tailscale';$('#connect-tailscale').disabled=!t.tailscale.installed||t.tailscale.state==='Running';if(t.tailscale.state==='Running')$('#tailscale-login-link').hidden=true;
     if(clientId!==cf.clientId){$('#cf-client-id').value=cf.clientId||'';clientId=cf.clientId;}
     $('#cf-callback').textContent=cf.callback;$('#cf-login').disabled=!cf.clientId;$('#cf-disconnect').hidden=!cf.connected;$('#cf-setup').hidden=!cf.connected;

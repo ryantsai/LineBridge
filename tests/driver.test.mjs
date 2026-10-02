@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LineDriver, squareMessages, joinedSquareRooms, discoveryErrorCode } from '../server/drivers.mjs';
+test('expired device authorization requires QR login, while transient failures remain retryable',async()=>{
+  const d=Object.create(LineDriver.prototype),error=Object.assign(new Error('private upstream details'),{name:'RequestError',data:{errorCode:'NOT_AUTHORIZED_DEVICE'}});
+  d.storage={get:async()=> 'synthetic-token'};d.client={loginProcess:{login:async()=>{throw error;}}};
+  await assert.rejects(d.login(false),{code:'login_required'});
+  error.data.errorCode='INTERNAL_ERROR';await assert.rejects(d.login(false),e=>e===error);
+});
 test('Square receive and send event envelopes are normalized and deduplicated',()=>{
   const message={id:'message-01',from:'member-01',text:'sample',createdTime:1750000000000};
   const events=[{payload:{receiveMessage:{squareChatMid:'room',squareMessage:{message},senderDisplayName:'Member'}}},{payload:{sendMessage:{squareMessage:{message}}}},{payload:{notifiedJoinSquareChat:{}}}];

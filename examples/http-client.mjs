@@ -11,11 +11,12 @@ if(command==='accounts')path='/api/v1/accounts';
 else if(command==='chats'&&accountId)path=`/api/v1/accounts/${account}/chats`;
 else if(command==='read'&&accountId&&chatId)path=`/api/v1/accounts/${account}/chats/${chat}/messages?limit=30`;
 else if(command==='events'&&accountId)path=`/api/v1/accounts/${account}/events?after=${encodeURIComponent(chatId || '0')}&limit=100`;
+else if(command==='search'&&accountId){path='/api/v1/messages/search';options={method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({query:accountId,mode:chatId==='phrase'?'phrase':'all'})};}
 else if(command==='send'&&accountId&&chatId&&key&&textPath){
   path=`/api/v1/accounts/${account}/chats/${chat}/messages`;
   const text=await readFile(textPath,'utf8');
   options={method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({text})};
-}else throw new Error('Usage: accounts | chats ACCOUNT_ID | read ACCOUNT_ID CHAT_ID | events ACCOUNT_ID AFTER_SEQUENCE | send ACCOUNT_ID CHAT_ID KEY TEXT_FILE');
+}else throw new Error('Usage: accounts | chats ACCOUNT_ID | read ACCOUNT_ID CHAT_ID | events ACCOUNT_ID AFTER_SEQUENCE | search "QUERY" [all|phrase] | send ACCOUNT_ID CHAT_ID KEY TEXT_FILE');
 // One request only. A send timeout must be inspected before any new send.
 const response=await fetch(`${base}${path}`,{...options,signal:AbortSignal.timeout(45000)});
 const result=await response.json();

@@ -22,10 +22,10 @@ test('CLI locks the data directory, backs up an existing SQLite store, persists 
   t.after(async()=>{if(child?.exitCode===null){child.kill();await exit(child);}const path=resolve(data),base=resolve(tmpdir())+sep;if(!path.startsWith(base)||!path.slice(base.length).startsWith('linebridge-service-test-'))throw new Error('Unsafe cleanup');await rm(path,{recursive:true,force:true});});
   // A schema-compatible database models the previous Rust store before migration.
   await Vault.open(data);const original=new Store(join(data,'bridge.sqlite')),a=original.addAccount('Migration account','demo','IOSIPAD');original.connect(a.id,true);original.putChat(a.id,{id:'demo-group',name:'room',kind:'group'});original.designate(a.id,'demo-group',true);original.setSetting(`monitor:${a.id}`,true);original.close();
-  child=await boot(data,p);const base=`http://127.0.0.1:${p.adminPort}`,page=await fetch(base),cookie=page.headers.getSetCookie()[0].split(';')[0];
+  child=await boot(data,p,'--trust-local');const base=`http://127.0.0.1:${p.adminPort}`,page=await fetch(base),cookie=page.headers.getSetCookie()[0].split(';')[0];
   const call=async(path,method='GET',body)=>{const response=await fetch(`${base}/admin${path}`,{method,headers:{Cookie:cookie,Origin:base,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});assert.ok(response.ok,await response.clone().text());return response.json();};
   const state=await call('/state');assert.equal(state.backend,'node');assert.equal(state.accounts[0].id,a.id);assert.equal(state.accounts[0].monitor.enabled,true);assert.equal(state.tunnel.provider,'local');assert.equal(state.tunnel.connected,true);
-  const files=await readdir(join(data,'backups'));assert.equal(files.length,1);assert.ok(files[0].startsWith('before-node-'));
+  const files=await readdir(join(data,'backups'));assert.equal(files.length,1);assert.ok(files[0].startsWith('before-archive-'));
   await assert.rejects(run(data,'serve','--admin-port',String(p.adminPort+10),'--gateway-port',String(p.gatewayPort+10)),e=>/bridge_already_running/.test(e.stderr));
   const info=JSON.parse((await run(data,'status')).stdout);assert.equal(info.status,'running');assert.equal(info.authentication,'local');assert.equal(info.mcpUrl,`http://127.0.0.1:${p.gatewayPort}/mcp`);
   assert.equal((await fetch(`http://127.0.0.1:${p.gatewayPort}/api/v1/accounts`)).status,200);
@@ -34,10 +34,12 @@ test('CLI locks the data directory, backs up an existing SQLite store, persists 
   assert.equal((await fetch(`${base}/admin/shutdown`,{method:'POST',headers:{Cookie:cookie,Origin:base,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body:JSON.stringify({instance:'wrong'})})).status,409);
   if(process.platform!=='win32'){assert.equal((await stat(join(data,'vault-key.bin'))).mode&0o777,0o600);assert.equal((await stat(data)).mode&0o777,0o700);}
   await run(data,'stop');await exit(child);assert.equal(JSON.parse((await run(data,'status')).stdout).status,'stopped');
-  child=await boot(data,p);const again=await fetch(base),againCookie=again.headers.getSetCookie()[0].split(';')[0];
+  child=await boot(data,p,'--trust-local');const again=await fetch(base),againCookie=again.headers.getSetCookie()[0].split(';')[0];
   const persisted=await (await fetch(`${base}/admin/accounts/${a.id}/events`,{headers:{Cookie:againCookie}})).json();assert.equal(persisted.events[0].message.text,'persistent synthetic text');assert.equal((await readdir(join(data,'backups'))).length,1);
   const localAccounts=await (await fetch(`http://127.0.0.1:${p.gatewayPort}/api/v1/accounts`)).json();assert.equal(localAccounts[0].permissions.send,false);
   // Simulate a crash: the OS releases the lock and stale metadata cannot block recovery.
-  child.kill('SIGKILL');await exit(child);child=await boot(data,p,'--require-token');assert.equal((await fetch(`http://127.0.0.1:${p.gatewayPort}/api/v1/accounts`)).status,401);assert.equal(JSON.parse((await run(data,'status')).stdout).authentication,'token');await run(data,'stop');await exit(child);
+  child.kill('SIGKILL');await exit(child);child=await boot(data,p,'--require-token');assert.equal((await fetch(`http://127.0.0.1:${p.gatewayPort}/api/v1/accounts`)).status,401);assert.equal(JSON.parse((await run(data,'status')).stdout).authentication,'token');
+  const strictPage=await fetch(base),strictCookie=strictPage.headers.getSetCookie()[0].split(';')[0],strictState=await (await fetch(`${base}/admin/state`,{headers:{Cookie:strictCookie}})).json();assert.equal(strictState.tunnel.provider,'local','An upgrade preserves a legacy store with no explicit provider setting.');
+  await run(data,'stop');await exit(child);
   assert.ok(!(await readFile(join(data,'bridge.sqlite'))).includes(Buffer.from('persistent synthetic text')));
 });

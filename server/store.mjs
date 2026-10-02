@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 export class Store {
   constructor(path) {
     this.db = new DatabaseSync(path,{timeout:5000});
-    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,label TEXT NOT NULL,kind TEXT NOT NULL,device TEXT NOT NULL,connected INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS secrets(account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(account_id,key));
       CREATE TABLE IF NOT EXISTS chats(account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,id TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account_id,id));
@@ -14,7 +14,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
       CREATE TABLE IF NOT EXISTS messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE,account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,chat_id TEXT NOT NULL,message_id TEXT NOT NULL,cipher TEXT NOT NULL,at TEXT NOT NULL,UNIQUE(account_id,chat_id,message_id));
-      CREATE INDEX IF NOT EXISTS messages_chat ON messages(account_id,chat_id,seq);`);
+      CREATE INDEX IF NOT EXISTS messages_chat ON messages(account_id,chat_id,seq);
+      CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(terms,content='',contentless_delete=1,detail=none,tokenize='ascii');
+      CREATE TRIGGER IF NOT EXISTS messages_search_delete AFTER DELETE ON messages BEGIN DELETE FROM message_search WHERE rowid=old.seq; END;`);
     // A process crash after dispatch leaves an unknown outcome; never resend it automatically.
     this.db.prepare("UPDATE sends SET state='unknown' WHERE state='pending'").run();
   }

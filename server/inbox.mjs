@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {fail} from './errors.mjs';
+import {indexMessage} from './search.mjs';
 
 export function capture(store,vault,account,chat,message){
   if(!message||typeof message.id!=='string'||!message.id||message.id.length>150||JSON.stringify(message).length>100000)fail(502,'invalid_message','Invalid incoming message.');
@@ -8,7 +9,7 @@ export function capture(store,vault,account,chat,message){
     const eventId=randomUUID(),cipher=vault.seal(message,`message:${eventId}`);
     const inserted=store.db.prepare('INSERT OR IGNORE INTO messages(event_id,account_id,chat_id,message_id,cipher,at) VALUES(?,?,?,?,?,?)').run(eventId,account,chat,message.id,cipher,new Date().toISOString());
     if(!inserted.changes)return null;
-    store.db.prepare('DELETE FROM messages WHERE account_id=? AND seq NOT IN (SELECT seq FROM messages WHERE account_id=? ORDER BY seq DESC LIMIT 1000)').run(account,account);
+    indexMessage(store,vault,Number(inserted.lastInsertRowid),message);
     return Number(inserted.lastInsertRowid);
   });
 }
@@ -28,5 +29,5 @@ export function inboxMessages(store,vault,account,chat,limit){
 export function monitorStatus(store,account,streams={}){
   const enabled=store.setting(`monitor:${account}`,false),values=Object.values(streams);
   const counts=store.db.prepare('SELECT COUNT(*) AS storedMessages,COALESCE(MAX(seq),0) AS lastSequence,MAX(at) AS lastMessage FROM messages WHERE account_id=?').get(account);
-  return {enabled,status:!enabled?'off':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',streams,...counts,retention:1000};
+  return {enabled,status:!enabled?'off':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
 }

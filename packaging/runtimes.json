@@ -1,0 +1,27 @@
+{
+  "nodeVersion": "26.5.0",
+  "cloudflaredVersion": "2026.9.3",
+  "platforms": {
+    "win32-x64": {
+      "target": "x86_64-pc-windows-msvc",
+      "nodeAsset": "win-x64/node.exe",
+      "nodeSha256": "119d6fa70e6ae1b15b90688ab6bcc8e3a2819acea021af196895cab1843645af",
+      "cloudflaredAsset": "cloudflared-windows-amd64.exe",
+      "cloudflaredSha256": "f096265ec2fcbe9bb6e2d64268db167ced3fcbb83d894bdb9e2fcdb26f2ea7e2"
+    },
+    "darwin-arm64": {
+      "target": "aarch64-apple-darwin",
+      "nodeAsset": "node-v26.5.0-darwin-arm64.tar.gz",
+      "nodeSha256": "ee920559aaa2391569cff4d737e3b83963430e3a14dedd91bfe0ff53171b5af9",
+      "cloudflaredAsset": "cloudflared-darwin-arm64.tgz",
+      "cloudflaredSha256": "587c2cfb1c230fe36c7fa7727da78be459dae028cabe8c001291999350f07095"
+    },
+    "darwin-x64": {
+      "target": "x86_64-apple-darwin",
+      "nodeAsset": "node-v26.5.0-darwin-x64.tar.gz",
+      "nodeSha256": "98293394c945a24e64e00b4177bf075ec963ea70b34d1d2e24bd4a71716d334f",
+      "cloudflaredAsset": "cloudflared-darwin-amd64.tgz",
+      "cloudflaredSha256": "d1155d0837487f261183b15c1eab6c4ebcad9dc49b94675f1524c3564cea3977"
+    }
+  }
+}

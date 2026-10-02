@@ -1,18 +1,16 @@
 # Cloud connections
 
-Open **雲端連線** in the LineBridge web dashboard. **同一台主機 · 直接連線** is the default: server-side AI clients in the same VM use `http://127.0.0.1:3211/mcp` or `/api/v1` without a token, tunnel or provider account. Only accounts with designated chats and local read/send permissions appear. Designations, local permissions and global pause remain enforced; local requests are logged as `local-agent`.
+LineBridge runs on this PC or Mac and reaches LINE here. Cloud AI connects to its HTTPS AI gateway. The desktop bundles Node and cloudflared. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **AI 存取權限**; read grants include archive search, while send grants are independent.
 
-Selecting any tunnel provider disables token-free trust on the whole listener, even before starting the tunnel. Every API/MCP request then needs a scoped, expiring LineBridge Bearer token. Stopping a tunnel leaves that requirement active; switch the provider back to direct-local mode to restore token-free local access. A supplied token is always authenticated with its own grants, even in direct-local mode. Browser and forwarding metadata never qualifies for local trust.
+Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access and installed-client Tailscale Serve are supported.
 
-Use `linebridge serve --require-token` or `LINE_BRIDGE_REQUIRE_TOKEN=1` for custom reverse proxies/port forwarding or when clients on this VM need separate scopes. An unconfigured proxy can strip identifying headers and appear as a local process, so the default trusted-local listener must not be exposed that way.
-
-For cross-host clients the three optional tunnel providers forward only the AI gateway on loopback port 3211. The administrator interface remains on local port 3210. To manage a Linux VM from your browser, run `ssh -L 3210:127.0.0.1:3210 user@vm` and open `http://127.0.0.1:3210`. No tunnel is needed when the AI and gateway share the VM.
+**同一台主機 · 直接連線** is available for local use with a Bearer token. The CLI alone has an explicit `--trust-local` development opt-in restricted to direct loopback, the local provider, and requests without browser/proxy metadata. The desktop always enforces tokens. Selecting a tunnel does not grant token-free access, and an invalid supplied token never falls back to local trust.
 
 ## Quick Tunnel
 
-Install cloudflared separately and make it available on PATH (or set `LINE_BRIDGE_CLOUDFLARED` to its absolute executable path). Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. cloudflared obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it from the connection panel and append `/mcp` or `/api/v1` in the AI client. Stop closes the owned connector and clears its URL; restarting obtains another URL. Public DNS may need a short time to propagate. No helper binaries are bundled or automatically downloaded by the npm package.
+Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. The bundled cloudflared obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it and append `/mcp` or `/api/v1` in the AI client, alongside its Bearer token. Stop closes the owned connector and clears the URL; restarting obtains another URL. Public DNS may need time to propagate. The optional CLI requires cloudflared on PATH or `LINE_BRIDGE_CLOUDFLARED`.
 
-This URL is reachable over the Internet. Authentication comes from the LineBridge token, without Cloudflare Access. Quick Tunnel is for temporary testing, has no uptime guarantee, limits concurrent requests and does not support SSE. LineBridge uses JSON responses for MCP. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+The URL is Internet-reachable; authentication comes from the LineBridge token, without Cloudflare Access. Quick Tunnel is temporary, has no uptime guarantee, limits concurrency and does not support SSE. LineBridge uses JSON MCP responses. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
 ## Cloudflare account sign-in
 

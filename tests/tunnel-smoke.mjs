@@ -39,6 +39,8 @@ try {
   const page=await fetch(admin),cookie=page.headers.get('set-cookie').split(';')[0];
   call=async(path,method='GET',value)=>{const res=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});const result=await res.json();assert.equal(res.ok,true,JSON.stringify(result));return result;};
   const account=await call('/accounts','POST',{label:'synthetic tunnel check',kind:'demo'});
+  await call(`/accounts/${account.id}/chats/demo-group`,'PATCH',{enabled:true});await call(`/accounts/${account.id}/monitor`,'POST',{enabled:true});
+  await call(`/accounts/${account.id}/chats/demo-group/messages`,'POST',{text:'tunnel multilingual 會議 مرحبا 🦜',idempotencyKey:'tunnel-synthetic-0001'});
   const token=await call('/tokens','POST',{name:'synthetic reader',days:1,grants:[{accountId:account.id,read:true,send:false}]});
   await call('/tunnel','PUT',{provider:'cloudflare_quick'});
   await call('/tunnel/start','POST',{});
@@ -60,11 +62,12 @@ try {
   assert.equal((await tunnelFetch(`${tunnel.url}/admin/state`,{headers})).status,404);
   client=new Client({name:'Quick Tunnel JSON MCP check',version:'1.0'});
   await client.connect(new StreamableHTTPClientTransport(new URL(`${tunnel.url}/mcp`),{requestInit:{headers},fetch:tunnelFetch}));
-  assert.equal((await client.listTools()).tools.length,5);
+  assert.equal((await client.listTools()).tools.length,6);
+  const search=await client.callTool({name:'line_search_messages',arguments:{query:'會議 مرحبا',mode:'all'}});assert.equal(search.isError,undefined);assert.equal(JSON.parse(search.content[0].text).results[0].message.text,'tunnel multilingual 會議 مرحبا 🦜');
   await client.close();client=null;
   await call('/tunnel/stop','POST',{});const stopped=(await call('/state')).tunnel;
   assert.equal(stopped.connected,false);assert.equal(stopped.url,null);assert.equal(stopped.hostname,'');
-  console.log('Live Quick Tunnel: HTTPS ready, unauthenticated API denied, scoped API and JSON MCP work, dashboard unavailable, stop clears URL. Synthetic accounts only.');
+  console.log('Live Quick Tunnel: HTTPS ready, unauthenticated API denied, scoped API and JSON MCP multilingual archive search work, dashboard unavailable, stop clears URL. Synthetic accounts only.');
 } finally {
   await client?.close().catch(()=>{});if(call)await call('/tunnel/stop','POST',{}).catch(()=>{});
   service.kill();if(service.exitCode===null)await once(service,'exit');

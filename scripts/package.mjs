@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {npm} from './npm.mjs';
 export function validateArchive(files){
   const paths=files.map(f=>typeof f==='string'?f:f.path);
-  const allowed=p=>/^(bin\/linebridge\.mjs|server\/[a-z-]+\.mjs|protocol\/[a-z-]+\.mjs|protocol\/third-party-notices\.txt|public\/.+|examples\/[a-z-]+\.mjs|package\.json|openapi\.json|README(?:\.zh-TW)?\.md|PACKAGING\.md|CONNECTIONS\.md|ALIASES\.md)$/.test(p);
+  const allowed=p=>/^(bin\/linebridge\.mjs|server\/[a-z-]+\.mjs|protocol\/[a-z-]+\.mjs|protocol\/third-party-notices\.txt|public\/.+|examples\/[a-z-]+\.mjs|package\.json|openapi\.json|README(?:\.zh-TW)?\.md|PACKAGING\.md|CONNECTIONS\.md|ALIASES\.md|SEARCH\.md)$/.test(p);
   for(const p of paths)if(!allowed(p)||p.includes('..')||/\.(sqlite(?:-wal|-shm)?|dpapi|bin|exe|dmg|rs|tgz)$/.test(p))throw new Error(`Refusing to package unexpected file: ${p}`);
   for(const required of ['bin/linebridge.mjs','server/main.mjs','server/store.mjs','protocol/worker.mjs','public/index.html','package.json'])if(!paths.includes(required))throw new Error(`Missing package file: ${required}`);
   return paths;

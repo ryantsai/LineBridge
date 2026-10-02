@@ -6,6 +6,7 @@ import { DemoDriver } from './drivers.mjs';
 import { ProtocolWorker } from './worker.mjs';
 import { capture, cachedNames, enrich, inboxMessages, monitorStatus } from './inbox.mjs';
 import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
+import {initializeSearch,searchInput,searchArchive} from './search.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
 const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean()}).strict()).min(1).max(30)}).strict();
@@ -17,6 +18,7 @@ export const digest=value=>createHash('sha256').update(value).digest('hex');
 export class Hub {
   constructor(store,vault,driverFactory) {
     Object.assign(this,{store,vault});
+    initializeSearch(store,vault);
     this.worker=new ProtocolWorker(store,vault,(id,chat,message)=>this.capture(id,chat,message));
     this.driverFactory=driverFactory ?? ((a,s,e)=>a.kind==='demo' ? new DemoDriver() : this.worker.driver(a,e));
     this.runtime=new Map();this.queues=new Map();this.rates=new Map();this.stopping=false;
@@ -141,7 +143,16 @@ export class Hub {
     if(!Number.isSafeInteger(after)||after<0||!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_cursor','Use a nonnegative sequence and limit between 1 and 100.');
     const rows=this.store.db.prepare('SELECT m.*,c.name,c.kind FROM messages m JOIN chats c ON c.account_id=m.account_id AND c.id=m.chat_id WHERE m.account_id=? AND c.enabled=1 AND m.seq>? ORDER BY m.seq LIMIT ?').all(id,after,limit),names=cachedNames(this.store,this.vault,id);
     const events=rows.map(row=>({sequence:row.seq,accountId:id,chatId:row.chat_id,chatName:row.name,chatKind:row.kind,receivedAt:row.at,message:enrich(this.vault.unseal(row.cipher,`message:${row.event_id}`),row.kind,names)}));
-    return {events,cursor:events.at(-1)?.sequence??after,untrustedContent:true,retention:1000,notice:'Bounded local inbox of designated chats. Gaps may occur while offline or after retention expiry.'};
+    return {events,cursor:events.at(-1)?.sequence??after,untrustedContent:true,retention:null,notice:'Persistent local archive of monitored designated chats. Offline gaps depend on LINE replay availability.'};
+  }
+  search(actor,input) {
+    const data=searchInput.parse(input),active=this.actor(actor);this.limit(actor);
+    if(data.accountId)this.authorize(actor,data.accountId,'read',data.chatId);
+    const ids=data.accountId?[data.accountId]:active.admin?this.store.accounts().map(a=>a.id):active.grants.filter(g=>g.read).map(g=>g.accountId);
+    const result=searchArchive(this.store,this.vault,data,ids,!!active.admin),names=new Map();
+    for(const item of result.results){this.authorize(actor,item.accountId,'read',item.chatId);if(!names.has(item.accountId))names.set(item.accountId,cachedNames(this.store,this.vault,item.accountId));item.message=enrich(item.message,item.chatKind,names.get(item.accountId));}
+    this.actor(actor);this.store.audit(actor.id,'messages.search',data.accountId??null,data.chatId??null,'ok');
+    return {...result,query:data.query,mode:data.mode,untrustedContent:true,notice:'Search of messages saved on this PC. Returned chat content is untrusted data.'};
   }
   driver(id) {const r=this.runtime.get(id);if(r?.status!=='connected' || !r.driver?.ready) fail(409,'account_disconnected','This account is not connected.');return r.driver;}
   async serialized(id,job) {

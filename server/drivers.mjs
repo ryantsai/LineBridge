@@ -57,7 +57,11 @@ export class LineDriver {
     const token = qr ? undefined : await this.storage.get('bridge.authToken');
     if (!qr && !token) fail(409,'login_required','Connect this account with QR login first.');
     // BaseClient avoids high-level login's catch-all E2EE key re-registration on token resume.
-    await this.client.loginProcess.login(qr ? { qr: true } : { authToken: token });
+    try{await this.client.loginProcess.login(qr ? { qr: true } : { authToken: token });}
+    catch(error){
+      if(!qr&&error?.name==='RequestError'&&discoveryErrorCode(error)==='NOT_AUTHORIZED_DEVICE')fail(409,'login_required','LINE requires a new QR login to authorize this device.');
+      throw error;
+    }
     this.ready = true;
     return { displayName: this.client.profile.displayName, mid: this.client.profile.mid };
   }

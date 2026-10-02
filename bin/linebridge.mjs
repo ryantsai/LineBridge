@@ -3,7 +3,7 @@ import {parseArgs} from 'node:util';
 import {resolve} from 'node:path';
 import {VERSION} from '../server/version.mjs';
 
-const help=`LineBridge ${VERSION} — headless LINE MCP / HTTP gateway
+const help=`LineBridge ${VERSION} — local LINE MCP / HTTP gateway
 
 Usage: linebridge [serve|status|stop] [options]
 
@@ -14,26 +14,29 @@ Usage: linebridge [serve|status|stop] [options]
   --admin-port PORT        Local dashboard (default 3210)
   --gateway-port PORT      Local AI gateway (default 3211)
   --require-token          Require a Bearer token even for direct localhost
+  --trust-local            Opt in to token-free direct loopback development
   --version                Print version
   --help                   Print this help
 
-Node.js 24+ required. No desktop runtime, Rust or compiler.
+Node.js 24+ required for this CLI. The desktop installer bundles its runtime.
 Environment: LINE_BRIDGE_DATA, LINE_BRIDGE_ADMIN_PORT, LINE_BRIDGE_GATEWAY_PORT,
-             LINE_BRIDGE_REQUIRE_TOKEN=1.
-Both listeners bind to 127.0.0.1. Direct local AI clients need no token.
-Selecting a tunnel provider requires scoped Bearer tokens on the gateway.
+             LINE_BRIDGE_TRUST_LOCAL=1 (development only).
+Both listeners bind to 127.0.0.1. Scoped Bearer tokens are required by default.
+Run on your PC and expose only the AI gateway through a tunnel.
 `;
 async function main(){
-  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'require-token':{type:'boolean'},version:{type:'boolean'},help:{type:'boolean'}}});
+  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'require-token':{type:'boolean'},'trust-local':{type:'boolean'},version:{type:'boolean'},help:{type:'boolean'}}});
   if(values.help){console.log(help);return;}if(values.version){console.log(VERSION);return;}
   if(Number(process.versions.node.split('.')[0])<24)throw new Error('LineBridge requires Node.js 24 or newer.');
   const command=positionals[0]??'serve';if(positionals.length>1||!['serve','status','stop'].includes(command))throw new Error('Use linebridge serve, status or stop. See --help.');
   const {startService,defaultDataDirectory,metadata,validPort}=await import('../server/main.mjs');
   const dataDir=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
   if(command==='serve'){
-    const service=await startService({dataDir,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{}),...(values['require-token']!==undefined?{requireToken:values['require-token']}:{})});
-    const local=!values['require-token']&&process.env.LINE_BRIDGE_REQUIRE_TOKEN!=='1'&&service.tunnels.config().provider==='local';
-    console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'direct localhost; no token required':'scoped Bearer token required'}\nSetup: pair LINE on your phone, then select chats in the dashboard.\nData: ${service.dataDir}`);return;
+    if(values['trust-local']&&values['require-token'])throw new Error('Use either --trust-local or --require-token.');
+    const requireToken=values['require-token']===true||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1'||!(values['trust-local']===true||process.env.LINE_BRIDGE_TRUST_LOCAL==='1');
+    const service=await startService({dataDir,requireToken,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{})});
+    const local=!requireToken&&service.tunnels.config().provider==='local';
+    console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'explicit local trust; no token required':'scoped Bearer token required'}\nSetup: pair LINE, designate chats, enable monitoring, create an AI token and start a tunnel.\nData: ${service.dataDir}`);return;
   }
   const m=await metadata(dataDir);
   if(!m||m.runtime!=='node'||!validPort(m.adminPort)||typeof m.instance!=='string'||m.dataDir!==dataDir){console.log(JSON.stringify({status:'stopped',dataDir}));return;}

@@ -21,9 +21,10 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const adminServer=apps.admin.listen(adminPort,'127.0.0.1'),gatewayServer=apps.gateway.listen(gatewayPort,'127.0.0.1');
   t.after(()=>{hub.close();tunnels.close();adminServer.closeAllConnections();gatewayServer.closeAllConnections();adminServer.close();gatewayServer.close();store.close();});
   const a=await hub.addAccount({label:'Test sandbox',kind:'demo'});hub.designate(a.id,'demo-group',true);
+  await hub.monitor(a.id,true);
   const token=hub.createToken({name:'AI',grants:[{accountId:a.id,read:true,send:true}]});
   const base=`http://127.0.0.1:${gatewayPort}`,headers={Authorization:`Bearer ${token.token}`};
-  assert.equal((await fetch(`${base}/api/v1/accounts`)).status,200);
+  assert.equal((await fetch(`${base}/api/v1/accounts`)).status,401);
   assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:{...headers,Origin:'https://attacker.example'}})).status,403);
   assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...headers,Host:'attacker.example'}),403);
   assert.equal((await fetch(`${base}/admin/state`,{headers})).status,404);
@@ -32,12 +33,15 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const first=await fetch(endpoint,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':'http-send-001'},body:'{"text":"hello"}'});
   assert.equal(first.status,200);assert.equal((await first.json()).delivery,'sandbox_only');
   const read=await (await fetch(endpoint,{headers})).json();assert.ok(read.messages.some(m=>m.text==='hello'));
+  const search=await fetch(`${base}/api/v1/messages/search`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({query:'HELLO',mode:'phrase'})});assert.equal(search.status,200);assert.equal((await search.json()).results[0].message.text,'hello');
+  assert.equal((await fetch(`${base}/api/v1/messages/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{"query":"hello"}'})).status,401);
   const client=new Client({name:'integration-test',version:'1.0.0'});
   const transport=new StreamableHTTPClientTransport(new URL(`${base}/mcp`),{requestInit:{headers}});
   await client.connect(transport);t.after(()=>client.close());
-  const toolList=await client.listTools();assert.equal(toolList.tools.length,5);
+  const toolList=await client.listTools();assert.equal(toolList.tools.length,6);
   const result=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-group',limit:10}});
   assert.equal(JSON.parse(result.content[0].text).untrustedContent,true);
+  const archived=await client.callTool({name:'line_search_messages',arguments:{query:'hello'}});assert.equal(JSON.parse(archived.content[0].text).results.length,1);
   const denied=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-openchat'}});assert.equal(denied.isError,true);
   const local=`http://127.0.0.1:${adminPort}`;
   assert.equal((await fetch(`${local}/admin/state`)).status,401);
@@ -72,7 +76,7 @@ test('same-VM HTTP and official MCP clients read/send without minting a token',a
   const endpoint=`${base}/api/v1/accounts/${a.id}/chats/demo-group/messages`;
   const sent=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'local-http-001'},body:JSON.stringify({text:'local synthetic message'})});assert.equal(sent.status,200);
   const client=new Client({name:'same-VM-agent',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));t.after(()=>client.close());
-  assert.equal((await client.listTools()).tools.length,5);
+  assert.equal((await client.listTools()).tools.length,6);
   const read=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-group'}});assert.ok(JSON.parse(read.content[0].text).messages.some(m=>m.text==='local synthetic message'));
   const mcpSent=await client.callTool({name:'line_send_message',arguments:{accountId:a.id,chatId:'demo-group',text:'MCP synthetic message',idempotencyKey:'local-mcp-001'}});assert.equal(JSON.parse(mcpSent.content[0].text).delivery,'sandbox_only');
   const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];

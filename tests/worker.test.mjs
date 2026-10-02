@@ -21,6 +21,9 @@ test('storage and incoming-message acknowledgements follow durable encrypted wri
   store.putChat(a.id,{id:'chat',name:'room',kind:'group'});store.designate(a.id,'chat',true);store.setSetting(`monitor:${a.id}`,true);
   worker.handle({type:'capture',id:'c1',accountId:a.id,chatId:'chat',message:{id:'m1',text:'private'}});assert.equal(acks.at(-1).ok,true);assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM messages').get().n,1);
   worker.handle({type:'capture',id:'c2',accountId:a.id,chatId:'chat',message:{}});assert.equal(acks.at(-1).ok,false);
+  const prepare=store.db.prepare.bind(store.db);store.db.prepare=sql=>{if(sql.startsWith('INSERT OR REPLACE INTO message_search'))throw new Error('synthetic index failure');return prepare(sql);};
+  worker.handle({type:'capture',id:'c3',accountId:a.id,chatId:'chat',message:{id:'m2',text:'retry'}});assert.equal(acks.at(-1).ok,false);assert.equal(prepare('SELECT COUNT(*) n FROM messages').get().n,1);
+  store.db.prepare=prepare;worker.handle({type:'capture',id:'c4',accountId:a.id,chatId:'chat',message:{id:'m2',text:'retry'}});assert.equal(acks.at(-1).ok,true);assert.equal(prepare('SELECT COUNT(*) n FROM messages').get().n,2);
 });
 test('worker preserves preparation-rejected sends and rejects pending jobs when closing',async()=>{
   const worker=new ProtocolWorker(null,null,null);let error;worker.pending.set('send',{timer:setTimeout(()=>{},5000),reject:e=>{error=e;}});

@@ -8,7 +8,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 const root=process.cwd(),data=mkdtempSync(join(tmpdir(),'linebridge-test-'));
 const admin='http://127.0.0.1:4510',gateway='http://127.0.0.1:4511';
-const service=spawn(process.execPath,[join(root,'bin/linebridge.mjs'),'serve'],{cwd:root,env:{...process.env,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4510',LINE_BRIDGE_GATEWAY_PORT:'4511'},stdio:'ignore',windowsHide:true});
+const service=spawn(process.execPath,[join(root,'bin/linebridge.mjs'),'serve'],{cwd:root,env:{...process.env,LINE_BRIDGE_TRUST_LOCAL: "1",LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4510',LINE_BRIDGE_GATEWAY_PORT:'4511'},stdio:'ignore',windowsHide:true});
 let client;
 try{
   for(let i=0;i<100;i++){try{if((await fetch(`${gateway}/health`)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
@@ -19,10 +19,11 @@ try{
   client=new Client({name:'LineBridge integration check',version:'1.0'});
   await client.connect(new StreamableHTTPClientTransport(new URL(`${gateway}/mcp`)));
   assert.equal((await call('/state')).tokens.length,0);
-  const tools=await client.listTools();assert.equal(tools.tools.length,5);
+  const tools=await client.listTools();assert.equal(tools.tools.length,6);
   const result=await client.callTool({name:'line_list_chats',arguments:{accountId:id}});assert.ok(!result.isError);const chats=JSON.parse(result.content[0].text);assert.equal(chats.length,1);assert.equal(chats[0].id,'demo-group');
   const sent=await client.callTool({name:'line_send_message',arguments:{accountId:id,chatId:'demo-group',text:'synthetic-integration-message',idempotencyKey:'integration-0001'}});assert.ok(!sent.isError);
   const events=await client.callTool({name:'line_poll_events',arguments:{accountId:id,after:0}});assert.ok(!events.isError);const inbox=JSON.parse(events.content[0].text);assert.equal(inbox.events.length,1);assert.equal(inbox.events[0].message.text,'synthetic-integration-message');
+  const archived=await client.callTool({name:'line_search_messages',arguments:{query:'synthetic-integration-message',mode:'phrase'}});assert.ok(!archived.isError);assert.equal(JSON.parse(archived.content[0].text).results[0].message.text,'synthetic-integration-message');
   const denied=await client.callTool({name:'line_read_messages',arguments:{accountId:id,chatId:'demo-openchat'}});assert.equal(denied.isError,true);assert.equal(JSON.parse(denied.content[0].text).error,'chat_not_designated');
   const duplicate=await client.callTool({name:'line_send_message',arguments:{accountId:id,chatId:'demo-group',text:'synthetic-integration-message',idempotencyKey:'integration-0001'}});assert.equal(JSON.parse(duplicate.content[0].text).replayed,true);
   await call(`/accounts/${id}/local-access`,'PUT',{read:true,send:false});

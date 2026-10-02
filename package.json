@@ -1,11 +1,26 @@
 {
   "name": "line-bridge",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
-  "description": "LineBridge: headless LINE MCP/HTTP gateway with an encrypted SQLite inbox and a zh-TW web dashboard",
+  "description": "LineBridge desktop + tunnel LINE gateway with an encrypted, multilingual searchable SQLite archive",
   "license": "UNLICENSED",
-  "bin": {"linebridge": "bin/linebridge.mjs"},
-  "files": ["bin/", "server/*.mjs", "protocol/*.mjs", "protocol/third-party-notices.txt", "public/", "examples/", "openapi.json", "README.zh-TW.md", "PACKAGING.md", "CONNECTIONS.md", "ALIASES.md"],
+  "bin": {
+    "linebridge": "bin/linebridge.mjs"
+  },
+  "files": [
+    "bin/",
+    "server/*.mjs",
+    "protocol/*.mjs",
+    "protocol/third-party-notices.txt",
+    "public/",
+    "examples/",
+    "openapi.json",
+    "README.zh-TW.md",
+    "PACKAGING.md",
+    "CONNECTIONS.md",
+    "ALIASES.md",
+    "SEARCH.md"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -17,7 +32,12 @@
     "test:smoke": "node tests/service-smoke.mjs",
     "test:tunnel": "node tests/tunnel-smoke.mjs",
     "package": "node scripts/package.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "desktop": "node scripts/desktop.mjs --dev",
+    "build:windows": "node scripts/desktop.mjs --platform=windows",
+    "build:macos": "node scripts/desktop.mjs --platform=macos",
+    "test:desktop": "node tests/desktop-smoke.mjs",
+    "verify:macos": "node scripts/verify-macos.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -26,5 +46,9 @@
     "lineclientbot": "0.1.3",
     "qrcode": "^1.5.4",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "esbuild": "0.28.2"
   }
 }

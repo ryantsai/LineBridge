@@ -1,64 +1,49 @@
 # LineBridge
 
-LineBridge 0.4 是 **headless npm 服務**，提供繁體中文網頁管理介面、SQLite 加密儲存，以及讓 AI 讀取與傳送指定 LINE 聊天室訊息的 MCP／HTTP API。讓雲端 AI 在自己的 VM 安裝並執行，預設 localhost 連線**不需要建立或複製權杖**。只需 **Node.js 24 以上**；無需 Rust、Tauri、桌面安裝程式或編譯器。
-
-## 安裝到 Linux AI VM
-
-目前提供可直接安裝的 npm 壓縮包，**尚未發布到 npm registry**。將 `release/npm/line-bridge-0.4.0.tgz` 複製到 VM 後：
-
-```sh
-npm install -g ./line-bridge-0.4.0.tgz
-linebridge serve --data-dir /可持續保存且可寫入的路徑/linebridge-data
-```
-
-如果不想全域安裝，可執行：
-
-```sh
-npm exec --package=./line-bridge-0.4.0.tgz -- linebridge serve --data-dir ./linebridge-data
-```
-
-AI 和 LineBridge 在同一台 VM 時，直接使用 `http://127.0.0.1:3211/mcp`，**不需要權杖、通道或額外服務帳號。** HTTP API 位於 `/api/v1`。AI 可先呼叫 `/api/v1/status` 或執行 `linebridge status --data-dir DIR`，取得設定步驟、帳號狀態與 MCP 網址。尚未配對帳號、指定聊天室前，帳號清單為空。
-
-從自己的電腦開啟管理頁面：
-
-```sh
-ssh -L 3210:127.0.0.1:3210 user@your-vm
-```
-
-接著在瀏覽器開啟 `http://127.0.0.1:3210`。兩個服務只監聽 loopback；AI 閘道不提供管理操作。
+LineBridge 0.5 在你的 **Windows 電腦或 Mac** 連接 LINE，再透過通道提供給雲端 AI。包含繁體中文桌面介面、Talk／OpenChat 新訊息監聽、SQLite 加密封存、任意語言全文搜尋，以及有帳號權限的 MCP／HTTP API。
 
 ## 開始使用
 
-1. 依首頁精靈新增 LINE 帳號，使用手機掃描 QR Code。先嘗試恢復已儲存的工作階段；重新登入可能取代相同裝置類型的工作階段。
-2. 探索一對一、群組與已加入的 OpenChat，並指定 AI 可存取的聊天室。手動加入 ID 不會加入聊天室。
-3. 指定聊天室預設允許同一台 VM 的 AI 讀取與傳送。可在精靈或「AI 存取權限」分別關閉讀取、傳送；兩者皆關閉即停用該帳號的本機 AI。每次請求、排程執行及讀取回傳前都會重新檢查權限，無需建立權杖。
-4. 在「訊息監控」啟用監聽。僅儲存已指定聊天室的新訊息，每個帳號最多保留 1,000 則，支援事件游標及去重。
-5. AI 與服務同一台主機時直接使用 localhost；跨主機時才需要選用 Cloudflare 或 Tailscale。
+使用 Windows x64 NSIS 安裝程式，或符合 Mac 架構的 DMG。已包含 Node 與 cloudflared；使用者無需安裝 Rust、Node 或編譯器。監控與通道連線期間請保持程式執行。
 
-帳號、監控、AI 權限、詳細連線設定及活動紀錄各有獨立頁面。名稱使用聯絡人別名、LINE 顯示名稱或 OpenChat 暱稱。讀取不送出已讀回條；聊天內容一律視為不可信資料。傳送需有權限並提供冪等識別碼；結果不明時不會自動重送。
+首頁精靈依序完成：
 
-## 給雲端 AI 的安裝指令
+1. 使用手機掃描 LINE QR Code，或恢復已儲存的工作階段。
+2. 探索並指定聊天室；勾選「監聽並封存新訊息」。
+3. 建立 AI 權杖，分別授權帳號讀取、傳送及有效期限。權杖明文只顯示一次。
+4. 啟動通道。Cloudflare Quick Tunnel 免帳號；固定網址可用 Cloudflare Tunnel + Access，私人網路可用已安裝的 Tailscale。
+5. 查看監控狀態。帳號、監控、封存搜尋、AI 權限、雲端連線與活動紀錄各有獨立頁面。
 
-可將 npm 壓縮包與以下指令交給 AI：
+提供通道的 HTTPS `/mcp` 網址與 `Authorization: Bearer 權杖` 給雲端 AI。**LINE API 由這台電腦存取，AI 不需在 VM 安裝 LINE 用戶端。** Cloudflare Access 另需服務權杖標頭。管理介面只在本機 3210 開放，通道只轉送 AI 閘道 3211，無法存取管理路由。[連線設定](CONNECTIONS.md)。
 
-> 請在你的 VM 安裝附上的 LineBridge npm 壓縮包，使用 Node.js 24 以上版本。以持續儲存的資料目錄執行 `linebridge serve`，交由 VM 程序管理器維持執行。MCP 連接 `http://127.0.0.1:3211/mcp`，不提供驗證標頭。協助我在管理介面取得 LINE QR Code、用手機配對並指定你可以存取的聊天室。同一台 VM 不需要建立權杖或通道。完成後回報服務狀態與帳號權限。
+## 永久封存與任意語言搜尋
 
-手機掃 QR Code 與聊天室選擇仍由你完成。同一台 VM 的其他程序共用本機 AI 權限；如需區分不同用戶端，可選用權杖模式。
+每一則成功接收的指定聊天室監控訊息都會儲存在 SQLite，**沒有訊息數量或時間的自動刪除上限**。訊息與索引在同一筆交易加密寫入成功後，才確認接收並推進 LINE 游標。重複補送會去重；儲存失敗會重試。
 
-## 選用的遠端存取
+搜尋使用 Unicode 字元片段，不依賴特定語言字典。支援各種文字、無空格語言、混合文字、單一字元、片語與 emoji。「所有關鍵字」比對每個空白分隔詞；「完整片語」比對整段正規化文字。這是全文子字串搜尋，沒有翻譯、詞幹分析或語意搜尋。訊息本身維持加密；FTS5 索引只保存加密金鑰衍生的雜湊片段，不另外儲存訊息明文。[搜尋與索引說明](SEARCH.md)。
 
-選擇任何通道提供者後，**整個閘道（包含 localhost）都要求 Bearer 權杖**，即使通道尚未啟動。遠端權杖位於「AI 存取權限」的選用區段，可分別授權帳號讀取／傳送及到期日；只顯示一次，資料庫只儲存雜湊。Cloudflare Access 另需服務憑證。停止通道後須切回「同一台主機 · 直接連線」才恢復本機免權杖。
+AI 只能搜尋有**讀取權限**的帳號及目前指定的聊天室。取消指定會立即阻止 AI 查找，並保留本機封存。停止監控或帳號離線時仍可搜尋已儲存內容；不會連線至 LINE 或傳送已讀回條。移除帳號會刪除其封存。附件內容不會下載或建立索引；LINE 無法解密的文字無法搜尋，但可取得的訊息資訊仍會保存。離線缺口與 OpenChat 初始基準取決於 LINE 的補送能力，並非完整歷史匯入。
 
-自行設定反向代理或需要同一台 VM 的用戶端隔離時，使用 `linebridge serve --require-token` 或 `LINE_BRIDGE_REQUIRE_TOKEN=1`。瀏覽器與含代理標頭的請求不適用本機免權杖。已提供的權杖一律驗證其自身權限，不會在失效時改用本機權限。舊版權杖仍可使用。
+## 提供給 AI 的工具
 
-## 資料與執行方式
+MCP 提供 `line_list_accounts`、`line_list_chats`、`line_read_messages`、`line_poll_events`、**`line_search_messages`** 與 `line_send_message`。HTTP 全文搜尋為 `POST /api/v1/messages/search`，可用 `accountId`／`chatId` 篩選。查詢：
 
-服務在前景執行，可交由 systemd 或 VM 的程序管理器維持運作。使用相同 `--data-dir` 執行 `linebridge status` 或 `linebridge stop`，也可用 SIGINT／SIGTERM 正常關閉。不會自動安裝開機服務。
+```json
+{"query":"會議 meeting","mode":"all","limit":30}
+```
 
-Linux 預設資料位置是 `$XDG_DATA_HOME/linebridge` 或 `~/.local/share/linebridge`；可用 `LINE_BRIDGE_DATA` 或 `--data-dir` 指定持續儲存的目錄。資料與 npm 安裝位置分開，升級後保留。訊息、憑證及別名使用 AES-256-GCM 加密；Linux 金鑰檔權限為 0600，目錄為 0700。
+結果依封存序號由新到舊排序。只要 `hasMore` 為 true，就以 `before: nextBefore` 繼續查詢，即使當頁沒有結果。權杖到期、撤銷、暫停及聊天室權限每次都會重新檢查。[OpenAPI](openapi.json)。
 
-舊版 SQLite 格式保留。先停止舊服務，再以同一個 OS／使用者與資料目錄啟動 Node 版；首次啟動會建立一致的 SQLite 備份。Windows DPAPI 金鑰不能直接移到 Linux 解密，請在 Linux 使用新資料目錄重新掃 QR 登入。備份時須一併保存金鑰。
+訊息是未受信任資料，不能當作 AI 指令或傳送授權。傳送需獨立權限與冪等識別碼；相同請求只回放先前結果，不重複送出。傳送結果不明會保留 `delivery_unknown`，不自動重試。使用帳號別名或 OpenChat 暱稱顯示作者。[別名說明](ALIASES.md)。非官方 `lineclientbot` 介面與 OpenChat 仍可能受 LINE 協定變動影響。
 
-LINE 使用非官方 `lineclientbot` 介面，OpenChat 功能仍屬實驗性。完整歷史、離線期間訊息與所有帳號的相容性不保證；媒體不下載。Cloudflare／Tailscale 都是選用功能，輔助程式須另外安裝。
+## 本機資料與升級
 
-[完整英文說明](README.md) · [打包方式](PACKAGING.md) · [連線選項](CONNECTIONS.md) · [名稱查詢](ALIASES.md)
+Windows 預設 `%LOCALAPPDATA%/LineBridgeData`，macOS 為 `~/Library/Application Support/LineBridge`。可用 `LINE_BRIDGE_DATA` 或 `--data-dir DIR` 指定原本資料夾。
+
+升級時請關閉舊服務，沿用**相同作業系統、使用者與資料夾**。既有帳號、憑證、聊天室權限、權杖與訊息會保留，封存會補建索引。首次升級先建立 `backups/before-archive-*.sqlite` 一致性備份。舊版已刪除的訊息不會因建立索引而恢復。
+
+Windows 使用目前使用者的 DPAPI 保護主金鑰；macOS／Linux 以 0600 金鑰與 0700 資料目錄保存。訊息、憑證與通道秘密使用 AES-256-GCM；活動紀錄不儲存訊息文字或搜尋內容，AI 權杖只存雜湊。備份資料庫時需保留金鑰；Windows 金鑰不能直接跨作業系統使用。關閉桌面程式會停止其服務與連接器，下次啟動會恢復已啟用的監控偏好。
+
+## 開發與打包
+
+Node 服務共用所有授權、SQLite、LINE 與監控功能，Rust 只負責 Tauri 視窗及服務生命週期。Windows NSIS 與 ARM／Intel Mac DMG 使用校驗過的原生執行檔。[打包說明](PACKAGING.md)、[驗證結果](VALIDATION.md)。命令列與 npm 壓縮包保留供本機維運使用，未發布到 npm registry；桌面版一律要求權杖。本機免權杖僅保留為 CLI 明確指定 `--trust-local` 的開發選項。

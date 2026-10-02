@@ -7,6 +7,7 @@
     <nav aria-label="主要導覽">
       <button class="nav active" data-tab="setup" aria-current="page"><span class="icon icon-play-circle" aria-hidden="true"></span><span class="nav-text">開始設定</span></button>
       <button class="nav" data-tab="monitoring"><span class="icon icon-chats-circle" aria-hidden="true"></span><span class="nav-text">訊息監控</span></button>
+      <button class="nav" data-tab="archive"><span class="icon icon-magnifying-glass" aria-hidden="true"></span><span class="nav-text">封存搜尋</span></button>
       <button class="nav" data-tab="accounts"><span class="icon icon-users" aria-hidden="true"></span><span class="nav-text">帳號與聊天室</span></button>
       <div class="nav-divider"></div><div class="nav-caption">設定</div>
       <button class="nav" data-tab="access"><span class="icon icon-key" aria-hidden="true"></span><span class="nav-text">AI 存取權限</span></button>
@@ -21,13 +22,23 @@
     <section id="setup" class="page active" aria-label="設定精靈">
       <ol class="wizard-steps" aria-label="設定進度"><li class="current" aria-current="step"><span>1</span><strong>連接帳號</strong></li><li><span>2</span><strong>選擇聊天室</strong></li><li><span>3</span><strong>AI 權限</strong></li><li><span>4</span><strong>AI 連線</strong></li><li><span>5</span><strong>完成</strong></li></ol>
       <div class="wizard-card" id="wizard-content"></div>
-      <p class="wizard-footnote">讓 AI 在自己的 VM 安裝並啟動，掃描 LINE QR Code、選好聊天室後即可使用。</p>
+      <p class="wizard-footnote">LINE 連線與訊息留在這台電腦，透過受保護的通道提供給雲端 AI。</p>
     </section>
     <section id="monitoring" class="page">
-      <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 存取</span><strong class="text-status" id="metric-tokens">—</strong><small id="metric-access-detail">本機免權杖</small></div><div class="metric"><span>AI 連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">同一台主機 · 直接連線</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>
+      <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 存取</span><strong class="text-status" id="metric-tokens">—</strong><small id="metric-access-detail">有效的 AI 權杖</small></div><div class="metric"><span>AI 連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">同一台主機 · 直接連線</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>
       <div class="section-heading"><div><h2>新訊息監聽</h2><p>追蹤指定聊天室的新訊息，隨時查看本機收件匣。</p></div><select id="monitor-account" aria-label="監控帳號"></select></div>
       <div class="panel monitor-panel"><div class="monitor-bar"><div><strong id="monitor-account-name">選擇帳號</strong><p id="monitor-detail">選擇已連線的帳號以開始監聽。</p></div><button class="button" id="toggle-monitor" disabled>開始監聽</button></div><div id="monitor-streams" class="monitor-streams"></div><div id="monitor-feed" class="monitor-feed"><div class="empty"><span class="empty-icon"><span class="icon icon-chats-circle" aria-hidden="true"></span></span><h3>訊息會顯示在這裡</h3><p>啟用監聽後，新訊息會儲存到本機的加密收件匣。</p></div></div></div>
-      <p class="footnote">只保留已指定聊天室的近期訊息。離線期間與保留上限之外的訊息可能不完整。</p>
+      <p class="footnote">所有成功接收的監控訊息都會加密儲存於 SQLite，不會因訊息數量自動刪除。可在「封存搜尋」依全文查找；離線缺口取決於 LINE 能否補送。</p>
+    </section>
+    <section id="archive" class="page">
+      <div class="section-heading"><div><h2>搜尋你的訊息封存</h2><p>搜尋任意語言與混合文字，查找已儲存的訊息。</p></div><span class="badge" id="archive-count">正在讀取封存…</span></div>
+      <form id="archive-form" class="panel archive-form">
+        <div class="archive-query"><label class="sr-only" for="archive-query">搜尋文字</label><input id="archive-query" name="query" type="search" maxlength="200" required placeholder="輸入關鍵字或片語，例如：下週會議、meeting、مرحبا…"><button class="button primary" id="archive-submit" type="submit">搜尋封存</button></div>
+        <div class="archive-filters"><label>比對方式<select name="mode"><option value="all">所有關鍵字</option><option value="phrase">完整片語</option></select></label><label>帳號<select name="accountId"><option value="">所有帳號</option></select></label><label>聊天室<select name="chatId" disabled><option value="">所有聊天室</option></select></label></div>
+      </form>
+      <p id="archive-status" class="archive-status" role="status" aria-live="polite">輸入文字，搜尋已監控並儲存的訊息。單一字元、片語與 emoji 皆可搜尋。</p>
+      <div id="archive-results" class="archive-results"></div><button id="archive-more" class="button" hidden>載入較早的訊息</button>
+      <p class="footnote">搜尋不會連線至 LINE 或發送已讀回條。封存與索引均不儲存訊息明文；AI 只能搜尋擁有讀取權限的指定聊天室。移除帳號時會刪除該帳號的封存。</p>
     </section>
     <section id="accounts" class="page">
       <div class="section-heading"><div><h2>帳號工作區</h2><p>選擇帳號，再勾選允許 AI 存取及監聽的聊天室。</p></div><button class="button primary" id="add-account"><span class="icon icon-plus" aria-hidden="true"></span>新增帳號</button></div>
@@ -38,18 +49,18 @@
       <div class="footnote">登入憑證與監聽訊息加密儲存在這台電腦。OpenChat 支援依帳號與 LINE 回應而定。</div>
     </section>
     <section id="access" class="page">
-      <div class="section-heading"><div><h2>AI 存取權限</h2><p>同一台 VM 的 AI 直接連接 localhost，不需要建立或複製權杖。</p></div><span class="badge good" id="local-access-mode">本機免權杖</span></div>
-      <div class="panel"><div class="pane-label">本機 AI · 帳號權限</div><p class="muted" id="local-access-description">只有指定聊天室可供 AI 存取。讀取與傳送可分別調整，關閉兩者即可停用該帳號的本機 AI 存取。</p><div id="local-access-list"></div></div>
-      <div class="panel connection-card"><div><div class="eyebrow">連接同一台 VM 上的 AI</div><h3>提供 MCP 網址即可</h3><p id="access-connection-description">直接連線模式不需要驗證標頭。也可以使用 HTTP API 與 OpenAPI 結構。</p></div><div class="endpoint"><span>MCP · Streamable HTTP</span><code id="mcp-url">http://127.0.0.1:3211/mcp</code><span>HTTP API · OpenAPI 結構</span><code id="api-url">http://127.0.0.1:3211/openapi.json</code></div></div>
-      <details class="panel provider-advanced"><summary>遠端用戶端權杖（選用）</summary><p class="muted">啟用跨主機通道或 --require-token 後，整個閘道都要求 Bearer 權杖。Cloudflare Access 另需提供服務憑證。</p><button class="button" id="new-token">＋ 建立遠端權杖</button><div id="token-list"></div></details>
+      <div class="section-heading"><div><h2>AI 存取權限</h2><p>建立可撤銷、有期限的帳號權杖，授權雲端 AI。</p></div><span class="badge" id="local-access-mode">閘道要求權杖</span></div>
+      <div class="panel" id="local-access-panel" hidden><div class="pane-label">本機開發模式 · 帳號權限</div><p class="muted" id="local-access-description">只有指定聊天室可供 AI 存取。讀取與傳送可分別調整。</p><div id="local-access-list"></div></div>
+      <div class="panel connection-card"><div><div class="eyebrow">連接你的雲端 AI</div><h3>MCP 網址與存取權杖</h3><p id="access-connection-description">提供通道的 HTTPS 網址與 Bearer 權杖給 AI。也可使用 HTTP API 與 OpenAPI。</p></div><div class="endpoint"><span>MCP · Streamable HTTP</span><code id="mcp-url">啟動通道後取得網址</code><span>HTTP API · OpenAPI 結構</span><code id="api-url">啟動通道後取得網址</code></div></div>
+      <div class="panel provider-advanced"><h3>AI 用戶端權杖</h3><p class="muted">每個用戶端可分別授權讀取、全文搜尋與傳送。請提供 Authorization: Bearer 權杖；Cloudflare Access 另需服務憑證。</p><button class="button" id="new-token">＋ 建立 AI 權杖</button><div id="token-list"></div></div>
     </section>
     <section id="tunnel" class="page">
-      <div class="section-heading"><div><h2>雲端連線</h2><p>AI 與 LineBridge 在同一台 VM 時，使用直接連線即可。</p></div><span class="badge" id="tunnel-badge">尚未啟動</span></div>
+      <div class="section-heading"><div><h2>雲端連線</h2><p>讓雲端 AI 透過 HTTPS 連接這台電腦上的 LINE 閘道。</p></div><span class="badge" id="tunnel-badge">尚未啟動</span></div>
       <div class="tunnel-grid">
         <form class="panel form-panel" id="tunnel-form">
           <h3>連接你的 AI</h3>
           <label>連線提供者<select name="provider"><option value="local">同一台主機 · 直接連線</option><option value="cloudflare_quick">Cloudflare Quick Tunnel · 免帳號</option><option value="cloudflare">Cloudflare Tunnel + Access · 固定網址</option><option value="tailscale">Tailscale Serve · 私人 tailnet</option></select></label>
-          <div id="local-connection-info" class="provider-intro" hidden><span class="provider-icon icon icon-plug" aria-hidden="true"></span><h3>安裝在 AI 的 VM 即可使用</h3><p>AI 透過 localhost 存取 MCP 或 HTTP API，預設不需要權杖、通道或服務帳號。管理介面與訊息監聽仍可正常使用。</p><div class="notice">掃描 LINE QR Code 並指定聊天室後即可連接。從自己的瀏覽器管理遠端 VM 時，可使用 SSH 轉送管理連接埠。</div></div>
+          <div id="local-connection-info" class="provider-intro" hidden><span class="provider-icon icon icon-plug" aria-hidden="true"></span><h3>先使用本機連線</h3><p>本機 AI 可透過 localhost 與 Bearer 權杖存取。雲端 AI 請選擇通道提供者，再提供通道網址。</p><div class="notice">管理介面只在這台電腦開放。監聽與全文搜尋在通道停止時仍可使用。</div></div>
           <div id="quick-tunnel-info" class="provider-intro" hidden><span class="provider-icon icon icon-link" aria-hidden="true"></span><h3>一鍵取得暫時網址</h3><p>不需帳號或網域。按下「啟動連線」，即可取得 HTTPS 網址，供已授權的 AI 用戶端使用。</p><div class="notice">網址可從網際網路連接；讀取及傳送仍需要 LineBridge AI 權杖。每次啟動網址都會改變，停止或關閉程式後失效。</div><p class="muted">適合短期測試。MCP 使用 JSON 回應；Quick Tunnel 不支援 SSE，也不保證持續可用。</p></div>
           <div id="cloudflare-oauth" class="provider-intro">
             <div class="provider-heading"><h3>Cloudflare 帳號</h3><span class="provider-tag">PKCE</span></div><p id="cf-oauth-status"></p>
@@ -67,7 +78,7 @@
           <details id="cloudflare-fields" class="provider-advanced"><summary>手動設定既有 Cloudflare Tunnel</summary><label>閘道主機名稱<input name="hostname" placeholder="line.example.com" autocomplete="off"></label><label>Access 團隊網域<input name="teamDomain" placeholder="your-team.cloudflareaccess.com" autocomplete="off"></label><label>Access 應用程式 AUD<input name="audience" placeholder="應用程式的 audience tag" autocomplete="off"></label><label id="connector-label">Tunnel 連接器權杖<input name="connectorToken" type="password" autocomplete="off" placeholder="加密儲存，填空可使用既有權杖"></label></details>
           <div class="divider"></div><div class="button-row"><button class="button primary" type="button" id="start-tunnel">啟動連線</button><button class="button" type="button" id="stop-tunnel">停止</button><button class="button" type="submit">儲存設定</button></div><p class="muted" id="tunnel-health"></p>
         </form>
-        <div class="connection-side"><div class="panel connection-output"><div class="eyebrow">AI 連線網址</div><h3>把網址交給你的 AI</h3><code id="connection-url" class="wrap-code">啟動後會顯示連線網址</code><button class="button" id="copy-connection-url" disabled>複製網址</button><p>HTTP API 使用 <code>/api/v1</code>，MCP 使用 <code>/mcp</code>。</p><div class="notice" id="connection-auth">同一台 VM 預設免權杖。只有已指定的聊天室與允許的讀取、傳送操作可供 AI 使用。</div></div><div class="panel connection-output"><div class="eyebrow">選擇適合的連線</div><dl class="provider-comparison"><dt>同一台主機</dt><dd>AI 與 LineBridge 在同一台 VM，直接使用 localhost。</dd><dt>Quick Tunnel</dt><dd>免註冊，臨時測試。網址會改變。</dd><dt>Cloudflare + Access</dt><dd>固定網址與服務驗證。可用瀏覽器 OAuth 建立設定。</dd><dt>Tailscale</dt><dd>私人網路，使用既有用戶端。AI 主機須加入同一 tailnet。</dd></dl><p class="muted">選用通道只轉送 AI 閘道。管理介面維持獨立的本機連接埠。</p></div></div>
+        <div class="connection-side"><div class="panel connection-output"><div class="eyebrow">AI 連線網址</div><h3>把網址交給你的 AI</h3><code id="connection-url" class="wrap-code">啟動後會顯示連線網址</code><button class="button" id="copy-connection-url" disabled>複製網址</button><p>HTTP API 使用 <code>/api/v1</code>，MCP 使用 <code>/mcp</code>。</p><div class="notice" id="connection-auth">提供通道網址與 Bearer 權杖，授權 AI 讀取、全文搜尋或傳送指定聊天室訊息。</div></div><div class="panel connection-output"><div class="eyebrow">選擇適合的連線</div><dl class="provider-comparison"><dt>同一台主機</dt><dd>本機 AI 以 localhost 與 Bearer 權杖連接。</dd><dt>Quick Tunnel</dt><dd>免註冊，臨時測試。網址會改變。</dd><dt>Cloudflare + Access</dt><dd>固定網址與服務驗證。可用瀏覽器 OAuth 建立設定。</dd><dt>Tailscale</dt><dd>私人網路，使用既有用戶端。AI 主機須加入同一 tailnet。</dd></dl><p class="muted">選用通道只轉送 AI 閘道。管理介面維持獨立的本機連接埠。</p></div></div>
       </div>
     </section>
     <section id="activity" class="page"><div class="section-heading"><div><h2>閘道活動紀錄</h2><p>顯示讀取、傳送、帳號異動與權杖事件，紀錄不含訊息內容。</p></div><span class="badge">最近 80 筆</span></div><div class="panel table-panel"><table><thead><tr><th>時間</th><th>操作</th><th>帳號／聊天室</th><th>執行者</th><th>結果</th></tr></thead><tbody id="audit-list"></tbody></table></div></section>
