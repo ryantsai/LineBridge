@@ -20,15 +20,15 @@ async function start(){
   child=spawn(serviceOnly?node:native,serviceOnly?[join(root,'runtime/app/server/desktop.mjs')]:[],{cwd:root,env:{...process.env,LINE_BRIDGE_DATA:data,LINE_BRIDGE_ADMIN_PORT:'4530',LINE_BRIDGE_GATEWAY_PORT:'4531',LINE_BRIDGE_HIDE_WINDOW:'1',LINE_BRIDGE_CLOUDFLARED:join(root,'tools',process.platform==='win32'?'cloudflared.exe':'cloudflared')},stdio:['pipe','ignore','pipe'],windowsHide:true});
   let error,output='';child.on('error',e=>{error=e;});child.stderr.on('data',b=>{output+=b;});
   for(let i=0;i<200;i++){
-    if(error)throw error;if(child.exitCode!==null)throw new Error('Desktop exited before startup');
+    if(error)throw error;if(child.exitCode!==null||child.signalCode!==null)throw new Error(`Desktop exited before startup: ${output.slice(0,8000)}`);
     try{const health=await fetch(`${gateway}/health`,{signal:AbortSignal.timeout(300)});if(health.ok){assert.equal((await health.json()).version,VERSION);meta=JSON.parse(await readFile(join(data,'service.json'),'utf8'));return;}}catch{}
     await wait(100);
   }
-  throw new Error(`Desktop did not start its bundled service: ${output.slice(-2000)}`);
+  throw new Error(`Desktop did not start its bundled service: ${output.slice(0,8000)}`);
 }
 async function stop(){
   if(!child)return;
-  if(child.exitCode===null){if(serviceOnly)child.stdin.write('shutdown\n');else child.kill();await Promise.race([once(child,'exit'),wait(15000)]);}
+  if(child.exitCode===null&&child.signalCode===null){if(serviceOnly)child.stdin.write('shutdown\n');else child.kill();await Promise.race([once(child,'exit'),wait(15000)]);}
   // Parent death closes the private pipe; the service closes LINE and tunnels.
   for(let i=0;i<100;i++){if(!existsSync(join(data,'service.json')))break;await wait(100);}
   assert.equal(existsSync(join(data,'service.json')),false,'Owned service must not survive the desktop');

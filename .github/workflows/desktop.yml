@@ -2,6 +2,12 @@ name: Build LineBridge desktop installers
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Native installers to build and verify
+        type: choice
+        default: all
+        options: [all, windows, macos]
   push:
     branches: [main]
   pull_request:
@@ -17,19 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows x64 NSIS
-            runner: windows-2025
-            artifact: windows-x64
-            build: build:windows
-          - name: macOS Apple Silicon DMG
-            runner: macos-15
-            artifact: macos-arm64
-            build: build:macos
-          - name: macOS Intel DMG
-            runner: macos-15-intel
-            artifact: macos-x64
-            build: build:macos
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"name":"macOS Apple Silicon DMG","runner":"macos-15","artifact":"macos-arm64","build":"build:macos"},{"name":"macOS Intel DMG","runner":"macos-15-intel","artifact":"macos-x64","build":"build:macos"}]' || inputs.platform == 'windows' && '[{"name":"Windows x64 NSIS","runner":"windows-2025","artifact":"windows-x64","build":"build:windows"}]' || '[{"name":"Windows x64 NSIS","runner":"windows-2025","artifact":"windows-x64","build":"build:windows"},{"name":"macOS Apple Silicon DMG","runner":"macos-15","artifact":"macos-arm64","build":"build:macos"},{"name":"macOS Intel DMG","runner":"macos-15-intel","artifact":"macos-x64","build":"build:macos"}]') }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:

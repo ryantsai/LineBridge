@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,rmdirSync} from 'node:fs';
+import {mkdtempSync,readFileSync,realpathSync,rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {basename,join} from 'node:path';
 import {buildPlan,root,runtimes,sha256} from './packaging.mjs';
@@ -9,7 +9,8 @@ const plan=buildPlan(process.platform,process.arch,'macos');
 const release=join(root,'release',plan.slug),info=JSON.parse(readFileSync(join(release,'build-info.json'),'utf8'));
 assert.equal(basename(info.file),info.file);
 const dmg=join(release,info.file);assert.equal(sha256(readFileSync(dmg)),info.sha256);
-const mount=mkdtempSync(join(tmpdir(),'linebridge-dmg-'));let attached=false;
+// macOS /var is a symlink; Tauri rejects executable paths through symlinks.
+const mount=realpathSync(mkdtempSync(join(tmpdir(),'linebridge-dmg-')));let attached=false;
 try{
 // Tauri removes the intermediate .app after a DMG-only build. Inspect and run
 // the delivered image instead, without depending on the build folder.
