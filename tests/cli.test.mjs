@@ -24,6 +24,7 @@ test('data help stays parseable and malformed options never echo input or touch 
     ['accounts','--timeout-ms','0'],['search','--query','q','--chat','c'],['search','--query','q','--mode','regex'],
     ['send','--account','a','--chat','c','--text','t'],['send','--account','a','--chat','c','--key','synthetic-key','--text','t','--stdin'],
     ['accounts','--url','https://user:secret@example.test'],['accounts','--url','http://example.test'],
+    ['accounts','--url',''],
     ['accounts','--url','https://example.test/api'],['accounts','--url','https://example.test/?token=secret'],
     ['accounts','--profile','../secret'],['accounts','--profile','one','--profile','two'],
     ['accounts','--token','do-not-echo-secret'],['send','unexpected-do-not-echo-secret'],

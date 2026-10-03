@@ -117,7 +117,7 @@ async function execute(argv,context) {
   if(values.help){context.stderr.write(HELP);return {version:VERSION,commands:DATA_COMMANDS};}
   profileName(values.profile);
   context.timeoutMs=integer(values['timeout-ms'],45000,1,120000,'timeout-ms');
-  if(values.url)endpoint(values.url);
+  if(values.url!==undefined)endpoint(values.url);
   if(command==='auth') {
     if(action==='forget') {
       if(values.url!==undefined || values['token-stdin'] || values['credential-stdin'])usage('auth forget accepts only profile and timeout options.');
