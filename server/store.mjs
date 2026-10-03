@@ -46,7 +46,7 @@ export class Store {
   token(id) { const r = this.db.prepare('SELECT * FROM tokens WHERE id=?').get(id); return r && { ...r, grants: JSON.parse(r.grants) }; }
   tokenByHash(hash) { const r = this.db.prepare('SELECT id FROM tokens WHERE hash=?').get(hash); return r && this.token(r.id); }
   tokens() { return this.db.prepare('SELECT id FROM tokens ORDER BY created_at DESC').all().map(r => this.token(r.id)); }
-  revoke(id) { this.db.prepare('UPDATE tokens SET revoked=1 WHERE id=?').run(id); }
+  revoke(id) { this.db.prepare('UPDATE tokens SET revoked=1 WHERE id=?').run(id);this.setSetting(`tokenRevocation:${id}`,this.setting(`tokenRevocation:${id}`,0)+1); }
   touchToken(id) { this.db.prepare('UPDATE tokens SET last_used=? WHERE id=?').run(new Date().toISOString(),id); }
   audit(actor,action,account,chat,outcome) {
     this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(randomUUID(),new Date().toISOString(),actor,action,account ?? null,chat ?? null,outcome);

@@ -1,9 +1,9 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {mkdir, readFile, writeFile, rename, rm, lstat} from 'node:fs/promises';
+import {mkdir, readFile, writeFile, rename, link, rm, lstat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {isAbsolute, join, resolve} from 'node:path';
-import {credentialError, missingCredentials, usage} from './errors.mjs';
+import {ClientError, EXIT, credentialError, missingCredentials, usage} from './errors.mjs';
 
 const SERVICE = 'org.linebridge.cli.v1';
 const MAX_SECRET = 3000;
@@ -83,7 +83,7 @@ export class CredentialStore {
     if(!path || !isAbsolute(path) || /["\\\r\n\0]/.test(path))throw credentialError();
     return path;
   }
-  async set(profile,url,input) {
+  async set(profile,url,input,{replace=true}={}) {
     profile = profileName(profile);
     const record = {version:1,profile,url:endpoint(url),...credentialInput(input)};
     const encoded = Buffer.from(JSON.stringify(record)).toString('base64');
@@ -94,23 +94,32 @@ export class CredentialStore {
       try {
         await mkdir(this.directory,{recursive:true,mode:0o700});
         await writeFile(temporary,protectedBytes,{flag:'wx',mode:0o600});
-        await rename(temporary,path);
+        if(replace)await rename(temporary,path);else await link(temporary,path);
       } catch { throw credentialError(); }
       finally { await rm(temporary,{force:true}).catch(()=>{}); }
     } else if(this.platform === 'darwin') {
       // security's interactive command line limit is 4096 bytes. Its stdin parser
       // is not a shell; secrets are base64 and names are restricted ASCII.
       const path = await this.selectedKeychain();
-      const line = `add-generic-password -U -a ${profile} -s ${SERVICE} -w ${encoded} "${path}"\n`;
+      const line = `add-generic-password ${replace?'-U ':''}-a ${profile} -s ${SERVICE} -w ${encoded} "${path}"\n`;
       if(Buffer.byteLength(line)>=4096) throw credentialError();
       const result = await this.helper('/usr/bin/security',['-q','-i'],line);
       if(result.code!==0) throw credentialError();
     } else if(this.platform === 'linux') {
+      if(!replace){
+        const found=await this.helper('/usr/bin/secret-tool',['lookup','application',SERVICE,'profile',profile]);
+        if(found.code===0)throw new ClientError('profile_conflict','This protected profile already exists.',EXIT.credentials);
+        if(found.code!==1)throw credentialError();
+      }
       const result = await this.helper('/usr/bin/secret-tool',['store','--label=LineBridge CLI','application',SERVICE,'profile',profile],encoded);
       if(result.code!==0) throw credentialError();
     } else throw credentialError();
     return {profile,url:record.url,protection:this.protection};
   }
+  // App-managed profiles use fresh UUID names, never a user's default/manual
+  // profile. Linux's CLI has no atomic create; the unguessable name plus the
+  // process-owned setup lock avoids competing application enrollments.
+  async create(profile,url,input){return this.set(profile,url,input,{replace:false});}
   async get(profile) {
     profile = profileName(profile);
     let encoded;

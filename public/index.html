@@ -17,12 +17,12 @@
     <div class="sidebar-footer"><span class="status-dot" id="local-status-dot"></span><span id="local-status-text">本機服務運作中</span></div>
   </aside>
   <main>
-    <header><div><div class="breadcrumb">工作區 <span>/</span> <span id="breadcrumb-page">開始設定</span></div><h1 id="page-title">開始設定</h1><p id="page-description">綁定 LINE 帳號，即可開始使用本機工作區。</p></div><button class="button icon-button" id="refresh" aria-label="重新整理" title="重新整理"><span class="icon icon-arrows-clockwise" aria-hidden="true"></span></button></header>
+    <header><div><div class="breadcrumb">工作區 <span>/</span> <span id="breadcrumb-page">開始設定</span></div><h1 id="page-title">開始設定</h1><p id="page-description">連接帳號、選擇聊天室，並確認 AI 讀取與傳送權限。</p></div><button class="button icon-button" id="refresh" aria-label="重新整理" title="重新整理"><span class="icon icon-arrows-clockwise" aria-hidden="true"></span></button></header>
     <div id="service-error" class="notice danger" hidden></div>
     <section id="setup" class="page active" aria-label="設定精靈">
-      <ol class="wizard-steps" aria-label="設定進度"><li class="current" aria-current="step"><span>1</span><strong>連接帳號</strong></li><li><span>2</span><strong>完成綁定</strong></li></ol>
+      <ol class="wizard-steps" aria-label="設定進度"><li class="current" aria-current="step"><span>1</span><strong>連接帳號</strong></li><li><span>2</span><strong>選擇聊天室</strong></li><li><span>3</span><strong>啟用讀取 + 傳送</strong></li></ol>
       <div class="wizard-card" id="wizard-content"></div>
-      <p class="wizard-footnote">綁定帳號即可完成設定。API 金鑰與通道可隨時從左側選單設定。</p>
+      <p class="wizard-footnote">確認帳號、聊天室與讀取 + 傳送權限後才會啟用。遠端與手動設定可從左側選單管理。</p>
     </section>
     <section id="monitoring" class="page">
       <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 存取</span><strong class="text-status" id="metric-tokens">—</strong><small id="metric-access-detail">有效的 AI 權杖</small></div><div class="metric"><span>AI 連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">同一台主機 · 直接連線</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>

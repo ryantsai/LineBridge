@@ -26,9 +26,9 @@ export function inboxMessages(store,vault,account,chat,limit){
   const names=cachedNames(store,vault,account),kind=store.chat(account,chat)?.kind;
   return store.db.prepare('SELECT event_id,cipher FROM messages WHERE account_id=? AND chat_id=? ORDER BY seq DESC LIMIT ?').all(account,chat,limit).reverse().map(row=>enrich(vault.unseal(row.cipher,`message:${row.event_id}`),kind,names));
 }
-export function monitorStatus(store,account,streams={},connectionStatus='connected'){
+export function monitorStatus(store,account,streams={},connectionStatus='connected',chatIds){
   const enabled=store.setting(`monitor:${account}`,false),now=Date.now(),staleAfterMs=60000;
-  const demo=store.account(account)?.kind==='demo',chats=store.chats(account).filter(c=>c.enabled);
+  const demo=store.account(account)?.kind==='demo',chats=store.chats(account).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id)));
   // Include every designated stream, even before its first event, so one active
   // room cannot hide another room that never started or stopped responding.
   const channels=demo?['demo']:[...new Set(chats.map(c=>c.kind==='openchat'?c.id:'talk'))];
@@ -41,6 +41,6 @@ export function monitorStatus(store,account,streams={},connectionStatus='connect
   const values=Object.values(streams);
   const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':!values.length?'no_chats':
     ['retrying','stale','waiting','initializing'].find(status=>values.some(s=>s.health===status))??'healthy';
-  const counts=store.db.prepare('SELECT COUNT(*) AS storedMessages,COALESCE(MAX(seq),0) AS lastSequence,MAX(at) AS lastMessage FROM messages WHERE account_id=?').get(account);
+  const counts=store.db.prepare(`SELECT COUNT(*) AS storedMessages,COALESCE(MAX(seq),0) AS lastSequence,MAX(at) AS lastMessage FROM messages WHERE account_id=? ${chatIds?`AND chat_id IN (${chatIds.map(()=>'?').join(',')})`:''}`).get(account,...(chatIds??[]));
   return {enabled,status:!enabled?'off':connectionStatus!=='connected'?'disconnected':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',health,checkedAt:new Date(now).toISOString(),staleAfterMs,streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
 }

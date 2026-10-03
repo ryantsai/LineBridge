@@ -10,6 +10,7 @@ import { mcpHandler } from './mcp.mjs';
 import { openapi } from './openapi.mjs';
 import {Cloudflare,CALLBACK} from './cloudflare.mjs';
 import {VERSION} from './version.mjs';
+import {LocalSetup} from './local-setup.mjs';
 
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 function harden(app) {
@@ -24,12 +25,13 @@ function errors(error,req,res,next) {
   const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
   res.status(e.status).json({error:e.code,message:e.message});
 }
-export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=true}) {
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=true,localSetup=new LocalSetup(hub,{gatewayPort})}) {
   const admin=express(),gateway=express();harden(admin);harden(gateway);
   const session=randomBytes(32).toString('base64url');
   const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
   admin.use((req,res,next)=>{
     if(!adminHosts.has(req.headers.host))return res.status(403).json({error:'local_dashboard_only'});
+    if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket?.remoteAddress)||Object.keys(req.headers).some(name=>/^(forwarded|via|true-client-ip|x-real-ip|x-original-host|x-original-url|x-forwarded-.*|cf-.*)$/.test(name)))return res.status(403).json({error:'local_dashboard_only'});
     const callback=req.method==='GET'&&req.path===CALLBACK;
     if(!callback&&req.headers.origin && ![`http://localhost:${adminPort}`,`http://127.0.0.1:${adminPort}`].includes(req.headers.origin))return res.status(403).json({error:'origin_denied'});
     if(!callback&&req.headers['sec-fetch-site']==='cross-site')return res.status(403).json({error:'origin_denied'});
@@ -48,7 +50,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
   }));
   const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
-  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,accounts:hub.accounts(adminActor).map(a=>({...a,localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)})),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
+  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,accounts:await Promise.all(hub.accounts(adminActor).map(async a=>({...a,localSetup:await localSetup.status(a.id),localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)}))),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
     gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
   admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
   admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
@@ -56,7 +58,9 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.get('/admin/accounts/:id/login',(req,res)=>res.json(hub.loginState(req.params.id)));
   admin.post('/admin/accounts/:id/reconnect',asyncRoute(async(req,res)=>res.json(await hub.connect(req.params.id))));
   admin.post('/admin/accounts/:id/disconnect',(req,res)=>{hub.disconnect(req.params.id,req.body.forget===true);res.json({ok:true});});
-  admin.delete('/admin/accounts/:id',(req,res)=>{hub.remove(req.params.id);res.json({ok:true});});
+  admin.delete('/admin/accounts/:id',asyncRoute(async(req,res)=>{const setup=await localSetup.revoke(req.params.id);if(setup.phase==='cleanup_required')fail(503,'credential_store_unavailable','Access is revoked. Unlock protected storage and retry removal to clean up the managed profile.');hub.remove(req.params.id);res.json({ok:true});}));
+  admin.post('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.enable(req.params.id,req.body))));
+  admin.delete('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.revoke(req.params.id))));
   admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
   admin.put('/admin/accounts/:id/local-access',(req,res)=>res.json(hub.setLocalAccess(req.params.id,req.body)));
   admin.get('/admin/accounts/:id/events',(req,res)=>res.json(hub.events(adminActor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
@@ -96,8 +100,13 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   gateway.get('/health',(req,res)=>res.json({service:'LineBridge',version:VERSION,status:'running'}));
   gateway.use(asyncRoute(async(req,res,next)=>{
     const c=tunnels.config();
+    const header=req.headers.authorization;
+    req.actor=header===undefined&&directLocalRequest(req,gatewayPort,c.provider,requireToken)?localActor:hub.authenticate(header?.startsWith('Bearer ')?header.slice(7):undefined);
+    // Managed credentials are valid only on a direct server-side loopback
+    // connection, even if a tunnel is configured or its proxy spoofs Host.
+    if(req.actor.localOnly&&!directLocalRequest(req,gatewayPort,'local'))fail(403,'local_profile_only','This managed profile is limited to direct local AI clients.');
     // Once configured, enforce Access on ALL gateway requests, independent of spoofable Host/forwarding headers.
-    if(c.provider==='cloudflare' && c.hostname) {
+    if(c.provider==='cloudflare' && c.hostname&&!req.actor.localOnly) {
       if(!c.teamDomain||!c.audience)fail(503,'access_not_configured','Cloudflare Access must be configured before remote access.');
       const assertion=req.headers['cf-access-jwt-assertion'];
       if(typeof assertion!=='string')fail(401,'cloudflare_access_required','Cloudflare Access authentication is required in addition to a LINE Bridge Bearer token.');
@@ -107,10 +116,8 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
       catch{fail(401,'invalid_access_assertion','Cloudflare Access authentication failed.');}
     }
     if(!hub.store.setting('aiEnabled',true))fail(503,'gateway_paused','The user has paused AI access.');
-    const header=req.headers.authorization;
     // A supplied credential is always validated; invalid credentials never
     // silently fall back to the VM's local permissions.
-    req.actor=header===undefined&&directLocalRequest(req,gatewayPort,c.provider,requireToken)?localActor:hub.authenticate(header?.startsWith('Bearer ')?header.slice(7):undefined);
     hub.limit(req.actor);next();
   }));
   gateway.use(express.json({limit:'32kb'}));

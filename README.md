@@ -32,7 +32,11 @@ linebridge serve
 
 Download the corresponding `SHA256SUMS` asset to verify a package if needed. On Windows, use `Get-FileHash PATH -Algorithm SHA256`; on macOS/Linux, use `shasum -a 256 PATH` or `sha256sum PATH` and compare the result. When upgrading, close the old app/service and preserve its existing data directory and vault key; see [Storage and upgrades](#storage-and-upgrades).
 
-The setup wizard only binds your LINE account, then provides CLI instructions to copy into your cloud AI agent. Additional features have their own left-nav pages:
+The setup wizard pairs an account, lets you select chats, then shows the account, chat names/IDs and **read + send** permissions before you explicitly enable local AI access. The app enrolls a dedicated CLI profile in Windows DPAPI, macOS Keychain or Linux Secret Service automatically, without token copying or Terminal enrollment. It starts the local receiver and encrypted archive; it does not create an AI monitoring schedule.
+
+The profile is limited to direct local AI clients and the exact confirmed chats. Added designations do not broaden it. Disable setup before confirming a different scope or renewing its 90-day grant. Existing default/manual CLI profiles are preserved. Locked/unavailable protected storage fails closed; disable revokes the grant immediately, with a retryable cleanup notice if profile removal fails. Setup reports ready only when every selected receiver stream has a recent successful poll; a sandbox is labeled synthetic and never ready for LINE. Use the wizard’s public instructions with the existing local CLI and its named profile.
+
+Advanced remote/manual setup remains available in the left-nav pages:
 
 1. In **帳號與聊天室**, discover/designate chats and enable **監聽並封存新訊息** to archive new messages.
 2. In **封存搜尋**, manually search chats and saved messages; **監控狀態** shows receiver health and successful poll times.

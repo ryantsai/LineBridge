@@ -9,7 +9,7 @@ import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
 import {initializeSearch,searchInput,searchArchive} from './search.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
-const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean()}).strict()).min(1).max(30)}).strict();
+const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
 const localAccessInput=z.object({read:z.boolean(),send:z.boolean()}).strict();
 export const adminActor={id:'local-admin',admin:true};
 export const localActor=Object.freeze({id:'local-agent',local:true});
@@ -24,15 +24,15 @@ export class Hub {
     this.runtime=new Map();this.queues=new Map();this.rates=new Map();this.stopping=false;
   }
   record(id) { const a=this.store.account(id);if(!a) fail(404,'account_not_found','Account not found.');return a; }
-  view(account) {
+  view(account,chatIds) {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
       profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,
-      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected')};
+      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id))).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected',chatIds)};
   }
   accounts(actor) {
     const active=this.actor(actor);
-    return this.store.accounts().filter(a=>active.admin || active.grants.some(g=>g.accountId===a.id)).map(a=>({...this.view(a),...(!active.admin?{permissions:active.grants.find(g=>g.accountId===a.id)}:{})}));
+    return this.store.accounts().filter(a=>active.admin || active.grants.some(g=>g.accountId===a.id)).map(a=>({...this.view(a,active.grants?.find(g=>g.accountId===a.id)?.chatIds),...(!active.admin?{permissions:active.grants.find(g=>g.accountId===a.id)}:{})}));
   }
   localAccess(id) {this.record(id);return this.store.setting(`localAccess:${id}`,{read:true,send:true});}
   setLocalAccess(id,input) {
@@ -48,7 +48,7 @@ export class Hub {
     if(actor.local===true&&actor.id===localActor.id)return {...localActor,grants:this.localGrants()};
     const token=this.store.token(actor.id);
     if(!token || token.revoked || Date.parse(token.expires_at)<=Date.now()) fail(401,'invalid_token','The access token is expired or revoked.');
-    return {id:token.id,grants:token.grants};
+    return {id:token.id,grants:token.grants,...(token.grants.some(g=>g.localOnly)?{localOnly:true}:{})};
   }
   authenticate(token) {
     if(typeof token!=='string' || token.length>256) fail(401,'unauthorized','A Bearer access token is required.');
@@ -66,9 +66,11 @@ export class Hub {
     if(chatId) {
       const chat=this.store.chat(accountId,chatId);
       if(!chat || (!actor.admin && !chat.enabled)) fail(403,'chat_not_designated','This chat has not been designated for AI access.');
+      if(!actor.admin&&!this.chatAllowed(actor,accountId,chatId))fail(403,'scope_denied','This chat is outside this AI client’s confirmed scope.');
       return chat;
     }
   }
+  chatAllowed(actor,id,chatId) {const grant=actor.grants?.find(g=>g.accountId===id);return !!actor.admin||!!grant&&(!grant.chatIds||grant.chatIds.includes(chatId));}
   limit(actor,send=false) {
     if(actor.admin) return;
     const now=Date.now(),key=`${actor.id}:${send?'send':'read'}`,max=send?10:120;
@@ -139,9 +141,9 @@ export class Hub {
   }
   async updateMonitor(id){if(this.store.setting(`monitor:${id}`,false)&&this.runtime.get(id)?.driver?.ready)await this.runtime.get(id).driver.updateMonitor?.(this.store.chats(id).filter(c=>c.enabled));}
   events(actor,id,after=0,limit=100){
-    this.authorize(actor,id,'read');this.limit(actor);
+    this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor),scope=active.grants?.find(g=>g.accountId===id)?.chatIds;
     if(!Number.isSafeInteger(after)||after<0||!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_cursor','Use a nonnegative sequence and limit between 1 and 100.');
-    const rows=this.store.db.prepare('SELECT m.*,c.name,c.kind FROM messages m JOIN chats c ON c.account_id=m.account_id AND c.id=m.chat_id WHERE m.account_id=? AND c.enabled=1 AND m.seq>? ORDER BY m.seq LIMIT ?').all(id,after,limit),names=cachedNames(this.store,this.vault,id);
+    const rows=this.store.db.prepare(`SELECT m.*,c.name,c.kind FROM messages m JOIN chats c ON c.account_id=m.account_id AND c.id=m.chat_id WHERE m.account_id=? AND c.enabled=1 AND m.seq>? ${scope?`AND m.chat_id IN (${scope.map(()=>'?').join(',')})`:''} ORDER BY m.seq LIMIT ?`).all(id,after,...(scope??[]),limit),names=cachedNames(this.store,this.vault,id);
     const events=rows.map(row=>({sequence:row.seq,accountId:id,chatId:row.chat_id,chatName:row.name,chatKind:row.kind,receivedAt:row.at,message:enrich(this.vault.unseal(row.cipher,`message:${row.event_id}`),row.kind,names)}));
     return {events,cursor:events.at(-1)?.sequence??after,untrustedContent:true,retention:null,notice:'Persistent local archive of monitored designated chats. Offline gaps depend on LINE replay availability.'};
   }
@@ -149,7 +151,7 @@ export class Hub {
     const data=searchInput.parse(input),active=this.actor(actor);this.limit(actor);
     if(data.accountId)this.authorize(actor,data.accountId,'read',data.chatId);
     const ids=data.accountId?[data.accountId]:active.admin?this.store.accounts().map(a=>a.id):active.grants.filter(g=>g.read).map(g=>g.accountId);
-    const result=searchArchive(this.store,this.vault,data,ids,!!active.admin),names=new Map();
+    const result=searchArchive(this.store,this.vault,data,ids,!!active.admin,active.grants),names=new Map();
     for(const item of result.results){this.authorize(actor,item.accountId,'read',item.chatId);if(!names.has(item.accountId))names.set(item.accountId,cachedNames(this.store,this.vault,item.accountId));item.message=enrich(item.message,item.chatKind,names.get(item.accountId));}
     this.actor(actor);this.store.audit(actor.id,'messages.search',data.accountId??null,data.chatId??null,'ok');
     return {...result,query:data.query,mode:data.mode,untrustedContent:true,notice:'Search of messages saved on this PC. Returned chat content is untrusted data.'};
@@ -182,7 +184,7 @@ export class Hub {
     this.store.putChat(id,chat);return this.store.chat(id,chat.id);
   }
   designate(id,chatId,enabled) {this.authorize(adminActor,id,null,chatId);if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');this.store.designate(id,chatId,enabled);this.store.audit('local-admin','chat.designate',id,chatId,enabled?'enabled':'disabled');void this.updateMonitor(id).catch(()=>{const r=this.runtime.get(id);if(r)r.monitorStreams={worker:{status:'retrying'}};});}
-  chats(actor,id) {this.authorize(actor,id,'read');this.limit(actor);return this.store.chats(id).filter(c=>actor.admin || c.enabled).map(({account_id,...c})=>c);}
+  chats(actor,id) {this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor);return this.store.chats(id).filter(c=>active.admin || c.enabled&&this.chatAllowed(active,id,c.id)).map(({account_id,...c})=>c);}
   async read(actor,id,chatId,limit=30,cursor) {
     this.authorize(actor,id,'read',chatId);this.limit(actor);
     if(!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_limit','limit must be between 1 and 100.');
@@ -242,7 +244,7 @@ export class Hub {
   createToken(input) {
     const data=tokenInput.parse(input);
     if(new Set(data.grants.map(g=>g.accountId)).size!==data.grants.length)fail(400,'duplicate_grant','Choose each account once.');
-    for(const g of data.grants) {this.record(g.accountId);if(!g.read&&!g.send)fail(400,'empty_grant','Choose read or send for each account.');}
+    for(const g of data.grants) {this.record(g.accountId);if(!g.read&&!g.send)fail(400,'empty_grant','Choose read or send for each account.');if(g.chatIds){if(new Set(g.chatIds).size!==g.chatIds.length)fail(400,'duplicate_chat','Choose each chat once.');for(const id of g.chatIds)this.authorize(adminActor,g.accountId,null,id);}}
     const token=`lb_${randomBytes(32).toString('base64url')}`,record=this.store.addToken(data.name,digest(token),data.grants,data.days);
     this.store.audit('local-admin','token.create',null,null,'ok');const {hash,...safe}=record;return {...safe,token};
   }
