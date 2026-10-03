@@ -145,3 +145,16 @@ test('revocation during pre-enrollment cleanup cancels the whole attempt and lea
   assert.equal(disabled.phase,'revoked');assert.equal(disabled.grantActive,false);assert.equal(f.credentials.items.size,0);assert.equal(f.credentials.creates,1,'No new token/profile may be minted after cancellation');
   assert.ok(f.store.tokens().every(token=>token.revoked));assert.equal(f.store.token(first.id).revoked,1);assert.throws(()=>f.hub.authenticate(bearer),{code:'invalid_token'});
 });
+
+test('a newer manual stop stays stopped after setup start fails or is cancelled',async t=>{
+  for(const outcome of ['failure','cancel','success']){
+    const f=await fixture(t);f.hub.designate(f.id,'demo-openchat',true);await f.hub.monitor(f.id,true);
+    const driver=f.hub.driver(f.id);let release,started,starts=0,stops=0;const blocked=new Promise(r=>{release=r;}),entered=new Promise(r=>{started=r;});
+    driver.startMonitor=async()=>{starts++;started();await blocked;if(outcome==='failure')throw new Error('synthetic delayed monitor failure');};driver.stopMonitor=async()=>{stops++;};
+    const enabling=f.setup.enable(f.id,confirm());await entered;
+    const stopping=f.hub.monitor(f.id,false);assert.equal(f.store.setting(`monitor:${f.id}`),false,'Manual stop immediately blocks capture');
+    const cancelling=outcome==='cancel'?f.setup.revoke(f.id):null;release();
+    await assert.rejects(enabling);await stopping;await cancelling;
+    assert.equal(f.store.setting(`monitor:${f.id}`),false);assert.equal(activeToken(f).revoked,1);assert.equal(starts,1,'Rollback must not restart the receiver');assert.equal(stops,1,'Newer stop runs after the delayed start');assert.equal(f.credentials.items.size,0);
+  }
+});

@@ -82,7 +82,7 @@ export class LocalSetup {
     this.hub.store.transaction(()=>{
       minted=this.hub.createToken({name:`Local AI · ${this.hub.record(id).label}`.slice(0,80),days:90,grants:[{accountId:id,read:true,send:true,chatIds:data.chatIds,localOnly:true}]});
       this.hub.store.revoke(minted.id);
-      record={phase:'enrolling',profile,url:this.url,tokenId:minted.id,revocationRevision:this.hub.store.setting(`tokenRevocation:${minted.id}`,0),chatIds:data.chatIds,previousChats:before.filter(c=>c.enabled).map(c=>c.id),previousMonitor:this.hub.store.setting(`monitor:${id}`,false)};
+      record={phase:'enrolling',profile,url:this.url,tokenId:minted.id,revocationRevision:this.hub.store.setting(`tokenRevocation:${minted.id}`,0),chatIds:data.chatIds,previousChats:before.filter(c=>c.enabled).map(c=>c.id),previousMonitor:this.hub.store.setting(`monitor:${id}`,false),previousMonitorRevision:this.hub.store.setting(`monitorRevision:${id}`,0)};
       this.save(id,record);
     });
     let storageAttempted=false;
@@ -91,12 +91,14 @@ export class LocalSetup {
       if(!await this.owns(record))fail(409,'profile_conflict','Protected credential verification failed. Existing profiles were not replaced.');
       this.checkAttempt(id,generation);this.checkPending(id,record);this.validate(id,data);
       if(selection(this.hub.store.chats(id))!==snapshot)fail(409,'selection_changed','The chat selection changed during setup. Review it again.');
+      if(this.hub.store.setting(`monitorRevision:${id}`,0)!==record.previousMonitorRevision)fail(409,'setup_cancelled','The monitoring choice changed during setup. Review it again.');
       this.hub.store.transaction(()=>{
         for(const chat of before)this.hub.store.designate(id,chat.id,data.chatIds.includes(chat.id));
-        record={...record,phase:'starting',selectionApplied:true};this.save(id,record);
+        record={...record,phase:'starting',selectionApplied:true,monitorRevision:record.previousMonitorRevision+1};this.save(id,record);
       });
       await this.hub.monitor(id,true);
       this.checkAttempt(id,generation);this.checkPending(id,record);this.validate(id,data);
+      if(this.hub.store.setting(`monitorRevision:${id}`,0)!==record.monitorRevision)fail(409,'setup_cancelled','The monitoring choice changed during setup. Review it again.');
       if(!same(this.hub.store.chats(id).filter(c=>c.enabled).map(c=>c.id),data.chatIds))fail(409,'selection_changed','The chat selection changed during setup. Review it again.');
       this.hub.store.transaction(()=>{
         this.hub.store.db.prepare('UPDATE tokens SET revoked=0 WHERE id=?').run(record.tokenId);
@@ -104,9 +106,9 @@ export class LocalSetup {
         this.hub.store.audit('local-admin','local-setup.enable',id,null,'ok');
       });
     }catch(error){
-      this.hub.store.transaction(()=>{this.hub.store.revoke(record.tokenId);this.restore(id,record);this.save(id,{...record,phase:'cleanup_required'});});
+      const monitorOwned=this.hub.store.transaction(()=>{this.hub.store.revoke(record.tokenId);const owned=this.restore(id,record);this.save(id,{...record,phase:'cleanup_required'});return owned;});
       // Stop/reconfigure a partially started receiver before reporting rollback.
-      if(record.selectionApplied)try{await this.hub.monitor(id,record.previousMonitor===true);}catch{this.hub.store.setSetting(`monitor:${id}`,false);}
+      if(monitorOwned)try{await this.hub.monitor(id,record.previousMonitor===true,{expectedRevision:record.monitorRevision});}catch{}
       if(storageAttempted)await this.cleanup(id,record);else this.save(id,{...record,phase:'revoked'});
       this.hub.store.audit('local-admin','local-setup.enable',id,null,'failed');
       if(['selection_changed','profile_conflict','setup_cancelled','account_disconnected','gateway_paused','service_stopping'].includes(error.code))throw error;
@@ -120,7 +122,9 @@ export class LocalSetup {
     if(record.selectionApplied&&record.previousChats&&same(this.hub.store.chats(id).filter(c=>c.enabled).map(c=>c.id),record.chatIds)){
       for(const chat of this.hub.store.chats(id))this.hub.store.designate(id,chat.id,record.previousChats.includes(chat.id));
     }
-    if(record.selectionApplied&&record.previousMonitor!==undefined)this.hub.store.setSetting(`monitor:${id}`,record.previousMonitor);
+    const monitorOwned=record.selectionApplied&&record.previousMonitor!==undefined&&record.monitorRevision!==undefined&&this.hub.store.setting(`monitorRevision:${id}`,0)===record.monitorRevision;
+    if(monitorOwned)this.hub.store.setSetting(`monitor:${id}`,record.previousMonitor);
+    return monitorOwned;
   }
   async cleanup(id,record){
     // An unavailable read is not evidence of ownership: never delete an item

@@ -21,7 +21,7 @@ export class Hub {
     initializeSearch(store,vault);
     this.worker=new ProtocolWorker(store,vault,(id,chat,message)=>this.capture(id,chat,message));
     this.driverFactory=driverFactory ?? ((a,s,e)=>a.kind==='demo' ? new DemoDriver() : this.worker.driver(a,e));
-    this.runtime=new Map();this.queues=new Map();this.rates=new Map();this.stopping=false;
+    this.runtime=new Map();this.queues=new Map();this.monitorQueues=new Map();this.rates=new Map();this.stopping=false;
   }
   record(id) { const a=this.store.account(id);if(!a) fail(404,'account_not_found','Account not found.');return a; }
   view(account,chatIds) {
@@ -128,14 +128,25 @@ export class Hub {
   }
   remove(id) {this.disconnect(id,true);this.store.removeAccount(id);this.runtime.delete(id);}
   capture(id,chat,message){return capture(this.store,this.vault,id,chat,message);}
-  async monitor(id,enabled){
+  async monitor(id,enabled,{expectedRevision}={}){
     const account=this.record(id);
     if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');
+    const previousRevision=this.store.setting(`monitorRevision:${id}`,0);
+    if(expectedRevision!==undefined&&expectedRevision!==previousRevision)return this.view(account).monitor;
     const fresh=!this.store.setting(`monitor:${id}`,false),driver=enabled?this.driver(id):this.runtime.get(id)?.driver;
+    const revision=previousRevision+1;this.store.setSetting(`monitorRevision:${id}`,revision);
     const r=this.runtime.get(id);if(r)r.monitorStreams=enabled&&account.kind==='demo'?{demo:{channel:'demo',status:'running'}}:{};
     this.store.setSetting(`monitor:${id}`,enabled);
-    try{if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh);else if(driver?.ready)await driver.stopMonitor?.();}
-    catch(error){this.store.setSetting(`monitor:${id}`,false);throw error;}
+    // Apply the preference immediately (capture obeys it), but serialize worker
+    // controls so a delayed start cannot run after a newer stop. Skip controls
+    // superseded before dispatch, and never let old failures rewrite a choice.
+    const prior=this.monitorQueues.get(id),job=(prior??Promise.resolve()).catch(()=>{}).then(async()=>{
+      if(this.stopping||this.store.setting(`monitorRevision:${id}`,0)!==revision)return;
+      if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh);else if(driver?.ready)await driver.stopMonitor?.();
+    });this.monitorQueues.set(id,job);
+    try{await job;}
+    catch(error){if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
+    finally{if(this.monitorQueues.get(id)===job)this.monitorQueues.delete(id);}
     this.store.audit('local-admin','monitor.toggle',id,null,enabled?'enabled':'disabled');
     return monitorStatus(this.store,id,r?.monitorStreams,r?.status??'disconnected');
   }
