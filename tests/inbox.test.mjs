@@ -4,8 +4,29 @@ import {randomBytes} from 'node:crypto';
 import {Store} from '../server/store.mjs';
 import {Vault,VaultStorage} from '../server/vault.mjs';
 import {Hub,adminActor} from '../server/hub.mjs';
+import {monitorStatus} from '../server/inbox.mjs';
 
 async function setup(t){const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'test'),hub=new Hub(store,vault),account=await hub.addAccount({label:'Inbox test',kind:'demo'});t.after(()=>{hub.close();store.close();});return {hub,store,vault,id:account.id};}
+test('health checks every designated stream and cannot hide missing, stale, disabled or disconnected reception',t=>{
+  const store=new Store(':memory:');t.after(()=>store.close());
+  const a=store.addAccount('Synthetic LINE status','line','IOSIPAD');
+  for(const c of [{id:'group',kind:'group'},{id:'room',kind:'openchat'}]){store.putChat(a.id,{...c,name:c.id});store.designate(a.id,c.id,true);}
+  store.setSetting(`monitor:${a.id}`,true);
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-10-03T00:02:00Z')});
+  const recent='2026-10-03T00:01:59Z',old='2026-10-03T00:00:00Z';
+  const streams={talk:{status:'polling',lastSuccessAt:recent},room:{status:'polling',lastSuccessAt:old}};
+  let status=monitorStatus(store,a.id,streams);
+  assert.equal(status.health,'stale');assert.equal(status.streams.talk.health,'healthy');assert.equal(status.streams.room.health,'stale');
+  assert.equal(status.checkedAt,'2026-10-03T00:02:00.000Z');assert.equal(status.staleAfterMs,60000);
+  delete streams.room;status=monitorStatus(store,a.id,streams);assert.equal(status.health,'waiting');assert.equal(status.streams.room.lastSuccessAt,null);
+  streams.room={status:'polling',lastSuccessAt:recent,ready:false};assert.equal(monitorStatus(store,a.id,streams).health,'initializing');
+  streams.room.ready=true;assert.equal(monitorStatus(store,a.id,streams).health,'healthy');
+  streams.room.status='stopped';assert.equal(monitorStatus(store,a.id,streams).health,'waiting');streams.room.status='polling';
+  assert.equal(monitorStatus(store,a.id,streams,'error').health,'disconnected');
+  store.setSetting(`monitor:${a.id}`,false);assert.equal(monitorStatus(store,a.id,streams).health,'off');
+  store.setSetting(`monitor:${a.id}`,true);store.designate(a.id,'room',false);store.designate(a.id,'group',false);
+  status=monitorStatus(store,a.id,streams);assert.equal(status.health,'no_chats');assert.deepEqual(status.streams,{});
+});
 test('encrypted inbox only captures designated chats while monitoring; deduplicates and filters revoked chat access',async t=>{
   const {hub,store,vault,id}=await setup(t),message={id:'new-message',senderId:'person',text:'private inbox text',timestamp:'2026-10-01T00:00:00Z'};
   assert.equal(hub.capture(id,'demo-group',message),null);hub.designate(id,'demo-group',true);assert.equal(hub.capture(id,'demo-group',message),null);

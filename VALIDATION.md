@@ -1,3 +1,12 @@
+# LineBridge 0.6 portable Node bundle validation
+
+Verified locally on Windows x64, 2026-10-03 (Asia/Taipei):
+
+- `npm run package:portable` produced a Windows ZIP containing checksum-verified Node 26.5.0, bundled CLI/service/private worker, dashboard, documentation and licenses. Node/npm installation is not required on the target PC.
+- `npm run test:portable` passed from an extracted folder outside the checkout, with spaces, Unicode and `!` in its path and an empty executable PATH. Checks cover launcher version/help/exit codes, the private worker, Windows DPAPI startup, scoped authentication, file/stdin sends, replay, search/read/events, persistence across restart and graceful stop. All accounts/messages were synthetic; no LINE or tunnel connection was started.
+- JavaScript syntax and all **78 tests** passed. The shared desktop bundling command also completed. Native macOS/Linux portable builds have CI jobs but have not been run from this Windows session. Private-repository Linux ARM64 CI needs an available runner configured via `LINEBRIDGE_LINUX_ARM64_RUNNER`.
+- The portable bundle retains the runtime next to the app; it does not register autostart or install a system service. Existing user data remains outside the release folder. This work does not publish a release or rebuild/sign the desktop installers.
+
 # LineBridge 0.6 provider validation
 
 Verified on 2026-10-03 (Asia/Taipei). Added Tailcat, ngrok and Tailscale Funnel to the separate cloud connection page, with local encrypted ngrok token storage and cloud AI probe instructions.
@@ -52,3 +61,10 @@ The native builds bundle the same shared service. Mac verification mounts and la
 Windows installers are unsigned. Mac apps use ad-hoc signatures and JIT entitlements, with no Developer ID signature or notarization. Production signing needs the developer's credentials. The operator npm archive is not published to the registry. Fixed-hostname Cloudflare DNS/Access provisioning remains deferred because no hostname was chosen.
 
 Search is normalized literal substring search of saved text, without translation, stemming or attachment extraction. LINE replay availability limits offline recovery and initial OpenChat baselines; the archive is not a full history importer. Previously pruned messages cannot be recovered by the new index. Non-text or decryption-failed messages retain available metadata.
+
+## Account binding and receiver health — 2026-10-03
+
+- Setup now ends after account binding. Tunnel and API-key configuration stay in their separate sidebar pages. The completion screen and API access page provide a copyable cloud-agent CLI prompt, using a placeholder until a remote connection is available.
+- Browser QA used a disposable local service and synthetic sandbox account: new/stored account completion, canceling another-account setup, clipboard equality, Unicode/case-normalized chat-name search, chat-ID search, empty results, draft preservation, chat-scoped archive filters and a matching Chinese archive query. Browser error/warning logs were empty. See [wizard and CLI prompt](design/account-binding-cli.jpg) and [manual archive search](design/manual-chat-archive-search.jpg).
+- All 76 automated tests passed, plus JavaScript syntax and diff whitespace checks. Added receiver tests cover empty-poll success, failure/checkpoint timestamps, missing/stale/disconnected/disabled streams and scoped CLI status propagation. The final stopped-stream guard passed the focused inbox tests.
+- Poll success is recorded after durable processing, independently of message arrival. Per-stream freshness uses a 60-second threshold; timestamps reset with the receiver. Sandbox health explicitly states that it does not poll LINE. No live LINE reauthorization, tunnel provisioning or native installer rebuild was performed in this change. The disposable QA service was stopped; its temporary data folder was retained because automatic approval review blocked recursive deletion.

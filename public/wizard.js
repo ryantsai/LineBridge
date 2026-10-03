@@ -1,15 +1,15 @@
 import {icon} from './icons.js';
-import {accountName,chatName} from './names.js';
+import {accountName} from './names.js';
+import {aiInstructionsCard,renderAiInstructions} from './ai-instructions.js';
 
 export function createWizard(ctx){
-  const {escape,action,api,nice}=ctx;
+  const {escape,action,nice}=ctx;
   const root=document.querySelector('#wizard-content');
-  let step=1,mode='welcome',waiting=false,awaitingNew=false,search='',lastPicker='';
+  let step=1,mode='welcome',waiting=false,awaitingNew=false,lastPicker='';
   const account=()=>ctx.getState()?.accounts.find(a=>a.id===ctx.getSelected());
-  const activeTokens=()=>ctx.getState()?.tokens.filter(t=>!t.revoked&&Date.parse(t.expires_at)>Date.now()&&t.grants.some(g=>g.accountId===ctx.getSelected()&&(g.read||g.send))) ?? [];
   function listen(selector,job){root.querySelector(selector)?.addEventListener('click',()=>action(job));}
   function bottom(back,next,label='繼續',disabled=false){return `<div class="wizard-bottom"><button class="text-button" id="wizard-back">${icon('caret-left')}${back}</button><button class="button primary" id="wizard-next" ${disabled?'disabled':''}>${label}${icon('caret-right')}</button></div>`;}
-  function frame(title,intro,body,buttons){return `<div class="wizard-inner"><div class="wizard-kicker">步驟 ${step} / 5</div><h2>${title}</h2><p class="wizard-intro">${intro}</p><div class="wizard-body">${body}</div>${buttons}</div>`;}
+  function frame(title,intro,body,buttons){return `<div class="wizard-inner"><div class="wizard-kicker">步驟 ${step} / 2</div><h2>${title}</h2><p class="wizard-intro">${intro}</p><div class="wizard-body">${body}</div>${buttons}</div>`;}
   function progress(){document.querySelectorAll('.wizard-steps li').forEach((el,index)=>{el.classList.toggle('current',index===step-1);el.classList.toggle('complete',index<step-1);if(index===step-1)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');el.querySelector('span').innerHTML=index<step-1?icon('check'):String(index+1);});}
   function render(){
     progress();const a=account();
@@ -28,37 +28,15 @@ export function createWizard(ctx){
       listen('#wizard-back',()=>{mode='welcome';render();});listen('#wizard-next',()=>{waiting=true;awaitingNew=true;ctx.openAccount();});return;
     }
     if(step===1){
-      root.innerHTML=frame('恢復你的帳號連線','使用已儲存的憑證，或重新掃描 QR Code。',`<div class="wizard-context"><span class="avatar">${escape(Array.from(accountName(a))[0])}</span><div><strong>${escape(accountName(a))}</strong><p>${escape(nice(a?.status))}</p></div></div><div class="wizard-choice">${icon('plug')}<div><h3>準備連接帳號</h3><p>完成連線後，接著選擇可供 AI 存取的聊天室。</p><div class="button-row">${a?.canResume?'<button class="button primary" id="wizard-resume">恢復已儲存的工作階段</button>':''}<button class="button" id="wizard-login">${a?.kind==='demo'?'連接沙盒':'使用 QR Code 連線'}</button></div></div></div>`,bottom('選擇其他帳號',null,'繼續',a?.status!=='connected'));
+      root.innerHTML=frame('恢復你的帳號連線','使用已儲存的憑證，或重新掃描 QR Code。',`<div class="wizard-context"><span class="avatar">${escape(Array.from(accountName(a))[0])}</span><div><strong>${escape(accountName(a))}</strong><p>${escape(nice(a?.status))}</p></div></div><div class="wizard-choice">${icon('plug')}<div><h3>準備連接帳號</h3><p>完成連線即完成帳號綁定。聊天室與 AI 存取可稍後從左側選單管理。</p><div class="button-row">${a?.canResume?'<button class="button primary" id="wizard-resume">恢復已儲存的工作階段</button>':''}<button class="button" id="wizard-login">${a?.kind==='demo'?'連接沙盒':'使用 QR Code 連線'}</button></div></div></div>`,bottom('選擇其他帳號',null,'繼續',a?.status!=='connected'));
       listen('#wizard-back',()=>{mode='stored';waiting=false;render();});listen('#wizard-resume',()=>ctx.connect(false));listen('#wizard-login',()=>ctx.connect(true));listen('#wizard-next',()=>{step=2;waiting=false;render();});return;
     }
-    if(step===2){
-      const chats=ctx.getChats();
-      root.innerHTML=frame('選擇要開放的聊天室','只有你勾選的聊天室，才能提供給已授權的 AI 用戶端與新訊息監聽。',`<div class="wizard-context"><span class="avatar">${escape(Array.from(accountName(a))[0])}</span><div><strong>${escape(accountName(a))}</strong><p>${a.kind==='demo'?'模擬沙盒 · 不會連線至 LINE':escape(nice(a.status))}</p></div></div><div class="wizard-chat-tools"><input id="wizard-search" type="search" placeholder="搜尋聊天室…" aria-label="搜尋聊天室" value="${escape(search)}"><button class="button" id="wizard-discover" ${a.status!=='connected'?'disabled':''}>${icon('arrows-clockwise')}探索聊天室</button></div><div class="wizard-chat-list" id="wizard-chat-list"></div><p class="wizard-optional" id="wizard-chat-count"></p>`,bottom('更換帳號',null,'繼續'));
-      root.querySelector('.wizard-body').insertAdjacentHTML('beforeend','<label class="wizard-monitor"><input type="checkbox" id="wizard-monitor" checked><span><strong>監聽並封存新訊息</strong><small>將指定聊天室的新訊息加密儲存到 SQLite，供 AI 以任意語言全文搜尋。不會因訊息數量自動刪除。</small></span></label>');
-      renderChatChoices();root.querySelector('#wizard-search').addEventListener('input',event=>{search=event.target.value;renderChatChoices();});
-      listen('#wizard-discover',async()=>{const button=root.querySelector('#wizard-discover');button.disabled=true;try{await ctx.discover();renderChatChoices();}finally{if(button.isConnected)button.disabled=false;}});
-      listen('#wizard-back',()=>{step=1;mode='stored';render();});listen('#wizard-next',async()=>{const enabled=root.querySelector('#wizard-monitor').checked&&ctx.getChats().some(c=>c.enabled);if(enabled!==!!a.monitor?.enabled){await api(`/accounts/${a.id}/monitor`,{method:'POST',body:JSON.stringify({enabled})});await ctx.refresh();}step=3;render();});return;
-    }
-    if(step===3){
-      const count=activeTokens().length;
-      root.innerHTML=frame('決定 AI 的存取權限','讀取與傳送分別授權。你可以先完成設定，稍後再連接 AI。',`<div class="wizard-choice">${icon('key')}<div><h3>建立專屬的 AI 存取權杖</h3><p>為 ${escape(accountName(a))} 設定用戶端名稱、有效期限與權限。${count?`目前有 ${count} 個有效的 AI 用戶端。`:'目前尚未授權 AI 用戶端。'}</p><button class="button" id="wizard-token">建立存取權杖${icon('caret-right')}</button></div></div><div class="wizard-choice">${icon('shield-check')}<div><h3>先保留本機使用</h3><p>${count?'你仍可在本機手動讀取與傳送訊息。現有 AI 權限可在「AI 存取權限」頁管理。':'不建立權杖也能在 LineBridge 手動讀取與傳送訊息。AI 將無法存取。'}</p></div></div>`,bottom('返回聊天室',null,count?'繼續':'稍後設定 AI'));
-      listen('#wizard-token',()=>ctx.openToken(ctx.getSelected()));listen('#wizard-back',()=>{step=2;render();});listen('#wizard-next',()=>{step=4;render();});return;
-    }
-    if(step===4){
-      const t=ctx.getState()?.tunnel;
-      root.innerHTML=frame('連接你的雲端 AI','透過私人連線，讓已授權的 AI 用戶端連接這台電腦。',`<div class="wizard-choice">${icon('arrows-left-right')}<div><h3>選擇你的連線方式</h3><p>Quick Tunnel 免註冊即可開始；固定網址可用 Cloudflare OAuth 設定，私人網路則可使用已安裝的 Tailscale。</p><button class="button" id="wizard-tunnel">開啟雲端連線設定${icon('caret-right')}</button></div></div><div class="wizard-choice">${icon('plug')}<div><h3>先在這台電腦使用</h3><p>${t?.connected?'私人連線目前已連線。':'目前尚未連接雲端。你仍可使用本機介面與已指定聊天室的訊息監聽。'}</p></div></div>`,bottom('返回 AI 權限',null,t?.connected?'繼續':'稍後設定連線'));
-      listen('#wizard-tunnel',()=>ctx.go('tunnel',true));listen('#wizard-back',()=>{step=3;render();});listen('#wizard-next',()=>{step=5;render();});return;
-    }
-    const count=ctx.getChats().filter(c=>c.enabled).length,t=ctx.getState()?.tunnel;
-    root.innerHTML=frame('你的 LineBridge 已準備就緒','開始使用本機工作區，或前往訊息監控開啟新訊息監聽。',`<div class="wizard-finish-icon">${icon('check')}</div><dl class="wizard-summary"><dt>LINE 帳號</dt><dd>${escape(accountName(a))}${a.kind==='demo'?' · 沙盒':''}</dd><dt>指定聊天室</dt><dd>${count} 個</dd><dt>AI 用戶端</dt><dd>${activeTokens().length?`${activeTokens().length} 個有效權杖`:'稍後設定'}</dd><dt>私人連線</dt><dd>${t?.connected?'已連線':'稍後設定'}</dd><dt>訊息監聽</dt><dd>${a.monitor?.enabled?'已啟用':'可在訊息監控頁啟用'}</dd></dl>`,bottom('返回連線設定',null,'前往訊息監控'));
-    listen('#wizard-back',()=>{step=4;render();});listen('#wizard-next',()=>ctx.go('monitoring'));
-  }
-  function renderChatChoices(){
-    const target=root.querySelector('#wizard-chat-list');if(!target)return;
-    const a=account(),chats=ctx.getChats(),visible=chats.filter(c=>chatName(c).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-    target.innerHTML=visible.length?visible.map(c=>`<label class="wizard-chat-row"><input type="checkbox" data-wizard-chat="${escape(c.id)}" ${c.enabled?'checked':''} aria-label="允許 AI 存取：${escape(chatName(c))}"><span><strong>${escape(chatName(c))}</strong><small>${escape(nice(c.kind))}</small></span></label>`).join(''):`<div class="wizard-empty">${chats.length?'沒有符合搜尋的聊天室。':'按下「探索聊天室」取得這個帳號可使用的聊天室。'}</div>`;
-    root.querySelector('#wizard-chat-count').textContent=`已選擇 ${chats.filter(c=>c.enabled).length} 個聊天室。可以稍後在「帳號與聊天室」變更。`;
-    target.querySelectorAll('[data-wizard-chat]').forEach(el=>el.addEventListener('change',()=>action(async()=>{const enabled=el.checked;el.disabled=true;try{await api(`/accounts/${a.id}/chats/${encodeURIComponent(el.dataset.wizardChat)}`,{method:'PATCH',body:JSON.stringify({enabled})});const chat=ctx.getChats().find(c=>c.id===el.dataset.wizardChat);if(chat)chat.enabled=enabled?1:0;await ctx.refresh();renderChatChoices();}catch(error){el.checked=!enabled;throw error;}finally{el.disabled=false;}})));
+    root.innerHTML=frame('帳號已綁定，開始使用 LineBridge','你可以立即在本機瀏覽聊天室。需要雲端 AI 時，再從左側設定 API 金鑰與通道。',`<div class="wizard-context"><span class="avatar">${escape(Array.from(accountName(a))[0])}</span><div><strong>${escape(accountName(a))}</strong><p>${a.kind==='demo'?'模擬沙盒 · 不會連線至 LINE':escape(nice(a.status))}</p></div></div><div class="wizard-next-actions"><button class="button" id="wizard-another">${icon('plus')}綁定另一個帳號</button><button class="text-button" id="wizard-archive">搜尋訊息封存${icon('caret-right')}</button></div>${aiInstructionsCard('wizard-ai-prompt')}`,bottom('返回帳號選擇',null,'瀏覽聊天室'));
+    renderAiInstructions(root,ctx.getState(),ctx.getSelected(),action);
+    listen('#wizard-back',()=>{step=1;mode='stored';render();});
+    listen('#wizard-another',()=>{step=1;mode='stored';waiting=true;awaitingNew=true;render();ctx.openAccount();});
+    listen('#wizard-archive',()=>ctx.go('archive'));
+    listen('#wizard-next',()=>ctx.go('accounts'));
   }
   return {
     render,
@@ -66,9 +44,9 @@ export function createWizard(ctx){
     accountAdded(){if(waiting){awaitingNew=false;mode='connect';if(account()?.status==='connected'){waiting=false;step=2;}render();}},
     sync(){
       if(waiting&&!awaitingNew&&account()?.status==='connected'){waiting=false;step=2;render();}
+      else if(step===2){renderAiInstructions(root,ctx.getState(),ctx.getSelected(),action);}
       else if(step===1&&mode==='stored'){const next=JSON.stringify((ctx.getState()?.accounts ?? []).map(a=>[a.id,a.status,a.profile?.displayName]));if(next!==lastPicker)render();}
     },
-    tokenCreated(){if(step===3)render();},
     get step(){return step;}
   };
 }

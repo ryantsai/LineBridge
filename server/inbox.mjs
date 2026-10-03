@@ -26,8 +26,21 @@ export function inboxMessages(store,vault,account,chat,limit){
   const names=cachedNames(store,vault,account),kind=store.chat(account,chat)?.kind;
   return store.db.prepare('SELECT event_id,cipher FROM messages WHERE account_id=? AND chat_id=? ORDER BY seq DESC LIMIT ?').all(account,chat,limit).reverse().map(row=>enrich(vault.unseal(row.cipher,`message:${row.event_id}`),kind,names));
 }
-export function monitorStatus(store,account,streams={}){
-  const enabled=store.setting(`monitor:${account}`,false),values=Object.values(streams);
+export function monitorStatus(store,account,streams={},connectionStatus='connected'){
+  const enabled=store.setting(`monitor:${account}`,false),now=Date.now(),staleAfterMs=60000;
+  const demo=store.account(account)?.kind==='demo',chats=store.chats(account).filter(c=>c.enabled);
+  // Include every designated stream, even before its first event, so one active
+  // room cannot hide another room that never started or stopped responding.
+  const channels=demo?['demo']:[...new Set(chats.map(c=>c.kind==='openchat'?c.id:'talk'))];
+  streams=Object.fromEntries(channels.map(channel=>{
+    const stream=streams[channel]??{channel,status:'waiting'},lastSuccessAt=stream.lastSuccessAt??null;
+    const age=lastSuccessAt?now-Date.parse(lastSuccessAt):null;
+    const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':stream.status==='retrying'?'retrying':age===null||!['running','polling','initializing'].includes(stream.status)?'waiting':age>staleAfterMs?'stale':stream.ready===false||stream.status==='initializing'?'initializing':'healthy';
+    return [channel,{...stream,channel,lastAttemptAt:stream.lastAttemptAt??null,lastSuccessAt,health}];
+  }));
+  const values=Object.values(streams);
+  const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':!values.length?'no_chats':
+    ['retrying','stale','waiting','initializing'].find(status=>values.some(s=>s.health===status))??'healthy';
   const counts=store.db.prepare('SELECT COUNT(*) AS storedMessages,COALESCE(MAX(seq),0) AS lastSequence,MAX(at) AS lastMessage FROM messages WHERE account_id=?').get(account);
-  return {enabled,status:!enabled?'off':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
+  return {enabled,status:!enabled?'off':connectionStatus!=='connected'?'disconnected':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',health,checkedAt:new Date(now).toISOString(),staleAfterMs,streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
 }

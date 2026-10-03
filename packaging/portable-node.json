@@ -1,0 +1,31 @@
+{
+  "nodeVersion": "26.5.0",
+  "checksumSource": "https://nodejs.org/dist/v26.5.0/SHASUMS256.txt",
+  "platforms": {
+    "win32-x64": {
+      "asset": "node-v26.5.0-win-x64.zip",
+      "sha256": "d3b2277dbcccfdf24ef6302928f64f484cff1d77a6d3caa3a28f4d20ce9158f6",
+      "requirements": "Supported Windows 10/11 or Windows Server 2016+ (x64)."
+    },
+    "darwin-arm64": {
+      "asset": "node-v26.5.0-darwin-arm64.tar.gz",
+      "sha256": "ee920559aaa2391569cff4d737e3b83963430e3a14dedd91bfe0ff53171b5af9",
+      "requirements": "Supported macOS 13.5+ on Apple Silicon."
+    },
+    "darwin-x64": {
+      "asset": "node-v26.5.0-darwin-x64.tar.gz",
+      "sha256": "98293394c945a24e64e00b4177bf075ec963ea70b34d1d2e24bd4a71716d334f",
+      "requirements": "Supported macOS 13.5+ on Intel."
+    },
+    "linux-x64": {
+      "asset": "node-v26.5.0-linux-x64.tar.gz",
+      "sha256": "22b5f47ad6ae78837e4c2b846019965ce1a06ba143de176102294a1bf44fc677",
+      "requirements": "Supported glibc Linux x64: kernel 4.18+, glibc 2.28+, libstdc++ 6.0.25+, and libatomic (libatomic1 on Debian/Ubuntu). Alpine/musl is not supported."
+    },
+    "linux-arm64": {
+      "asset": "node-v26.5.0-linux-arm64.tar.gz",
+      "sha256": "308e5fe89a82461ba5a6cf15ff5221b2cdbd7ae87600aa72bb3c3fbdc66412d1",
+      "requirements": "Supported glibc Linux ARM64: kernel 4.18+, glibc 2.28+, libstdc++ 6.0.25+, and libatomic (libatomic1 on Debian/Ubuntu). Alpine/musl is not supported."
+    }
+  }
+}

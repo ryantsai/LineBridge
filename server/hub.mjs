@@ -28,7 +28,7 @@ export class Hub {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
       profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,
-      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams)};
+      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected')};
   }
   accounts(actor) {
     const active=this.actor(actor);
@@ -130,12 +130,12 @@ export class Hub {
     const account=this.record(id);
     if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');
     const fresh=!this.store.setting(`monitor:${id}`,false),driver=enabled?this.driver(id):this.runtime.get(id)?.driver;
+    const r=this.runtime.get(id);if(r)r.monitorStreams=enabled&&account.kind==='demo'?{demo:{channel:'demo',status:'running'}}:{};
     this.store.setSetting(`monitor:${id}`,enabled);
     try{if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh);else if(driver?.ready)await driver.stopMonitor?.();}
     catch(error){this.store.setSetting(`monitor:${id}`,false);throw error;}
-    const r=this.runtime.get(id);if(r)r.monitorStreams=enabled&&account.kind==='demo'?{demo:{status:'running'}}:{};
     this.store.audit('local-admin','monitor.toggle',id,null,enabled?'enabled':'disabled');
-    return monitorStatus(this.store,id,r?.monitorStreams);
+    return monitorStatus(this.store,id,r?.monitorStreams,r?.status??'disconnected');
   }
   async updateMonitor(id){if(this.store.setting(`monitor:${id}`,false)&&this.runtime.get(id)?.driver?.ready)await this.runtime.get(id).driver.updateMonitor?.(this.store.chats(id).filter(c=>c.enabled));}
   events(actor,id,after=0,limit=100){

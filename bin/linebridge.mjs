@@ -22,7 +22,7 @@ Usage: linebridge [serve|status|stop] [options]
 Data client: linebridge accounts --help (JSON stdout, diagnostics on stderr).
 See CLI.md for scoped credentials, pagination and explicit sends.
 
-Node.js 24+ required for this CLI. The desktop installer bundles its runtime.
+Portable archives and desktop installers bundle Node. npm/source installs need Node.js 24+.
 Environment: LINE_BRIDGE_DATA, LINE_BRIDGE_ADMIN_PORT, LINE_BRIDGE_GATEWAY_PORT,
              LINE_BRIDGE_TRUST_LOCAL=1 (development only).
 Both listeners bind to 127.0.0.1. Scoped Bearer tokens are required by default.
@@ -40,7 +40,7 @@ async function main(){
     const requireToken=values['require-token']===true||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1'||!(values['trust-local']===true||process.env.LINE_BRIDGE_TRUST_LOCAL==='1');
     const service=await startService({dataDir,requireToken,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{})});
     const local=!requireToken&&service.tunnels.config().provider==='local';
-    console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'explicit local trust; no token required':'scoped Bearer token required'}\nSetup: pair LINE, designate chats, enable monitoring, create an AI token and start a tunnel.\nData: ${service.dataDir}`);return;
+    console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'explicit local trust; no token required':'scoped Bearer token required'}\nSetup: bind your LINE account in the dashboard. Configure chats and API keys in their own pages; cloud connections are optional.\nData: ${service.dataDir}`);return;
   }
   const m=await metadata(dataDir);
   if(!m||m.runtime!=='node'||!validPort(m.adminPort)||typeof m.instance!=='string'||m.dataDir!==dataDir){console.log(JSON.stringify({status:'stopped',dataDir}));return;}

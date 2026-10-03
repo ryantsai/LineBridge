@@ -1,6 +1,8 @@
 # Cloud connections
 
-LineBridge runs on this PC or Mac and reaches LINE here. Cloud AI connects to its HTTPS AI gateway. The desktop bundles Node and cloudflared. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **AI 存取權限**; read grants include archive search, while send grants are independent.
+LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The desktop bundles Node and cloudflared. The portable CLI bundles Node, while tunnel helpers are optional separate installations. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **API 金鑰與 AI 存取**; read grants include archive search, while send grants are independent.
+
+For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILCAT`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
 
 Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access, Tailcat, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
 

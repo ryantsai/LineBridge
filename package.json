@@ -37,6 +37,8 @@
     "test:smoke": "node tests/service-smoke.mjs",
     "test:tunnel": "node tests/tunnel-smoke.mjs",
     "package": "node scripts/package.mjs",
+    "package:portable": "node scripts/portable.mjs",
+    "test:portable": "node tests/portable-smoke.mjs",
     "check": "node scripts/check.mjs",
     "desktop": "node scripts/desktop.mjs --dev",
     "build:windows": "node scripts/desktop.mjs --platform=windows",

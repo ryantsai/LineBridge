@@ -1,18 +1,19 @@
 # LineBridge
 
-LineBridge 0.6 在你的 **Windows 電腦或 Mac** 連接 LINE，再透過通道提供給雲端 AI。包含繁體中文桌面介面、Talk／OpenChat 新訊息監聽、SQLite 加密封存、任意語言全文搜尋，以及有帳號權限的 MCP／HTTP API。
+LineBridge 0.6 在你的 **Windows、Mac 或 Linux 電腦** 連接 LINE，並提供有權限限制的 AI 存取；遠端 AI 可透過選用通道連線。包含繁體中文管理介面、Talk／OpenChat 新訊息監聽、SQLite 加密封存、任意語言全文搜尋，以及有帳號權限的 MCP／HTTP API。
 
 ## 開始使用
 
 使用 Windows x64 NSIS 安裝程式，或符合 Mac 架構的 DMG。已包含 Node 與 cloudflared；使用者無需安裝 Rust、Node 或編譯器。監控與通道連線期間請保持程式執行。
 
-首頁精靈依序完成：
+Dot 或其他 AI 若已獲授權操作這台電腦的終端機，可使用 Windows／macOS／Linux **可攜式 CLI 套件**。完整解壓縮後，Windows 執行 `.\linebridge.cmd serve`，macOS／Linux 執行 `./linebridge serve`。已包含 Node 與程式相依套件，不需另外安裝 Node 或 npm。[建置與系統需求](PACKAGING.md#portable-cli-and-service-bundles)。
 
-1. 使用手機掃描 LINE QR Code，或恢復已儲存的工作階段。
-2. 探索並指定聊天室；勾選「監聽並封存新訊息」。
-3. 建立 AI 權杖，分別授權帳號讀取、傳送及有效期限。權杖明文只顯示一次。
-4. 啟動通道。Cloudflare Quick Tunnel 免帳號；也可試 ngrok／Tailscale Funnel 公開 HTTPS，或 Tailcat 免帳號私人通道；Tailscale Serve 使用私人 tailnet。
-5. 查看監控狀態。帳號、監控、封存搜尋、AI 權限、雲端連線與活動紀錄各有獨立頁面。
+首頁精靈只需綁定 LINE 帳號，完成後即可複製 CLI 指令給雲端 AI。其他功能各有左側導覽頁面：
+
+1. 在「帳號與聊天室」探索並指定聊天室，勾選「監聽並封存新訊息」。
+2. 在「封存搜尋」手動查找聊天室與已封存訊息；「監控狀態」提供接收健康度及成功輪詢時間。
+3. 在「API 金鑰與 AI 存取」建立有期限的金鑰，分別授權帳號讀取與傳送。明文只顯示一次。
+4. AI 位於遠端時，再到「雲端連線與通道」設定通道；若 AI 直接操作這台電腦的終端機，可使用 localhost，無需通道。
 
 提供通道的 HTTPS `/mcp` 網址與 `Authorization: Bearer 權杖` 給雲端 AI。**LINE API 由這台電腦存取，AI 不需在 VM 安裝 LINE 用戶端。** Cloudflare Access 另需服務權杖標頭。管理介面只在本機 3210 開放，通道只轉送 AI 閘道 3211，無法存取管理路由。[連線設定](CONNECTIONS.md)。
 

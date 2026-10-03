@@ -38,6 +38,19 @@ async function fixture(t) {
   }
   return {store,hub,account,other,writer,reader,directory,cli};
 }
+test('CLI accounts exposes per-stream receiver success and missing-stream health through the scoped gateway',async t=>{
+  const {hub,store,account,cli}=await fixture(t);
+  // Keep the synthetic driver; change metadata only to exercise live health.
+  store.db.prepare("UPDATE accounts SET kind='line' WHERE id=?").run(account.id);
+  const lastSuccessAt=new Date().toISOString();
+  hub.runtime.get(account.id).monitorStreams={talk:{channel:'talk',status:'polling',lastAttemptAt:lastSuccessAt,lastSuccessAt,ready:true}};
+  const result=await cli(['accounts']);assert.equal(result.code,0);
+  const monitor=result.json[0].monitor;
+  assert.equal(monitor.health,'waiting');assert.equal(monitor.streams.talk.lastSuccessAt,lastSuccessAt);
+  assert.equal(monitor.streams.talk.health,'healthy');assert.equal(monitor.streams['demo-openchat'].lastSuccessAt,null);
+  assert.equal(monitor.staleAfterMs,60000);assert.ok(monitor.checkedAt);
+});
+
 test('installed entrypoint uses scoped gateway reads/search/events and preserves replay for file/stdin sends',async t=>{
   const {hub,account,other,reader,directory,cli}=await fixture(t);
   const accounts=await cli(['accounts']);assert.equal(accounts.code,0);assert.deepEqual(accounts.json.map(a=>a.id),[account.id]);assert.equal(accounts.stderr,'');

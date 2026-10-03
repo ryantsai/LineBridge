@@ -16,14 +16,22 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 // Bounded polling avoids the library's unhandled push-loop failures. There are
 // no read receipts or send calls in this listener. Cursors advance after durable ACK.
 export class LiveMonitor {
-  constructor(driver,event,capture){this.driver=driver;this.event=event;this.capture=capture;this.active=true;this.allowed=new Map();this.rooms=new Map();void this.talkLoop();}
+  constructor(driver,event,capture){this.driver=driver;this.event=event;this.capture=capture;this.active=true;this.allowed=new Map();this.rooms=new Map();this.pollStates=new Map();void this.talkLoop();}
   update(chats){
     this.allowed=new Map(chats.map(c=>[c.id,c]));
-    for(const [id,room] of this.rooms)if(!this.allowed.has(id)){room.active=false;this.rooms.delete(id);this.event('monitor_status',{channel:id,status:'stopped'});}
-    for(const chat of chats)if(chat.kind==='openchat'&&!this.rooms.has(chat.id)){const room={active:true,fresh:this.initialized};this.rooms.set(chat.id,room);void this.squareLoop(chat.id,room);}this.initialized=true;
+    for(const [id,room] of this.rooms)if(!this.allowed.has(id)){room.active=false;this.rooms.delete(id);this.status(id,'stopped');}
+    for(const chat of chats)if(chat.kind==='openchat'&&!this.rooms.has(chat.id)){const room={active:true,fresh:this.initialized};this.pollStates.delete(chat.id);this.rooms.set(chat.id,room);void this.squareLoop(chat.id,room);}this.initialized=true;
   }
   stop(){this.active=false;for(const room of this.rooms.values())room.active=false;}
-  status(channel,status,error){if(this.active)this.event('monitor_status',{channel,status,error,lastPoll:new Date().toISOString()});}
+  status(channel,status,error,success=false){
+    if(!this.active)return;
+    const now=new Date().toISOString(),previous=this.pollStates.get(channel);
+    const state={channel,status,error,lastPoll:now,
+      lastAttemptAt:status==='polling'?now:previous?.lastAttemptAt??null,
+      lastSuccessAt:success?now:previous?.lastSuccessAt??null,
+      ready:success?status==='running':previous?.ready??false};
+    this.pollStates.set(channel,state);this.event('monitor_status',state);
+  }
   async talkLoop(){
     let cursor,retries=0;
     while(this.active){
@@ -47,7 +55,7 @@ export class LiveMonitor {
         }
         if(!this.active)break;
         cursor=nextTalkCursor(cursor,response);await this.driver.storage.set('monitor.talk',cursor);
-        this.status('talk','running');retries=0;await pause(500);
+        this.status('talk','running',undefined,true);retries=0;await pause(500);
       }catch{if(!this.active)break;this.status('talk','retrying','monitor_poll_failed');await pause(Math.min(30000,2000*2**Math.min(retries++,4)));}
     }
   }
@@ -69,7 +77,7 @@ export class LiveMonitor {
         if(!(response.events?.length))baseline=false;
         if(!response.syncToken)throw new Error('cursor_unavailable');
         cursor=response.syncToken;await this.driver.storage.set(`monitor.square:${chatId}`,{syncToken:cursor,ready:!baseline});
-        this.status(chatId,baseline?'initializing':'running');retries=0;await pause(baseline?100:2000);
+        this.status(chatId,baseline?'initializing':'running',undefined,true);retries=0;await pause(baseline?100:2000);
       }catch{if(!this.active||!room.active)break;this.status(chatId,'retrying','monitor_poll_failed');await pause(Math.min(30000,2000*2**Math.min(retries++,4)));}
     }
   }

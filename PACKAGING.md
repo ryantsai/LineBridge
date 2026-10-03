@@ -1,8 +1,35 @@
-# Desktop packaging
+# Packaging
 
-LineBridge 0.6 restores the Windows/macOS desktop application as the main distribution. The native Tauri shell launches one bundled Node service; the same service implements LINE, authorization, encrypted SQLite and full-text search. Users need no Node installation or Rust compiler. The CLI/npm package remains an operator option.
+LineBridge provides desktop installers and portable CLI/service bundles. Both include Node and application dependencies; users need no Node installation or compiler. The native Tauri shell and portable launcher run the same service for LINE, authorization, encrypted SQLite and full-text search. The npm archive remains an option for hosts that already have Node.
 
-## Build on the target OS
+## Portable CLI and service bundles
+
+For an AI agent with authorized terminal access to the user's computer, use the portable bundle. Extract the whole folder and run `.\linebridge.cmd` (Windows) or `./linebridge` (macOS/Linux). The launcher resolves its own bundled runtime without relying on Node/npm on PATH, preserves the caller's working directory, forwards arguments/stdin and returns the CLI's exit code. `serve` runs in the foreground; `status` and `stop` operate on the selected data directory. Extraction does not install a system service or change PATH/autostart.
+
+| Target | Archive | OS baseline |
+| --- | --- | --- |
+| Windows x64 | `LineBridge-0.6.0-windows-x64.zip` | Supported Windows 10/11 or Server 2016+ |
+| macOS Apple Silicon | `LineBridge-0.6.0-macos-arm64.tar.gz` | Supported macOS 13.5+ |
+| macOS Intel | `LineBridge-0.6.0-macos-x64.tar.gz` | Supported macOS 13.5+ |
+| Linux x64 / ARM64 | `LineBridge-0.6.0-linux-x64.tar.gz` / `LineBridge-0.6.0-linux-arm64.tar.gz` | glibc 2.28+, kernel 4.18+, libstdc++ 6.0.25+, libatomic (`libatomic1` on Debian/Ubuntu) |
+
+Linux builds use official glibc Node binaries; Alpine/musl is unsupported. These baselines follow the [bundled Node 26.5.0 requirements](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md). Use a supported OS release. Windows ARM64 native bundles are not included.
+
+Build on each target OS/architecture with Node 26.5.0 and the native `tar` command available (included with supported Windows). Rust, Go and desktop build tools are unnecessary for this distribution:
+
+```sh
+npm ci --ignore-scripts
+npm run package:portable
+npm run test:portable
+```
+
+Output: `release/portable/<platform>-<arch>/`, containing the archive, `SHA256SUMS.txt` and `build-info.json`. `packaging/portable-node.json` pins each official Node archive and SHA-256; builds verify its checksum, executable architecture and native version before packaging. The archive contains only the Node executable/license/provenance, bundled CLI/service/private worker, dashboard, documentation and third-party licenses. It does not ship npm or require an install-time dependency download. Application data stays in the normal per-user data directory, outside the extracted folder, so replacing the app folder preserves accounts and messages.
+
+The **Build LineBridge portable CLI bundles** workflow builds and tests native Windows x64, both Mac architectures and Linux x64. Linux ARM64 runs for public repositories, or for private repositories after setting `LINEBRIDGE_LINUX_ARM64_RUNNER` to an available native runner label. The smoke test extracts outside the repository into a path with spaces/Unicode, clears PATH, then checks the launcher, private worker, service, scoped CLI, multilingual file/stdin sends, persisted archive and graceful shutdown using synthetic accounts. Artifacts upload only after that native test passes. These portable artifacts are not separately signed or notarized by LineBridge.
+
+A Dot session that controls the PC's terminal can use its loopback gateway with a scoped API key. A Dot session running only on a cloud host needs a reachable gateway URL. Tunnel helpers are optional and are not included in the portable bundle; install the desired connector separately as described in [CONNECTIONS.md](CONNECTIONS.md), or use the desktop distribution with bundled connectors. LINE phone pairing remains a user step. The dashboard includes copyable AI CLI instructions on completion of account binding and in the API key page.
+
+## Build desktop installers on the target OS
 
 Use Node 26.5.0, Rust 1.98.1 (and Go 1.27.1 on macOS to build the bundled Tailcat) and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.0 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
 

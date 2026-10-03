@@ -17,6 +17,37 @@ test('OpenChat baseline is discarded before new events are captured with an encr
 test('sync cursor preserves bigint revisions and global/individual checkpoints',()=>{
   assert.deepEqual(nextTalkCursor({revision:1n,globalRev:2,individualRev:3},{operationResponse:{operations:[{revision:9007199254740999n}],globalEvents:{lastRevision:8},individualEvents:{lastRevision:9}}}),{revision:9007199254740999n,globalRev:8,individualRev:9});
 });
+
+test('empty successful polls establish liveness; a later failure preserves the last success',async()=>{
+  const states=[];let monitor,polls=0,finish;
+  const done=new Promise(resolve=>{finish=resolve;});
+  const driver={storage:{get:async()=>({revision:1}),set:async()=>{}},client:{talk:{sync:async()=>{
+    if(++polls===1)return {operationResponse:{operations:[]}};
+    throw new Error('synthetic network outage');
+  }}}};
+  monitor=new LiveMonitor(driver,(_event,state)=>{states.push(state);if(state.status==='retrying'){monitor.stop();finish();}},()=>{throw new Error('No messages should be captured');});
+  monitor.update([{id:'chosen',kind:'group'}]);
+  const timer=setTimeout(finish,4000);
+  try{
+    await done;
+    const first=states.find(s=>s.status==='polling'),success=states.find(s=>s.status==='running'),failure=states.at(-1);
+    assert.equal(first.lastSuccessAt,null);assert.ok(first.lastAttemptAt);
+    assert.ok(success.lastSuccessAt);assert.equal(success.ready,true);
+    assert.equal(failure.status,'retrying');assert.equal(failure.lastSuccessAt,success.lastSuccessAt);
+    assert.ok(Date.parse(failure.lastAttemptAt)>Date.parse(success.lastSuccessAt));
+  }finally{clearTimeout(timer);monitor.stop();}
+});
+
+test('a failed durable checkpoint never reports a successful poll',async()=>{
+  const states=[];let monitor,finish;
+  const done=new Promise(resolve=>{finish=resolve;});
+  const driver={storage:{get:async()=>({revision:1}),set:async()=>{throw new Error('synthetic storage failure');}},client:{talk:{sync:async()=>({operationResponse:{operations:[]}})}}};
+  monitor=new LiveMonitor(driver,(_event,state)=>{states.push(state);if(state.status==='retrying'){monitor.stop();finish();}},()=>{});
+  monitor.update([{id:'chosen',kind:'group'}]);
+  const timer=setTimeout(finish,4000);
+  try{await done;assert.equal(states.at(-1).status,'retrying');assert.ok(states.every(s=>s.lastSuccessAt===null));}
+  finally{clearTimeout(timer);monitor.stop();}
+});
 test('listener discards undesignated messages before decryption and waits for storage ACK',async()=>{
   const decrypted=[],saved=[],captured=[],resolved=[];let monitor;
   const driver={storage:{get:async()=>({revision:1,globalRev:0,individualRev:0}),set:async(k,v)=>{saved.push([k,v]);monitor.stop();}},client:{profile:{mid:'self'},talk:{sync:async()=>({operationResponse:{operations:[{type:'RECEIVE_MESSAGE',revision:2,message:{id:'private',from:'person',to:'excluded',text:'private'}},{type:26,revision:3,message:{id:'allowed',from:'person',to:'chosen',text:'visible'}}]}})},e2ee:{decryptE2EEMessage:async raw=>{decrypted.push(raw.id);return raw;}}}};

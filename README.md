@@ -1,18 +1,19 @@
 # LineBridge
 
-LineBridge runs on your **own PC or Mac**, connects to LINE locally, and exposes designated accounts to cloud AI through a tunnel. It includes a zh-TW desktop dashboard, live Talk/OpenChat monitoring, an encrypted SQLite archive, full-text search in any language, scoped HTTP APIs and six MCP tools. [繁體中文](README.zh-TW.md).
+LineBridge runs on your **own Windows, Mac or Linux computer**, connects to LINE locally, and gives AI scoped access to designated accounts. Remote AI can connect through an optional tunnel. It includes a zh-TW dashboard, live Talk/OpenChat monitoring, an encrypted SQLite archive, full-text search in any language, scoped HTTP APIs and six MCP tools. [繁體中文](README.zh-TW.md).
 
 ## Install and connect
 
 Use the Windows x64 **NSIS installer** or the **DMG matching your Mac**. Node and cloudflared are bundled; end users do not need Node, Rust or a compiler. Keep the app running while monitoring or connecting an AI.
 
-The first page is a five-step wizard:
+For Dot or another AI with authorized terminal access to your computer, use the **portable CLI bundle** for Windows, macOS or Linux. Extract it and run `.\linebridge.cmd serve` on Windows or `./linebridge serve` on macOS/Linux. Node and app dependencies are included; no separate Node/npm installation is needed. [Portable downloads/builds and OS requirements](PACKAGING.md#portable-cli-and-service-bundles).
 
-1. Connect a LINE account using your phone's QR scan, or resume its saved session.
-2. Discover and designate chats. Enable **監聽並封存新訊息** to archive their new messages.
-3. Create an expiring AI token with separate account read/send grants. The secret is shown once.
-4. Start a tunnel. Quick Tunnel works without registration; Cloudflare Tunnel + Access and installed-client Tailscale Serve are also supported.
-5. Check monitoring status. Use the separate accounts, monitoring, **封存搜尋**, permissions, connection and activity pages as needed.
+The setup wizard only binds your LINE account, then provides CLI instructions to copy into your cloud AI agent. Additional features have their own left-nav pages:
+
+1. In **帳號與聊天室**, discover/designate chats and enable **監聽並封存新訊息** to archive new messages.
+2. In **封存搜尋**, manually search chats and saved messages; **監控狀態** shows receiver health and successful poll times.
+3. In **API 金鑰與 AI 存取**, create an expiring token with separate read/send grants. The secret is shown once.
+4. In **雲端連線與通道**, configure a tunnel when the AI runs remotely. An AI controlling this PC's terminal can use localhost without a tunnel.
 
 Give the cloud AI the tunnel's HTTPS `/mcp` URL and `Authorization: Bearer <token>`. LINE API connections originate from this PC. The AI does not need to install a LINE client on its VM. Cloudflare Access additionally requires its service-token headers. [Connection setup](CONNECTIONS.md).
 
@@ -66,11 +67,13 @@ npm ci --ignore-scripts
 npm run check
 npm test
 npm run test:smoke
+npm run package:portable # native CLI/service archive, includes Node
+npm run test:portable    # extracted archive without Node/npm on PATH
 npm run desktop          # development desktop, requires native Rust tools
 npm run build:windows    # Windows x64 NSIS on Windows
 npm run build:macos      # native ARM/Intel DMG on the matching Mac
 ```
 
-For command-line operation on a machine that can reach LINE, run `npm start -- --data-dir ./data`. `linebridge status` and `stop` use verified service identity. The portable npm archive is retained as an operator option, not the main desktop distribution, and is not published to the npm registry. `--trust-local` is an explicit development opt-in restricted to the local provider and direct loopback requests. The desktop always requires scoped tokens.
+For source-checkout operation on a machine that can reach LINE, run `npm start -- --data-dir ./data`. `linebridge status` and `stop` use verified service identity. The separate npm archive requires Node and is not published to the npm registry. `--trust-local` is an explicit development opt-in restricted to the local provider and direct loopback requests. The desktop always requires scoped tokens.
 
 [Verification results](VALIDATION.md).
