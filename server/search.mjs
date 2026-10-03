@@ -19,12 +19,15 @@ export function initializeSearch(store,vault){
     store.setSetting('messageSearchVersion',1);
   });
 }
-export function searchArchive(store,vault,input,accountIds,admin=false){
+export function searchArchive(store,vault,input,accountIds,admin=false,grants=[]){
   const normalized=normalizeText(input.query),terms=input.mode==='phrase'?[normalized]:normalized.split(' ').filter(Boolean);
   if(!terms.length||!accountIds.length)return {results:[],hasMore:false,nextBefore:null,scanned:0};
   const tokens=new Set();for(const term of terms)for(const gram of grams(term,Math.min(3,Array.from(term).length)))tokens.add(hash(vault,gram));
   const filters=['message_search MATCH ?',`m.account_id IN (${accountIds.map(()=>'?').join(',')})`],args=[[...tokens].join(' AND '),...accountIds];
   if(!admin)filters.push('c.enabled=1');
+  if(!admin&&grants.some(g=>g.chatIds)){
+    filters.push(`(${accountIds.map(id=>{const scope=grants.find(g=>g.accountId===id)?.chatIds;args.push(id,...(scope??[]));return `(m.account_id=?${scope?` AND m.chat_id IN (${scope.map(()=>'?').join(',')})`:''})`;}).join(' OR ')})`);
+  }
   if(input.chatId){filters.push('m.chat_id=?');args.push(input.chatId);}
   if(input.before){filters.push('m.seq<?');args.push(input.before);}
   const candidates=store.db.prepare(`SELECT m.*,c.name,c.kind FROM message_search JOIN messages m ON m.seq=message_search.rowid JOIN chats c ON c.account_id=m.account_id AND c.id=m.chat_id WHERE ${filters.join(' AND ')} ORDER BY m.seq DESC LIMIT 501`).all(...args);

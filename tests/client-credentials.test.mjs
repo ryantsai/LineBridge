@@ -53,3 +53,24 @@ test('profile integrity and credential schema prevent namespace/command injectio
   const encoded=Buffer.from(JSON.stringify({version:1,profile:'other',url:'https://gateway.example',...creds})).toString('base64');
   await assert.rejects(new CredentialStore({platform:'linux',run:async()=>({code:0,stdout:encoded})}).get('test'),{code:'credential_store_unavailable'});
 });
+
+test('app enrollment refuses an existing profile and does not place secrets in helper argv',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'linebridge-create-profile-'));t.after(()=>removeClientFixture(dir));
+  for(const platform of ['win32','darwin','linux']){
+    let saved;const calls=[];
+    const run=async(file,args,options)=>{
+      calls.push({args,input:options.input});
+      if(platform==='win32')return {code:0,stdout:Buffer.from('synthetic-protected-ciphertext').toString('base64')};
+      if(args.includes('-i')){if(saved&&!options.input.includes(' -U '))return {code:45,stdout:''};saved=options.input.match(/ -w (\S+)/)[1];return {code:0,stdout:''};}
+      if(args[0]==='search')return {code:0,stdout:saved?'[synthetic-item]\n':''};
+      if(args[0]==='lookup')return saved?{code:0,stdout:saved}:{code:1,stdout:''};
+      if(args[0]==='store'){saved=options.input;return {code:0,stdout:''};}
+      assert.fail('Unexpected helper');
+    };
+    const store=new CredentialStore({platform,directory:dir,keychain:'/tmp/synthetic.keychain-db',run,env:{}});
+    await store.create('new-managed','http://127.0.0.1:3211',creds);
+    await assert.rejects(store.create('new-managed','http://127.0.0.1:3211',{token:'synthetic-conflict-token'}));
+    assert.ok(calls.every(call=>!JSON.stringify(call.args).includes(creds.token)));
+    if(platform==='darwin')assert.ok(calls.filter(call=>call.args.includes('-i')).every(call=>!call.input.includes(' -U ')));
+  }
+});

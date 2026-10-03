@@ -98,3 +98,29 @@ test('strict token mode keeps localhost authenticated',async t=>{
   const token=hub.createToken({name:'Strict reader',grants:[{accountId:a.id,read:true,send:false}]});
   const state=await (await fetch(`${base}/api/v1/status`,{headers:{Authorization:`Bearer ${token.token}`}})).json();assert.equal(state.authentication,'token');
 });
+
+test('dashboard combined setup enrolls privately; local profiles reject browsers/proxies and work with the data CLI',async t=>{
+  const {LocalSetup}=await import('../server/local-setup.mjs'),{runCli}=await import('../client/cli.mjs');
+  const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'synthetic'),hub=new Hub(store,vault),adminPort=await freePort(),gatewayPort=await freePort(),root=resolve('.'),tunnels=new Tunnels(store,vault,root,gatewayPort),items=new Map();
+  const credentials={protection:'synthetic protected store',create:async(profile,url,value)=>{items.set(profile,{url,...value});},get:async profile=>{if(!items.has(profile))throw Object.assign(new Error('synthetic'),{code:'credentials_required'});return items.get(profile);},forget:async profile=>items.delete(profile)};
+  const localSetup=new LocalSetup(hub,{credentials,gatewayPort}),apps=createApps({hub,tunnels,root,adminPort,gatewayPort,localSetup}),admin=apps.admin.listen(adminPort,'127.0.0.1'),gateway=apps.gateway.listen(gatewayPort,'127.0.0.1');
+  t.after(()=>{hub.close();tunnels.close();for(const s of [admin,gateway]){s.closeAllConnections();s.close();}store.close();});
+  const a=await hub.addAccount({label:'Synthetic enrollment',kind:'demo'}),local=`http://127.0.0.1:${adminPort}`,base=`http://127.0.0.1:${gatewayPort}`,route=`${local}/admin/accounts/${a.id}/local-setup`;
+  const page=await fetch(local),cookie=page.headers.getSetCookie()[0].split(';')[0],headers={Cookie:cookie,Origin:local,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body=JSON.stringify({chatIds:['demo-group'],read:true,send:true,confirmed:true});
+  assert.equal((await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body})).status,401);
+  assert.equal((await fetch(route,{method:'POST',headers:{...headers,Origin:'https://evil.example'},body})).status,403);
+  const {Origin,...missingOrigin}=headers;assert.equal((await fetch(route,{method:'POST',headers:missingOrigin,body})).status,403);
+  assert.equal((await fetch(route,{method:'POST',headers:{...headers,'X-Forwarded-For':'203.0.113.9'},body})).status,403);
+  assert.equal((await fetch(`${base}/admin/accounts/${a.id}/local-setup`,{method:'POST',headers:{'Content-Type':'application/json'},body})).status,401);
+  assert.equal(store.tokens().length,0);
+  const response=await fetch(route,{method:'POST',headers,body});assert.equal(response.status,200);const enrolled=await response.json(),stored=items.get(enrolled.profile);
+  assert.equal(enrolled.ready,false);assert.equal(enrolled.health,'sandbox');assert.ok(!JSON.stringify(enrolled).includes(stored.token));
+  let output='',stderr='';const code=await runCli(['accounts','--profile',enrolled.profile],{store:credentials,env:{},stdout:{write:s=>{output+=s;}},stderr:{write:s=>{stderr+=s;}}});assert.equal(code,0);assert.equal(stderr,'');assert.equal(JSON.parse(output)[0].permissions.send,true);
+  const authorization={Authorization:`Bearer ${stored.token}`};
+  for(const extra of [{Origin:local},{Referer:local},{'X-Forwarded-For':'203.0.113.9'},{Forwarded:'for=203.0.113.9'},{'CF-Connecting-IP':'203.0.113.9'}])assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:{...authorization,...extra}})).status,403);
+  store.setSetting('tunnel',{provider:'cloudflare',hostname:'line.example.com',teamDomain:'example.cloudflareaccess.com',audience:'synthetic'});
+  assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:authorization})).status,200,'Direct loopback managed profile remains available');
+  assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...authorization,Host:'line.example.com'}),403,'Managed profiles cannot authenticate remote tunnel traffic');
+  const state=await (await fetch(`${local}/admin/state`,{headers:{Cookie:cookie}})).json();assert.ok(!JSON.stringify(state).includes(stored.token));
+  await fetch(route,{method:'DELETE',headers});assert.equal(items.size,0);assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:authorization})).status,401);
+});

@@ -1,9 +1,9 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {mkdir, readFile, writeFile, rename, rm, lstat} from 'node:fs/promises';
+import {mkdir, readFile, writeFile, rename, link, rm, lstat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {isAbsolute, join, resolve} from 'node:path';
-import {credentialError, missingCredentials, usage} from './errors.mjs';
+import {ClientError, EXIT, credentialError, missingCredentials, usage} from './errors.mjs';
 
 const SERVICE = 'org.linebridge.cli.v1';
 const MAX_SECRET = 3000;
@@ -83,7 +83,16 @@ export class CredentialStore {
     if(!path || !isAbsolute(path) || /["\\\r\n\0]/.test(path))throw credentialError();
     return path;
   }
-  async set(profile,url,input) {
+  async linuxPresence(profile){
+    // Unlike lookup, search returns success with empty output for a confirmed
+    // absence. Do not pass --unlock: a locked item still produces metadata and
+    // must be treated as present, even when its secret cannot be retrieved.
+    // All output (which may contain a secret) stays inside the private pipe.
+    const result=await this.helper('/usr/bin/secret-tool',['search','--all','application',SERVICE,'profile',profile]);
+    if(result.code!==0)throw credentialError();
+    return result.stdout.trim()!=='';
+  }
+  async set(profile,url,input,{replace=true}={}) {
     profile = profileName(profile);
     const record = {version:1,profile,url:endpoint(url),...credentialInput(input)};
     const encoded = Buffer.from(JSON.stringify(record)).toString('base64');
@@ -94,23 +103,30 @@ export class CredentialStore {
       try {
         await mkdir(this.directory,{recursive:true,mode:0o700});
         await writeFile(temporary,protectedBytes,{flag:'wx',mode:0o600});
-        await rename(temporary,path);
+        if(replace)await rename(temporary,path);else await link(temporary,path);
       } catch { throw credentialError(); }
       finally { await rm(temporary,{force:true}).catch(()=>{}); }
     } else if(this.platform === 'darwin') {
       // security's interactive command line limit is 4096 bytes. Its stdin parser
       // is not a shell; secrets are base64 and names are restricted ASCII.
       const path = await this.selectedKeychain();
-      const line = `add-generic-password -U -a ${profile} -s ${SERVICE} -w ${encoded} "${path}"\n`;
+      const line = `add-generic-password ${replace?'-U ':''}-a ${profile} -s ${SERVICE} -w ${encoded} "${path}"\n`;
       if(Buffer.byteLength(line)>=4096) throw credentialError();
       const result = await this.helper('/usr/bin/security',['-q','-i'],line);
       if(result.code!==0) throw credentialError();
     } else if(this.platform === 'linux') {
+      if(!replace){
+        if(await this.linuxPresence(profile))throw new ClientError('profile_conflict','This protected profile already exists.',EXIT.credentials);
+      }
       const result = await this.helper('/usr/bin/secret-tool',['store','--label=LineBridge CLI','application',SERVICE,'profile',profile],encoded);
       if(result.code!==0) throw credentialError();
     } else throw credentialError();
     return {profile,url:record.url,protection:this.protection};
   }
+  // App-managed profiles use fresh UUID names, never a user's default/manual
+  // profile. Linux's CLI has no atomic create; the unguessable name plus the
+  // process-owned setup lock avoids competing application enrollments.
+  async create(profile,url,input){return this.set(profile,url,input,{replace:false});}
   async get(profile) {
     profile = profileName(profile);
     let encoded;
@@ -126,9 +142,10 @@ export class CredentialStore {
       encoded = result.stdout.trim();
     } else if(this.platform === 'linux') {
       const result = await this.helper('/usr/bin/secret-tool',['lookup','application',SERVICE,'profile',profile]);
-      // secret-tool returns the same status for a missing item and an unavailable
-      // service. Keep both failures explicit rather than silently using a file.
-      if(result.code!==0) throw credentialError();
+      // lookup exit 1 is ambiguous. Only a successful, empty search confirms
+      // absence; locked items and service errors remain storage failures.
+      if(result.code===1&&!await this.linuxPresence(profile))throw missingCredentials();
+      if(result.code!==0)throw credentialError();
       encoded = result.stdout;
     } else throw credentialError();
     try {

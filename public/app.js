@@ -28,7 +28,7 @@ function switchTab(tab){
   document.querySelectorAll('.page').forEach(e=>e.classList.toggle('active',e.id===tab));
   $('#page-title').textContent={setup:'開始設定',monitoring:'訊息監控',archive:'封存搜尋',accounts:'帳號與聊天室',access:'API 金鑰與 AI 存取',tunnel:'雲端連線與通道',activity:'活動紀錄'}[tab];
   $('#breadcrumb-page').textContent=$('#page-title').textContent;
-  $('#page-description').textContent={setup:'綁定 LINE 帳號，即可開始使用本機工作區。',monitoring:'每一則新訊息，都在你的掌握之中。',archive:'任何語言的訊息，都能在本機封存中查找。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'透過通道，將這台電腦與雲端 AI 連接。',activity:'查看用戶端的讀取、搜尋、傳送與異動紀錄。'}[tab];
+  $('#page-description').textContent={setup:'連接帳號、選擇聊天室，並確認 AI 讀取與傳送權限。',monitoring:'每一則新訊息，都在你的掌握之中。',archive:'任何語言的訊息，都能在本機封存中查找。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'透過通道，將這台電腦與雲端 AI 連接。',activity:'查看用戶端的讀取、搜尋、傳送與異動紀錄。'}[tab];
   if(tab==='setup')wizard.render();
   if(tab==='accounts'&&!selectedAccount&&state?.accounts.length)action(async()=>{selectedAccount=state.accounts[0].id;await loadChats();renderAccounts();});
   if(tab==='monitoring'){monitorAccount=monitorAccount||selectedAccount;renderMonitoring();action(()=>refreshMonitorFeed(true));}
@@ -41,6 +41,11 @@ $('#new-token').innerHTML=icon('plus')+'建立遠端權杖';
 const wizard=createWizard({escape,action,nice,getState:()=>state,getSelected:()=>selectedAccount,
   select:async id=>{selectedAccount=id;selectedChat=null;sendAttempt=null;await loadChats();renderAccounts();},
   tryDemo,
+  getChats:()=>chats,
+  openChat:()=>$('#chat-dialog').showModal(),
+  discover:async id=>{const data=await api(`/accounts/${id}/discover`,{method:'POST',body:'{}'});if(id===selectedAccount){chats=data.chats;renderAccountPane();}if(data.warnings.length)toast('部分聊天室探索未完成，請確認清單或新增已知聊天室。',true);await refresh();return data.chats;},
+  enable:async(id,body)=>{try{await api(`/accounts/${id}/local-setup`,{method:'POST',body:JSON.stringify(body)});}finally{await refresh();await loadChats();}},
+  revoke:async id=>{await api(`/accounts/${id}/local-setup`,{method:'DELETE'});await refresh();await loadChats();},
   openAccount:()=>{$('#account-form').elements.kind.value='line';$('#account-dialog').showModal();},
   connect:async qr=>{const a=state.accounts.find(a=>a.id===selectedAccount);if(a.kind==='demo'||!qr)await reconnect();else await login(a.id);},
   go:tab=>{if(tab==='monitoring')monitorAccount=selectedAccount;switchTab(tab);}

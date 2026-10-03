@@ -59,7 +59,7 @@ export async function startService({dataDir=defaultDataDirectory(),adminPort=Num
     if(stopPromise)return stopPromise;
     stopPromise=(async()=>{
       hub?.close();closeServers();await tunnels?.close();
-      await Promise.allSettled([...hub?.queues.values()??[]].map(q=>q.tail));
+      await Promise.allSettled([...[...hub?.queues.values()??[]].map(q=>q.tail),...hub?.monitorQueues.values()??[]]);
       const m=await metadata(data);if(m?.instance===instance){await rm(join(data,'service.json'),{force:true});await rm(join(data,'server.pid'),{force:true});}
       store?.close();lock.close();process.off('SIGINT',signal);process.off('SIGTERM',signal);
     })();return stopPromise;

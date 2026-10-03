@@ -19,8 +19,10 @@ try {
   }
   store=new CredentialStore({directory,keychain});
   const creds={token:'synthetic-native-token-only',cfAccessClientId:'synthetic-native-id',cfAccessClientSecret:'synthetic-native-secret'};
-  const enrolled=await store.set(profile,'https://synthetic.example',creds);assert.equal(enrolled.profile,profile);
+  const enrolled=await store.create(profile,'https://synthetic.example',creds);assert.equal(enrolled.profile,profile);
   assert.deepEqual(await new CredentialStore({directory,keychain}).get(profile),{url:'https://synthetic.example',...creds});
+  await assert.rejects(store.create(profile,'https://synthetic.example',{token:'synthetic-conflict-token'}));
+  assert.equal((await store.get(profile)).token,creds.token);
   await store.set(profile,'https://synthetic.example',{token:'synthetic-replacement-token'});
   assert.equal((await store.get(profile)).token,'synthetic-replacement-token');
   if(process.platform==='win32') {
