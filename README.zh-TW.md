@@ -4,9 +4,18 @@ LineBridge 0.6 在你的 **Windows、Mac 或 Linux 電腦** 連接 LINE，並提
 
 ## 開始使用
 
-使用 Windows x64 NSIS 安裝程式，或符合 Mac 架構的 DMG。已包含 Node 與 cloudflared；使用者無需安裝 Rust、Node 或編譯器。監控與通道連線期間請保持程式執行。
+從 [GitHub Releases](https://github.com/ryantsai/LineBridge/releases) 下載。此次本機發布的 **v0.6.1** 提供 Windows x64 套件及需 Node 的 npm 壓縮包；macOS／Linux 原生套件請先使用 [v0.6.0](https://github.com/ryantsai/LineBridge/releases/tag/v0.6.0)。
+
+1. **Windows x64：**下載 [LineBridge_0.6.1_x64-setup.exe](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/LineBridge_0.6.1_x64-setup.exe)，執行安裝程式，再從開始功能表開啟 **LineBridge**。
+2. **macOS：**下載符合 Mac 架構的 DMG（Apple Silicon 選 `aarch64`，Intel 選 `x64`），開啟後將 **LineBridge** 拖到「應用程式」，再從該處啟動。
+
+已包含 Node 與 cloudflared；使用者無需安裝 Rust、Node 或編譯器。Windows 安裝程式未簽章；Mac 程式採 ad-hoc 簽章，尚未公證。監控與通道連線期間請保持程式執行。
 
 Dot 或其他 AI 若已獲授權操作這台電腦的終端機，可使用 Windows／macOS／Linux **可攜式 CLI 套件**。完整解壓縮後，Windows 執行 `.\linebridge.cmd serve`，macOS／Linux 執行 `./linebridge serve`。已包含 Node 與程式相依套件，不需另外安裝 Node 或 npm。[建置與系統需求](PACKAGING.md#portable-cli-and-service-bundles)。
+
+Windows 可直接下載 [LineBridge-0.6.1-windows-x64.zip](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/LineBridge-0.6.1-windows-x64.zip)，選擇「全部解壓縮」，在解壓後的 `LineBridge-0.6.1-windows-x64` 資料夾開啟終端機，再執行 `.\linebridge.cmd serve`。保留整個資料夾並保持終端機執行，開啟 [本機管理介面](http://127.0.0.1:3210)，用手機配對 LINE、指定聊天室並建立 API 金鑰。需要停止時，在另一個終端機使用相同啟動器執行 `stop`。
+
+若已安裝 Node.js 24+，可下載 [line-bridge-0.6.1.tgz](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/line-bridge-0.6.1.tgz)，執行 `npm install -g ./line-bridge-0.6.1.tgz`，再執行 `linebridge serve`。這個壓縮包由 GitHub Releases 提供。
 
 首頁精靈只需綁定 LINE 帳號，完成後即可複製 CLI 指令給雲端 AI。其他功能各有左側導覽頁面：
 
@@ -46,5 +55,7 @@ Windows 預設 `%LOCALAPPDATA%/LineBridgeData`，macOS 為 `~/Library/Applicatio
 Windows 使用目前使用者的 DPAPI 保護主金鑰；macOS／Linux 以 0600 金鑰與 0700 資料目錄保存。訊息、憑證與通道秘密使用 AES-256-GCM；活動紀錄不儲存訊息文字或搜尋內容，AI 權杖只存雜湊。備份資料庫時需保留金鑰；Windows 金鑰不能直接跨作業系統使用。關閉桌面程式會停止其服務與連接器，下次啟動會恢復已啟用的監控偏好。
 
 ## 開發與打包
+
+本機建置並上傳到 GitHub Releases：提交變更並推送對應版本標籤後，執行 `npm run publish:github`。可先用 `npm run publish:github -- --dry-run` 預覽流程。[發布設定與選項](PACKAGING.md#publish-local-builds-to-github-releases)。
 
 Node 服務共用所有授權、SQLite、LINE 與監控功能，Rust 只負責 Tauri 視窗及服務生命週期。Windows NSIS 與 ARM／Intel Mac DMG 使用校驗過的原生執行檔。[打包說明](PACKAGING.md)、[驗證結果](VALIDATION.md)。命令列與 npm 壓縮包保留供本機維運使用，未發布到 npm registry；桌面版一律要求權杖。本機免權杖僅保留為 CLI 明確指定 `--trust-local` 的開發選項。

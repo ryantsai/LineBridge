@@ -4,9 +4,33 @@ LineBridge runs on your **own Windows, Mac or Linux computer**, connects to LINE
 
 ## Install and connect
 
-Use the Windows x64 **NSIS installer** or the **DMG matching your Mac**. Node and cloudflared are bundled; end users do not need Node, Rust or a compiler. Keep the app running while monitoring or connecting an AI.
+Download packages from [GitHub Releases](https://github.com/ryantsai/LineBridge/releases). The locally published **v0.6.1** includes Windows x64 packages and the Node-compatible npm archive. For macOS/Linux native packages, use [v0.6.0](https://github.com/ryantsai/LineBridge/releases/tag/v0.6.0) until matching v0.6.1 builds are available.
+
+For the desktop app:
+
+1. **Windows x64:** download [LineBridge_0.6.1_x64-setup.exe](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/LineBridge_0.6.1_x64-setup.exe), run the installer, and launch **LineBridge** from the Start menu.
+2. **macOS:** download the DMG matching your Mac (`aarch64` for Apple Silicon or `x64` for Intel), open it, drag **LineBridge** into **Applications**, and launch it there.
+
+Node and cloudflared are bundled; end users do not need Node, Rust or a compiler. Windows installers are unsigned; macOS apps are ad-hoc signed and not notarized. Keep the app running while monitoring or connecting an AI.
 
 For Dot or another AI with authorized terminal access to your computer, use the **portable CLI bundle** for Windows, macOS or Linux. Extract it and run `.\linebridge.cmd serve` on Windows or `./linebridge serve` on macOS/Linux. Node and app dependencies are included; no separate Node/npm installation is needed. [Portable downloads/builds and OS requirements](PACKAGING.md#portable-cli-and-service-bundles).
+
+On Windows, download [LineBridge-0.6.1-windows-x64.zip](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/LineBridge-0.6.1-windows-x64.zip), choose **Extract All**, open a terminal in the extracted `LineBridge-0.6.1-windows-x64` folder, and run:
+
+```powershell
+.\linebridge.cmd serve
+```
+
+On macOS/Linux, extract the matching `.tar.gz`, open a terminal in its extracted folder, and run `./linebridge serve`. Keep the entire folder together and leave the terminal running. Open [the local dashboard](http://127.0.0.1:3210), pair LINE with your phone, designate chats, and create a scoped API key. To stop the portable service, use the same launcher with `stop` from another terminal.
+
+If Node.js 24+ is already installed, download [line-bridge-0.6.1.tgz](https://github.com/ryantsai/LineBridge/releases/download/v0.6.1/line-bridge-0.6.1.tgz) and run:
+
+```sh
+npm install -g ./line-bridge-0.6.1.tgz
+linebridge serve
+```
+
+Download the corresponding `SHA256SUMS` asset to verify a package if needed. On Windows, use `Get-FileHash PATH -Algorithm SHA256`; on macOS/Linux, use `shasum -a 256 PATH` or `sha256sum PATH` and compare the result. When upgrading, close the old app/service and preserve its existing data directory and vault key; see [Storage and upgrades](#storage-and-upgrades).
 
 The setup wizard only binds your LINE account, then provides CLI instructions to copy into your cloud AI agent. Additional features have their own left-nav pages:
 
@@ -72,7 +96,20 @@ npm run test:portable    # extracted archive without Node/npm on PATH
 npm run desktop          # development desktop, requires native Rust tools
 npm run build:windows    # Windows x64 NSIS on Windows
 npm run build:macos      # native ARM/Intel DMG on the matching Mac
+npm run publish:github -- --dry-run # preview local build + GitHub Release upload
 ```
+
+To publish local builds, install the [GitHub CLI](https://cli.github.com/), authenticate, commit the release changes, and push the matching version tag:
+
+```sh
+gh auth login
+git tag v0.6.1
+git push origin HEAD
+git push origin v0.6.1
+npm run publish:github
+```
+
+Use the version in `package.json`; an existing tag must already point to the clean checkout's HEAD. The command builds, tests and uploads this machine's native artifacts to GitHub Releases. Use `npm run publish:github -- --kind all` to include the npm archive, or `publish:desktop`, `publish:portable`, or `publish:npm` for one distribution. `--draft`, `--prerelease`, and `--notes-file PATH` configure a new release. [Release publishing setup and options](PACKAGING.md#publish-local-builds-to-github-releases).
 
 For source-checkout operation on a machine that can reach LINE, run `npm start -- --data-dir ./data`. `linebridge status` and `stop` use verified service identity. The separate npm archive requires Node and is not published to the npm registry. `--trust-local` is an explicit development opt-in restricted to the local provider and direct loopback requests. The desktop always requires scoped tokens.
 

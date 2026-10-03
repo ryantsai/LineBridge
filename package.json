@@ -1,6 +1,6 @@
 {
   "name": "line-bridge",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "LineBridge desktop + tunnel LINE gateway with an encrypted, multilingual searchable SQLite archive",
   "license": "UNLICENSED",
@@ -38,6 +38,10 @@
     "test:tunnel": "node tests/tunnel-smoke.mjs",
     "package": "node scripts/package.mjs",
     "package:portable": "node scripts/portable.mjs",
+    "publish:github": "node scripts/publish.mjs",
+    "publish:desktop": "node scripts/publish.mjs --kind desktop",
+    "publish:portable": "node scripts/publish.mjs --kind portable",
+    "publish:npm": "node scripts/publish.mjs --kind npm",
     "test:portable": "node tests/portable-smoke.mjs",
     "check": "node scripts/check.mjs",
     "desktop": "node scripts/desktop.mjs --dev",

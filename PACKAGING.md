@@ -8,10 +8,10 @@ For an AI agent with authorized terminal access to the user's computer, use the 
 
 | Target | Archive | OS baseline |
 | --- | --- | --- |
-| Windows x64 | `LineBridge-0.6.0-windows-x64.zip` | Supported Windows 10/11 or Server 2016+ |
-| macOS Apple Silicon | `LineBridge-0.6.0-macos-arm64.tar.gz` | Supported macOS 13.5+ |
-| macOS Intel | `LineBridge-0.6.0-macos-x64.tar.gz` | Supported macOS 13.5+ |
-| Linux x64 / ARM64 | `LineBridge-0.6.0-linux-x64.tar.gz` / `LineBridge-0.6.0-linux-arm64.tar.gz` | glibc 2.28+, kernel 4.18+, libstdc++ 6.0.25+, libatomic (`libatomic1` on Debian/Ubuntu) |
+| Windows x64 | `LineBridge-0.6.1-windows-x64.zip` | Supported Windows 10/11 or Server 2016+ |
+| macOS Apple Silicon | `LineBridge-0.6.1-macos-arm64.tar.gz` | Supported macOS 13.5+ |
+| macOS Intel | `LineBridge-0.6.1-macos-x64.tar.gz` | Supported macOS 13.5+ |
+| Linux x64 / ARM64 | `LineBridge-0.6.1-linux-x64.tar.gz` / `LineBridge-0.6.1-linux-arm64.tar.gz` | glibc 2.28+, kernel 4.18+, libstdc++ 6.0.25+, libatomic (`libatomic1` on Debian/Ubuntu) |
 
 Linux builds use official glibc Node binaries; Alpine/musl is unsupported. These baselines follow the [bundled Node 26.5.0 requirements](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md). Use a supported OS release. Windows ARM64 native bundles are not included.
 
@@ -50,6 +50,35 @@ The private repository's **Build LineBridge desktop installers** workflow can al
 
 Windows installers are unsigned. Mac apps are ad-hoc signed with Node JIT entitlements, not Developer ID signed or notarized. Production distribution requires the developer's signing credentials; the build does not invent them.
 
+## Publish local builds to GitHub Releases
+
+Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` with an account that can write releases to this repository. Install build dependencies with `npm ci --ignore-scripts` and use the native build prerequisites above. Commit your changes, ensure the package and desktop versions agree, then create and push the matching version tag:
+
+```sh
+git tag v0.6.1
+git push origin v0.6.1
+npm run publish:github -- --dry-run
+npm run publish:github
+```
+
+Use the version from `package.json` in place of `0.6.1`. If the tag already exists, check out its commit instead of recreating it. Publishing requires a clean checkout whose HEAD matches the tag on GitHub. The repository defaults to the one selected by `gh` for this checkout; use `--repo OWNER/REPO` to select it explicitly.
+
+`publish:github` builds and uploads the native desktop installer and portable bundle on Windows/macOS, or the portable bundle on Linux. Run it on each native OS/architecture to add that platform to the same release. To publish only one distribution:
+
+```sh
+npm run publish:desktop
+npm run publish:portable
+npm run publish:npm
+```
+
+`publish:npm` uploads the Node-dependent `.tgz` to **GitHub Releases**, not the npm registry. Use `npm run publish:github -- --kind all` to include it with native artifacts; the npm archive only needs to be uploaded once per version.
+
+Before uploading, each command runs syntax checks, unit tests and the service smoke test, builds the selected distributions, and runs their package smoke tests (including DMG verification on macOS). It verifies artifact versions and SHA-256 checksums and stages only the files named by the build manifests in `release/github/v<version>/`. Checksum and metadata filenames include the distribution and platform so separate native uploads do not collide. Other files under `release/` are not uploaded.
+
+A new release is published with generated notes by default. For its first upload, use `--draft`, `--prerelease`, or `--notes-file PATH` as needed. Later uploads append assets to the existing release and preserve its notes and draft/prerelease state; omit creation options on these runs. Existing asset names cause an error and are never overwritten. If an upload is interrupted, inspect the release and remove only the incomplete assets you intend to replace before retrying. A draft can be published from GitHub once all platforms have been added.
+
+`--dry-run` prints the build/upload plan without building, contacting GitHub or changing a release. `npm run publish:github -- --help` lists all options. These commands do not run the GitHub Actions build workflows or publish anything to npm.
+
 ## Process and data ownership
 
 The Rust shell owns a private readiness/shutdown pipe to Node and focuses the existing window on a second launch. Normal exit requests graceful shutdown; an abruptly ended parent closes the pipe and the service stops its worker and owned connector. A separate SQLite lease rejects concurrent use of the same data directory. The admin dashboard is loaded from its own loopback HTTP origin, with no privileged IPC access granted to remote content. Provider sign-in opens the system browser; its callback remains local.
@@ -58,7 +87,7 @@ The desktop and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA
 
 ## CLI archive
 
-`npm run package` produces `release/npm/line-bridge-0.6.0.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.6.0.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
+`npm run package` produces `release/npm/line-bridge-0.6.1.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.6.1.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
 
 ## Verification
 
