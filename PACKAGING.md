@@ -17,7 +17,7 @@ npm run test:desktop     # synthetic native startup, auth, persistence and shutd
 
 The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, bundles Tailcat 0.7.0 from its checksummed Windows release or pinned Go module on Mac, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
 
-Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows.
+Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows/macOS.
 
 The private repository's **Build LineBridge desktop installers** workflow can also be started manually with `platform` set to `all`, `windows` or `macos`. Download the matching `LineBridge-windows-x64`, `LineBridge-macos-arm64` or `LineBridge-macos-x64` artifact from its successful run; each includes its checksum and build metadata. A workflow run is verified only after the native lifetime/signature checks pass, not merely when an installer file is produced.
 
@@ -34,6 +34,8 @@ The desktop and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA
 `npm run package` produces `release/npm/line-bridge-0.6.0.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.6.0.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
 
 ## Verification
+
+The archive includes the supported [data CLI](CLI.md), its client modules and credential adapters. `npm run test:package-cli` checks a fresh temporary installation after packaging. Portable CI tests Node 24/26 on Windows, macOS and Linux, with separate native synthetic DPAPI/Keychain/Secret Service checks. Unit tests label mocked OS helpers; native storage checks use disposable profiles and isolated stores. Neither suite uses real LINE credentials or messages.
 
 `npm run test:smoke` tests HTTP and the official MCP client with synthetic accounts. `npm run test:desktop` tests the native app, bundled runtime, multilingual archive across restart and process shutdown. `npm run test:tunnel` explicitly starts a disposable live Quick Tunnel, checking HTTPS, scoped API/MCP/search and inaccessible admin routes. It sends only synthetic messages. Build scripts preserve third-party licenses and verify runtime hashes before packaging.
 

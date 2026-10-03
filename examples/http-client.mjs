@@ -1,3 +1,5 @@
+// Minimal REST example. For supported commands, protected credentials, stable
+// exits, bounded paging and UTF-8 stdin/file sends, use linebridge (see CLI.md).
 import { readFile } from 'node:fs/promises';
 
 const base=(process.env.LINE_BRIDGE_URL ?? 'http://127.0.0.1:3211').replace(/\/$/,'');

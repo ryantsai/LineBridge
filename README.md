@@ -28,6 +28,8 @@ An AI can search only accounts with a current **read** grant and currently desig
 
 ## AI interfaces
 
+The supported **Windows/macOS/Linux data CLI** uses the same scoped gateway: `linebridge accounts`, `chats`, `read`, `events`, `search` and explicit `send`. It offers JSON stdout, bounded pages/deadlines, UTF-8 file/stdin input and OS-protected credential enrollment. [CLI commands, credentials, cursors and exit codes](CLI.md).
+
 | MCP tool | Purpose |
 | --- | --- |
 | `line_list_accounts` | Permitted accounts and connection/monitor status |

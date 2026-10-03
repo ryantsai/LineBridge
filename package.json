@@ -9,6 +9,7 @@
   },
   "files": [
     "bin/",
+    "client/*.mjs",
     "server/*.mjs",
     "protocol/*.mjs",
     "protocol/third-party-notices.txt",
@@ -19,7 +20,8 @@
     "PACKAGING.md",
     "CONNECTIONS.md",
     "ALIASES.md",
-    "SEARCH.md"
+    "SEARCH.md",
+    "CLI.md"
   ],
   "engines": {
     "node": ">=24.0.0"
@@ -29,6 +31,9 @@
     "status": "node bin/linebridge.mjs status",
     "stop": "node bin/linebridge.mjs stop",
     "test": "node --test tests/*.test.mjs",
+    "test:cli": "node --test tests/cli*.test.mjs tests/client-credentials.test.mjs",
+    "test:credentials:native": "node tests/client-credentials-native.mjs",
+    "test:package-cli": "node tests/cli-package-smoke.mjs",
     "test:smoke": "node tests/service-smoke.mjs",
     "test:tunnel": "node tests/tunnel-smoke.mjs",
     "package": "node scripts/package.mjs",

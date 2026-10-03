@@ -6,6 +6,7 @@ import {VERSION} from '../server/version.mjs';
 const help=`LineBridge ${VERSION} — local LINE MCP / HTTP gateway
 
 Usage: linebridge [serve|status|stop] [options]
+       linebridge accounts|chats|read|search|events|send|auth [options]
 
   serve                    Run in the foreground (default)
   status                   Inspect the service for this data directory
@@ -17,6 +18,9 @@ Usage: linebridge [serve|status|stop] [options]
   --trust-local            Opt in to token-free direct loopback development
   --version                Print version
   --help                   Print this help
+
+Data client: linebridge accounts --help (JSON stdout, diagnostics on stderr).
+See CLI.md for scoped credentials, pagination and explicit sends.
 
 Node.js 24+ required for this CLI. The desktop installer bundles its runtime.
 Environment: LINE_BRIDGE_DATA, LINE_BRIDGE_ADMIN_PORT, LINE_BRIDGE_GATEWAY_PORT,
@@ -53,4 +57,8 @@ async function main(){
   if(!response.ok)throw new Error('The service could not be stopped.');
   console.log(JSON.stringify({status:'stopping',dataDir}));
 }
-try{await main();}catch(error){console.error(error?.code==='EADDRINUSE'?'A LineBridge port is already in use.':error?.status?`${error.code}: ${error.message}`:error.message??'LineBridge could not complete the command.');process.exitCode=1;}
+if(['accounts','chats','read','search','events','send','auth'].includes(process.argv[2])) {
+  const {runCli}=await import('../client/cli.mjs');process.exitCode=await runCli(process.argv.slice(2));
+} else {
+  try{await main();}catch(error){console.error(error?.code==='EADDRINUSE'?'A LineBridge port is already in use.':error?.status?`${error.code}: ${error.message}`:error.message??'LineBridge could not complete the command.');process.exitCode=1;}
+}

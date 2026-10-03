@@ -1,0 +1,176 @@
+import {parseArgs} from 'node:util';
+import {createReadStream} from 'node:fs';
+import {TextDecoder} from 'node:util';
+import {CredentialStore, configDirectory, credentialInput, endpoint, profileName} from './credentials.mjs';
+import {ClientError, EXIT, usage} from './errors.mjs';
+import {gatewayRequest} from './request.mjs';
+import {VERSION} from '../server/version.mjs';
+
+export const DATA_COMMANDS = ['accounts','chats','read','search','events','send','auth'];
+const common = ['profile','url','timeout-ms','credential-stdin'];
+const commandOptions = {
+  accounts:[], chats:['account'], read:['account','chat','limit','cursor'], events:['account','after','limit'],
+  search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
+  send:['account','chat','key','text','text-file','stdin'],
+  auth:['token-stdin']
+};
+const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
+export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS/Linux)
+
+  linebridge accounts
+  linebridge chats --account ACCOUNT
+  linebridge read --account ACCOUNT --chat CHAT [--limit 30] [--cursor CURSOR]
+  linebridge events --account ACCOUNT [--after 0] [--limit 100]
+  linebridge search --query QUERY [--account ACCOUNT] [--chat CHAT]
+                    [--mode all|phrase] [--before SEQUENCE] [--limit 30]
+  linebridge send --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
+                  (--text TEXT | --text-file UTF8_FILE | --stdin)
+  linebridge auth enroll --url GATEWAY (--token-stdin | --credential-stdin)
+  linebridge auth forget [--profile NAME]
+
+Common: --profile NAME (default: default), --url GATEWAY, --timeout-ms 45000,
+        --credential-stdin (transient JSON credentials through a private pipe).
+Search also accepts --query-file UTF8_FILE or --query-stdin instead of --query.
+Limits: 1-100 records per page; deadline 1-120000 ms. No automatic pagination,
+redirects or retries. Pass returned cursor/nextBefore explicitly to continue.
+Credentials are never accepted as command-line arguments or printed.
+Environment: LINE_BRIDGE_URL, LINE_BRIDGE_TOKEN, CF_ACCESS_CLIENT_ID,
+             CF_ACCESS_CLIENT_SECRET, LINE_BRIDGE_CLIENT_CONFIG.
+Enrollment stores an EXISTING scoped token using OS protection. It does not
+create tokens, expand grants, log in to LINE, or set up a persistent service.
+Sends require explicit user authorization. Unknown delivery exits 8 and must
+be inspected before any further send. See CLI.md for exit codes and examples.
+`;
+
+function parse(argv) {
+  const command=argv[0];
+  if(!DATA_COMMANDS.includes(command))usage('Use accounts, chats, read, search, events, send or auth. See --help.');
+  const allowed=new Set([...common,...commandOptions[command],'help']);
+  const options=Object.fromEntries([...allowed].map(name=>[name,{type:booleans.has(name)?'boolean':'string'}]));
+  let parsed;
+  try { parsed=parseArgs({args:argv.slice(1),options,allowPositionals:command==='auth',tokens:true}); }
+  catch { usage('Invalid command options. See linebridge COMMAND --help. Credentials are accepted only through environment variables or stdin.'); }
+  const seen=new Set();
+  for(const token of parsed.tokens)if(token.kind==='option'){if(seen.has(token.name))usage('Do not repeat command options.');seen.add(token.name);}
+  const action=parsed.positionals[0];
+  if(command==='auth' && !parsed.values.help && (parsed.positionals.length!==1 || !['enroll','forget'].includes(action)))usage('Use auth enroll or auth forget.');
+  return {command,action,values:parsed.values};
+}
+function integer(value, fallback, min, max, name) {
+  if(value===undefined)return fallback;
+  if(!/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value)<min || Number(value)>max)usage(`${name} must be an integer between ${min} and ${max}.`);
+  return Number(value);
+}
+function identifier(value,name) {
+  if(typeof value!=='string' || !value.trim() || value.length>150 || /[\x00-\x1f\x7f]/.test(value))usage(`Supply an explicit ${name} ID (1-150 characters, without control characters).`);
+  return value;
+}
+function oneOf(values,options) {
+  if(options.filter(name=>values[name]!==undefined).length!==1)usage(`Supply exactly one of ${options.map(name=>`--${name}`).join(', ')}.`);
+}
+export async function boundedText(stream,{maxBytes=20000,timeoutMs=45000} = {}) {
+  return new Promise((resolve,reject)=>{
+    const chunks=[];let size=0,done=false;
+    const finish=(error)=>{if(done)return;done=true;clearTimeout(timer);stream.removeListener('data',data);stream.removeListener('end',end);stream.removeListener('error',failed);stream.removeListener('close',closed);if(error){stream.pause();reject(error);}else{try{resolve(new TextDecoder('utf-8',{fatal:true,ignoreBOM:false}).decode(Buffer.concat(chunks)));}catch{reject(new ClientError('invalid_utf8','Input must be valid UTF-8.',EXIT.usage));}}};
+    const data=chunk=>{const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>maxBytes)finish(new ClientError('input_too_large','Input exceeds the command size limit.',EXIT.usage));else chunks.push(bytes);};
+    const end=()=>finish();
+    const failed=()=>finish(new ClientError('input_error','Input could not be read.',EXIT.usage));
+    const closed=()=>{if(!stream.readableEnded)failed();};
+    const timer=setTimeout(()=>finish(new ClientError('input_timeout','Input did not finish before the deadline.',EXIT.transport)),timeoutMs);
+    stream.on('data',data);stream.once('end',end);stream.once('error',failed);stream.once('close',closed);
+    if(stream.readableEnded)end();else if(stream.destroyed)failed();
+  });
+}
+async function inputText(values,names,context,maxBytes) {
+  const [literal,file,stdin]=names;
+  oneOf(values,names);
+  if(values[literal]!==undefined)return values[literal];
+  if(values[stdin]) {
+    if(context.stdin.isTTY)usage('Pipe input through stdin; interactive input is not echoed or prompted by this client.');
+    return boundedText(context.stdin,{maxBytes,timeoutMs:context.timeoutMs});
+  }
+  const stream=createReadStream(values[file]);
+  try { return await boundedText(stream,{maxBytes,timeoutMs:context.timeoutMs}); }
+  finally { stream.destroy(); }
+}
+async function stdinCredentials(values,context) {
+  if(context.stdin.isTTY)usage('Provide credentials through a private stdin pipe, not an interactive terminal.');
+  const text=await boundedText(context.stdin,{maxBytes:4096,timeoutMs:context.timeoutMs});
+  if(values['token-stdin'])return credentialInput({token:text.replace(/\r?\n$/,'')});
+  let parsed;
+  try { parsed=JSON.parse(text); } catch { usage('Credential stdin must be valid JSON.'); }
+  return credentialInput(parsed);
+}
+async function credentials(values,context) {
+  if(values['credential-stdin'])return {url:endpoint(values.url || context.env.LINE_BRIDGE_URL || 'http://127.0.0.1:3211'),...await stdinCredentials(values,context)};
+  // An explicitly selected profile wins over ambient environment credentials.
+  if(values.profile===undefined && context.env.LINE_BRIDGE_TOKEN!==undefined) {
+    return {url:endpoint(values.url || context.env.LINE_BRIDGE_URL || 'http://127.0.0.1:3211'),...credentialInput({token:context.env.LINE_BRIDGE_TOKEN,...(context.env.CF_ACCESS_CLIENT_ID!==undefined || context.env.CF_ACCESS_CLIENT_SECRET!==undefined ? {cfAccessClientId:context.env.CF_ACCESS_CLIENT_ID,cfAccessClientSecret:context.env.CF_ACCESS_CLIENT_SECRET} : {})})};
+  }
+  const stored=await context.store.get(profileName(values.profile));
+  const override=values.url || context.env.LINE_BRIDGE_URL;
+  if(override && endpoint(override)!==stored.url)usage('The gateway URL differs from the enrolled profile. Enroll a separate profile for that gateway or use explicit transient credentials.');
+  return stored;
+}
+async function execute(argv,context) {
+  const {command,action,values}=parse(argv);
+  if(values.help){context.stderr.write(HELP);return {version:VERSION,commands:DATA_COMMANDS};}
+  profileName(values.profile);
+  context.timeoutMs=integer(values['timeout-ms'],45000,1,120000,'timeout-ms');
+  if(values.url!==undefined)endpoint(values.url);
+  if(command==='auth') {
+    if(action==='forget') {
+      if(values.url!==undefined || values['token-stdin'] || values['credential-stdin'])usage('auth forget accepts only profile and timeout options.');
+      return context.store.forget(profileName(values.profile));
+    }
+    oneOf(values,['token-stdin','credential-stdin']);
+    const url=endpoint(values.url || context.env.LINE_BRIDGE_URL || 'http://127.0.0.1:3211');
+    return context.store.set(profileName(values.profile),url,await stdinCredentials(values,context));
+  }
+  if(values['credential-stdin'] && (values.stdin || values['query-stdin']))usage('Credentials and message/query text cannot both consume stdin. Use an enrolled profile or transient environment credentials.');
+  if(values['credential-stdin'] && values.profile!==undefined)usage('Choose an enrolled profile or transient credential stdin, not both.');
+  const account=values.account===undefined?undefined:identifier(values.account,'account'),chat=values.chat===undefined?undefined:identifier(values.chat,'chat');
+  if(['chats','read','events','send'].includes(command) && !account)usage('Supply --account with an explicit account ID.');
+  if(['read','send'].includes(command) && !chat)usage('Supply --chat with an explicit chat ID.');
+  if(chat && !account)usage('--chat requires --account.');
+  const base=account?`/api/v1/accounts/${encodeURIComponent(account)}`:undefined;
+  const limit=integer(values.limit,command==='events'?100:30,1,100,'limit');
+  let request;
+  if(command==='accounts')request={path:'/api/v1/accounts'};
+  if(command==='chats')request={path:`${base}/chats`};
+  if(command==='events')request={path:`${base}/events?${new URLSearchParams({after:String(integer(values.after,0,0,Number.MAX_SAFE_INTEGER,'after')),limit:String(limit)})}`};
+  if(command==='read') {
+    const params=new URLSearchParams({limit:String(limit)});
+    if(values.cursor!==undefined){if(!values.cursor || values.cursor.length>4096)usage('cursor must contain 1-4096 characters.');params.set('cursor',values.cursor);}
+    request={path:`${base}/chats/${encodeURIComponent(chat)}/messages?${params}`};
+  }
+  if(command==='search') {
+    if(values.mode!==undefined && !['all','phrase'].includes(values.mode))usage('Search mode must be all or phrase.');
+    const before=integer(values.before,undefined,1,Number.MAX_SAFE_INTEGER,'before');
+    const query=await inputText(values,['query','query-file','query-stdin'],context,800);
+    if(!query.trim() || query.trim().length>200)usage('Search queries need 1-200 characters.');
+    request={path:'/api/v1/messages/search',method:'POST',body:{query,mode:values.mode || 'all',limit,...(account?{accountId:account}:{}),...(chat?{chatId:chat}:{}),...(before===undefined?{}:{before})}};
+  }
+  if(command==='send') {
+    if(typeof values.key!=='string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(values.key))usage('Supply --key with 8-128 letters, digits, dots, underscores, colons or hyphens. Keep the same key for the same request.');
+    const text=await inputText(values,['text','text-file','stdin'],context,20000);
+    if(!text.trim() || text.length>5000)usage('Message text needs 1-5000 characters.');
+    request={path:`${base}/chats/${encodeURIComponent(chat)}/messages`,method:'POST',body:{text},key:values.key,send:true};
+  }
+  const selected=await credentials(values,context);
+  return gatewayRequest({...request,url:selected.url,credentials:selected,timeoutMs:context.timeoutMs,fetchImpl:context.fetchImpl});
+}
+export async function runCli(argv,{env=process.env,stdin=process.stdin,stdout=process.stdout,stderr=process.stderr,store=new CredentialStore({directory:configDirectory(env),env}),fetchImpl=fetch} = {}) {
+  try {
+    if(Number(process.versions.node.split('.')[0])<24)usage('LineBridge requires Node.js 24 or newer.');
+    const result=await execute(argv,{env,stdin,stdout,stderr,store,fetchImpl});
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return EXIT.ok;
+  } catch(error) {
+    const safe=error instanceof ClientError ? error : new ClientError('client_error','The client could not complete the command. No automatic retry was made.',EXIT.internal);
+    const result={error:safe.code,message:safe.message,...(safe.status===undefined?{}:{status:safe.status})};
+    stdout.write(`${JSON.stringify(result)}\n`);
+    stderr.write(`${safe.code}: ${safe.message}\n`);
+    return safe.exitCode;
+  }
+}
