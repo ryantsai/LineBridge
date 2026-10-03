@@ -1,5 +1,6 @@
 import { BaseClient } from 'lineclientbot';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { fail, SendRejectedError } from './errors.mjs';
 import {AliasResolver,contactName} from './aliases.mjs';
 
@@ -42,8 +43,9 @@ export class LineDriver {
     this.storage = storage;
     this.events = events;
     this.abort = new AbortController();
+    this.requestSignal = new AsyncLocalStorage();
     this.client = new BaseClient({ device: account.device, storage, legy: { encrypted: 'auto' },
-      fetch: request => fetch(new Request(request, { signal: AbortSignal.any([this.abort.signal, request.signal]) })) });
+      fetch: request => fetch(new Request(request, { signal: AbortSignal.any([this.abort.signal, request.signal, this.requestSignal.getStore()].filter(Boolean)) })) });
     this.client.on('qrcall', url => events.qr(url));
     this.client.on('pincall', pin => events.pin(String(pin)));
     this.client.on('update:authtoken', token => {
@@ -66,6 +68,9 @@ export class LineDriver {
     return { displayName: this.client.profile.displayName, mid: this.client.profile.mid };
   }
   stop() { this.ready=false; this.client.disabled=true; this.abort.abort(); }
+  // The SDK accepts a deadline, but no per-call signal. Scope cancellation to
+  // this async request so stopping a receiver leaves concurrent account RPCs alone.
+  monitorRequest(signal,operation) { signal.throwIfAborted();return this.requestSignal.run(signal,operation); }
   async check() { const p=await this.client.talk.getProfile(); this.client.profile=p;return { displayName:p.displayName,mid:p.mid }; }
   get aliases(){return this.aliasResolver ??= new AliasResolver(this.client,this.storage);}
   async resolveMessageNames(chat,messages){return this.aliases.resolveMessages(chat,messages);}
