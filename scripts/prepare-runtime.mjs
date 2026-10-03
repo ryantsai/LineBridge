@@ -3,6 +3,7 @@ import {join,basename} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {buildPlan,root,runtimes,sha256,verifyChecksum,verifyExecutable} from './packaging.mjs';
+import {TAILCAT_VERSION,tailcatWindows} from '../server/connector-install.mjs';
 
 async function download(url){
   const response=await fetch(url,{signal:AbortSignal.timeout(120000)});
@@ -51,6 +52,24 @@ export async function prepareRuntime(plan=buildPlan()){
   const manifest=(version,source,downloadSha256,binary,license)=>({version,platform:plan.platform,architecture:plan.arch,source,downloadSha256,sha256:sha256(binary),checksumVerified:true,license});
   await writeFile(join(runtime,'node-source.json'),JSON.stringify(manifest(nodeVersion,nodeUrl,plan.nodeSha256,await readFile(nodePath),'node-LICENSE.txt'),null,2)+'\n');
   await writeFile(join(runtime,'cloudflared-source.json'),JSON.stringify(manifest(runtimes.cloudflaredVersion,cloudUrl,plan.cloudflaredSha256,await readFile(cloudPath),'cloudflared-LICENSE.txt'),null,2)+'\n');
+  const tailcatPath=join(tools,plan.platform==='win32'?'tailcat.exe':'tailcat');let tailcatSource;
+  if(plan.platform==='win32'){
+    const url=`https://github.com/tailscale/tailcat/releases/download/v${TAILCAT_VERSION}/${tailcatWindows.asset}`,archive=join(cache,tailcatWindows.asset),dest=join(cache,'tailcat-windows');await mkdir(dest,{recursive:true});
+    await verifiedFile(archive,url,tailcatWindows.sha256);execFileSync('tar',['-xf',archive,'-C',dest,'tailcat.exe','LICENSE']);await copyFile(join(dest,'tailcat.exe'),tailcatPath);await copyFile(join(dest,'LICENSE'),join(runtime,'tailcat-LICENSE.txt'));
+    tailcatSource={version:TAILCAT_VERSION,source:url,downloadSha256:tailcatWindows.sha256,checksumVerified:true};
+  }else{
+    const dest=join(cache,'tailcat-build');await mkdir(dest,{recursive:true});
+    const tags=(await readFile(join(root,'packaging/tailcat-build-tags.txt'),'utf8')).trim(),goEnv={...process.env,GOBIN:dest,CGO_ENABLED:'0',GOTOOLCHAIN:'local'};
+    const module=JSON.parse(execFileSync('go',['mod','download','-json',`github.com/tailscale/tailcat@v${TAILCAT_VERSION}`],{env:goEnv,encoding:'utf8'}));
+    if(module.Sum!==runtimes.tailcatModuleSum)throw new Error('Tailcat module checksum does not match the pinned source.');
+    if((await readFile(join(module.Dir,'build-tags.txt'),'utf8')).trim()!==tags)throw new Error('Tailcat build flags differ from the pinned release.');
+    execFileSync('go',['install','-trimpath',`-tags=${tags}`,`-ldflags=-s -w -X main.version=v${TAILCAT_VERSION}`,`github.com/tailscale/tailcat/cmd/tailcat@v${TAILCAT_VERSION}`],{env:goEnv,stdio:'inherit'});
+    await copyFile(join(dest,'tailcat'),tailcatPath);await chmod(tailcatPath,0o755);await copyFile(join(module.Dir,'LICENSE'),join(runtime,'tailcat-LICENSE.txt'));
+    await copyFile(tailcatPath,join(tools,`tailcat-${plan.target}`));await chmod(join(tools,`tailcat-${plan.target}`),0o755);
+    tailcatSource={version:TAILCAT_VERSION,source:'github.com/tailscale/tailcat',moduleSum:module.Sum,go:execFileSync('go',['version'],{encoding:'utf8'}).trim(),checksumVerified:true};
+  }
+  verifyExecutable(await readFile(tailcatPath),plan);if(execFileSync(tailcatPath,['version'],{encoding:'utf8'}).trim()!==`v${TAILCAT_VERSION}`)throw new Error('Unexpected Tailcat version.');
+  await writeFile(join(runtime,'tailcat-source.json'),JSON.stringify({...tailcatSource,platform:plan.platform,architecture:plan.arch,sha256:sha256(await readFile(tailcatPath)),license:'tailcat-LICENSE.txt'},null,2)+'\n');
   console.log(`Prepared verified ${plan.slug} runtimes: Node ${nodeVersion}, cloudflared ${runtimes.cloudflaredVersion}.`);
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){

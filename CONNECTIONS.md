@@ -2,7 +2,39 @@
 
 LineBridge runs on this PC or Mac and reaches LINE here. Cloud AI connects to its HTTPS AI gateway. The desktop bundles Node and cloudflared. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **AI 存取權限**; read grants include archive search, while send grants are independent.
 
-Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access and installed-client Tailscale Serve are supported.
+Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access, Tailcat, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
+
+## Test from the cloud VM
+
+Choose a provider, start it, then click **複製雲端 AI 測試指令**. Give those instructions and a scoped LineBridge token to the cloud AI. A successful connection from this PC does not establish that the VM can reach it. Each VM/network may filter different hostnames, IP addresses or protocols.
+
+The dependency-free `examples/probe-connection.mjs` runs on Node 18+ from the VM. Set `LINE_BRIDGE_TOKEN` in its environment and run `node examples/probe-connection.mjs URL`. It checks DNS, LineBridge health, unauthenticated rejection, scoped API, admin isolation and MCP tool discovery. It does not contact LINE or send messages. Without a token, it checks reachability and unauthenticated rejection only.
+
+## Tailcat
+
+Choose **Tailcat · 免帳號私人通道** and start. The desktop bundles Tailcat 0.7.0. It starts a fresh ephemeral-key server serving only the AI gateway; no SSH, files, other ports or exit-node access are enabled. Stop or app exit invalidates that address. The address contains tunnel key material; copy it only to the intended client. LineBridge still requires its separate scoped Bearer token.
+
+The cloud VM needs Tailcat 0.7.0 from the [official release](https://github.com/tailscale/tailcat/releases/tag/v0.7.0), then the exact command shown in the dashboard, for example:
+
+```sh
+tailcat forward --bind=127.0.0.1 <tailcat-address> 3211:3211
+```
+
+Keep it running and connect the AI to `http://127.0.0.1:3211/mcp` **on the VM**. HTTP in that URL is inside the encrypted peer tunnel. Use a free matching port; the dashboard command follows a customized gateway port. The server prints a full address with embedded relay information, so the client does not need to fetch a DERP map to resolve it. Tailcat needs neither a Tailscale account nor root, but its relay/direct traffic must be allowed by the VM. [Tailcat documentation](https://github.com/tailscale/tailcat).
+
+For Linux, verify the release archive before extracting: x64 SHA-256 `23c0b1887a5ec422f0d18a9c52b4f5357815febdaae738a1eb54036d10bd9ee6`; arm64 `bbb1ab50f24f00effe1e1fd86d0501803fb80793a90785a2a16ff3428f03d8ef`.
+
+## ngrok
+
+Choose **ngrok · HTTPS 公開網址**, click **準備 ngrok 連接器**, and enter the account's **Authtoken** locally. It is encrypted in SQLite and passed through the child process environment; it is not written into YAML, command arguments, audit logs or status responses. The local download checks the pinned archive SHA-256 and version 3.39.11 before installation. Changed downloads are refused until LineBridge's pins are updated. An already installed native ngrok can also be selected with `LINE_BRIDGE_NGROK`.
+
+Optionally enter an account-assigned/custom ngrok domain without a scheme; leave blank for ngrok's default. Start obtains the HTTPS URL from the owned agent. The agent forwards only the gateway; request inspection, stored inspection bodies, remote management and update checks are disabled. AI requests include `ngrok-skip-browser-warning: LineBridge` along with the LineBridge Bearer token. Stop/app exit stops this agent. [ngrok agent configuration](https://ngrok.com/docs/gateway/agent/config/v3).
+
+## Tailscale Funnel
+
+Choose **Tailscale Funnel · HTTPS 公開網址**. It reuses the installed, signed-in client and defaults to HTTPS **443**, which is separate from Serve's default 8443. Ports 8443/10000 can also be chosen. The AI needs no Tailscale client or tailnet membership. Funnel device authorization and HTTPS capability must be available; when approval is needed the app returns the validated Tailscale consent link.
+
+Existing routes on the selected port are never overwritten. An exact matching external route may be reused without claiming ownership; otherwise choose another port. Stop/app exit removes only the matching route created in this run, and refuses cleanup if another process changed it. Private Serve routes on other ports remain intact. Bearer authentication and admin isolation apply to public Funnel traffic. [Funnel CLI](https://tailscale.com/docs/reference/tailscale-cli/funnel).
 
 **同一台主機 · 直接連線** is available for local use with a Bearer token. The CLI alone has an explicit `--trust-local` development opt-in restricted to direct loopback, the local provider, and requests without browser/proxy metadata. The desktop always enforces tokens. Selecting a tunnel does not grant token-free access, and an invalid supplied token never falls back to local trust.
 

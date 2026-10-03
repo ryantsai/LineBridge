@@ -72,6 +72,9 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.put('/admin/tunnel',(req,res)=>res.json(tunnels.configure(req.body)));
   admin.post('/admin/tunnel/start',asyncRoute(async(req,res)=>res.json(await tunnels.start(req.body.connectorToken))));
   admin.post('/admin/tunnel/stop',asyncRoute(async(req,res)=>res.json(await tunnels.stop())));
+  admin.post('/admin/tunnel/ngrok/token',(req,res)=>res.json(tunnels.setNgrokToken(req.body.authtoken)));
+  admin.delete('/admin/tunnel/ngrok/token',(req,res)=>res.json(tunnels.forgetNgrokToken()));
+  admin.post('/admin/tunnel/install',asyncRoute(async(req,res)=>res.json(await tunnels.install(req.body.provider))));
   admin.post('/admin/tunnel/tailscale/connect',asyncRoute(async(req,res)=>res.json(await tunnels.connectTailscale())));
   admin.put('/admin/cloudflare/client',(req,res)=>res.json(cloudflare.configure(req.body)));
   admin.post('/admin/cloudflare/login',(req,res)=>res.json(cloudflare.begin()));

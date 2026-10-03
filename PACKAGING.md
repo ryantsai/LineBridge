@@ -1,10 +1,10 @@
 # Desktop packaging
 
-LineBridge 0.5 restores the Windows/macOS desktop application as the main distribution. The native Tauri shell launches one bundled Node service; the same service implements LINE, authorization, encrypted SQLite and full-text search. Users need no Node installation or Rust compiler. The CLI/npm package remains an operator option.
+LineBridge 0.6 restores the Windows/macOS desktop application as the main distribution. The native Tauri shell launches one bundled Node service; the same service implements LINE, authorization, encrypted SQLite and full-text search. Users need no Node installation or Rust compiler. The CLI/npm package remains an operator option.
 
 ## Build on the target OS
 
-Use Node 26.5.0, Rust 1.98.1 and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.0 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
+Use Node 26.5.0, Rust 1.98.1 (and Go 1.27.1 on macOS to build the bundled Tailcat) and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.0 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
 
 ```sh
 npm ci --ignore-scripts
@@ -15,7 +15,7 @@ npm run build:macos       # native Apple Silicon or Intel Mac
 npm run test:desktop     # synthetic native startup, auth, persistence and shutdown
 ```
 
-The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
+The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, bundles Tailcat 0.7.0 from its checksummed Windows release or pinned Go module on Mac, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
 
 Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows.
 
@@ -31,8 +31,10 @@ The desktop and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA
 
 ## CLI archive
 
-`npm run package` produces `release/npm/line-bridge-0.5.0.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.5.0.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
+`npm run package` produces `release/npm/line-bridge-0.6.0.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.6.0.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
 
 ## Verification
 
 `npm run test:smoke` tests HTTP and the official MCP client with synthetic accounts. `npm run test:desktop` tests the native app, bundled runtime, multilingual archive across restart and process shutdown. `npm run test:tunnel` explicitly starts a disposable live Quick Tunnel, checking HTTPS, scoped API/MCP/search and inaccessible admin routes. It sends only synthetic messages. Build scripts preserve third-party licenses and verify runtime hashes before packaging.
+
+ngrok 3.39.11 is downloaded on demand into the user data directory, with pinned platform archive checksums; its proprietary agent is not bundled in installers. The installed Tailscale client supplies Serve and Funnel. See CONNECTIONS.md for cloud VM reachability checks.

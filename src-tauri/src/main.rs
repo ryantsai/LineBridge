@@ -128,6 +128,14 @@ fn start_service(resources: &Path) -> Result<(Desktop, tauri::Url), Box<dyn std:
     let mut command = Command::new(node);
     command
         .arg(app.join("server/desktop.mjs"))
+        .env(
+            "LINE_BRIDGE_TAILCAT",
+            connector.with_file_name(if cfg!(windows) {
+                "tailcat.exe"
+            } else {
+                "tailcat"
+            }),
+        )
         .env("LINE_BRIDGE_CLOUDFLARED", connector);
     let args: Vec<String> = std::env::args().collect();
     if let Some(index) = args.iter().position(|a| a == "--data-dir") {

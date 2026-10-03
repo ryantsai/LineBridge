@@ -1,6 +1,6 @@
 {
   "name": "line-bridge",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "LineBridge desktop + tunnel LINE gateway with an encrypted, multilingual searchable SQLite archive",
   "license": "UNLICENSED",

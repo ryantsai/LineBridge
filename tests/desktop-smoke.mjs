@@ -41,6 +41,7 @@ try{
   const session=async()=>{const page=await fetch(admin);assert.equal(page.status,200);assert.match(await page.text(),/封存搜尋/);cookie=page.headers.getSetCookie()[0].split(';')[0];};await session();
   const call=async(path,method='GET',body)=>{const response=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();assert.equal(response.ok,true,JSON.stringify(value));return value;};
   const state=await call('/state');assert.equal(state.gateway.authentication,'token');assert.equal(state.tunnel.provider,'cloudflare_quick');assert.equal(state.tunnel.cloudflaredInstalled,true);
+  assert.equal(state.tunnel.tailcat.installed,true,'Native shell must find its bundled Tailcat');
   assert.equal((await fetch(`${gateway}/api/v1/accounts`)).status,401);
   const account=await call('/accounts','POST',{label:'Bundled synthetic account',kind:'demo'});
   await call(`/accounts/${account.id}/chats/demo-group`,'PATCH',{enabled:true});await call(`/accounts/${account.id}/monitor`,'POST',{enabled:true});

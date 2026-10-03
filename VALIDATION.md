@@ -1,3 +1,17 @@
+# LineBridge 0.6 provider validation
+
+Verified on 2026-10-03 (Asia/Taipei). Added Tailcat, ngrok and Tailscale Funnel to the separate cloud connection page, with local encrypted ngrok token storage and cloud AI probe instructions.
+
+- JavaScript syntax, **56 tests** and HTTP/official MCP integration passed on Windows Node 26.5.0. New tests cover encrypted ngrok tokens, URL validation, Funnel route conflicts and ownership, authorization and pinned download rejection.
+- Live Tailcat peer forwarding passed token enforcement, scoped HTTP/MCP, multilingual archive search, admin isolation and process cleanup using a disposable synthetic store. Tailcat 0.7.0 serves only the gateway with new ephemeral keys.
+- Live Funnel passed those same checks using a public DNS resolver and TLS hostname verification, and removed only its newly created port-443 route. The existing private port-8443 route remained unchanged.
+- Official ngrok 3.39.11 download, SHA-256 verification, extraction, reported version and YAML configuration validation passed. The real ngrok endpoint requires the user to enter their Authtoken locally; it has not yet been claimed as live-verified.
+- Rust formatting, its Windows path regression and Clippy passed. The 0.6.0 NSIS installer built and installed successfully; native startup, encrypted multilingual search across restart and owned-process shutdown passed. The installed app finds bundled Tailcat, preserves all 6 accounts and 3 tokens, resumes the enabled monitoring preference and retains the existing private Tailscale route. Read-only counts confirm the original messages/index remain intact.
+- Mac provider builds are verified separately by the native workflow; results are recorded when complete.
+- These checks run from this PC. The blocked cloud VM must run the supplied probe against each address; no provider is claimed reachable from that VM yet.
+
+The previous restoration/data validation follows for historical reference; its 0.5 installer hashes/runs are not evidence for 0.6 artifacts.
+
 # LineBridge 0.5 validation
 
 Verified on 2026-10-03 (Asia/Taipei). The main distribution is again a Windows/macOS desktop app with a local LINE service and tunnel. Rust owns the Tauri window and process lifetime; the shared Node service owns policy, LINE, encrypted SQLite and search.

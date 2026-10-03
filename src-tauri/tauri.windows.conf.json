@@ -4,7 +4,8 @@
     "targets": ["nsis"],
     "resources": {
       "../runtime/node.exe": "runtime/node.exe",
-      "../tools/cloudflared.exe": "tools/cloudflared.exe"
+      "../tools/cloudflared.exe": "tools/cloudflared.exe",
+      "../tools/tailcat.exe": "tools/tailcat.exe"
     },
     "windows": {
       "nsis": {
