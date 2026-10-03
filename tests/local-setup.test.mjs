@@ -133,3 +133,15 @@ test('Linux adapter recovers from unavailable service with no item; locked and u
   await setup.enable(f.id,confirm());const profile=setup.record(f.id).profile;items.set(profile,Buffer.from(JSON.stringify({version:1,profile,url:'https://old.example',token:'synthetic-unowned-token'})).toString('base64'));
   assert.equal((await setup.revoke(f.id)).phase,'revoked');assert.equal(items.size,1,'A mismatched profile is retained');assert.ok(calls.filter(a=>a[0]==='search').every(a=>!a.includes('--unlock')));
 });
+
+test('revocation during pre-enrollment cleanup cancels the whole attempt and leaves every bearer revoked',async t=>{
+  const f=await fixture(t);await f.setup.enable(f.id,confirm());const first=activeToken(f),originalGet=f.credentials.get.bind(f.credentials),originalForget=f.credentials.forget.bind(f.credentials);
+  const bearer=(await f.credentials.get(f.setup.record(f.id).profile)).token;
+  f.credentials.forget=unavailable;assert.equal((await f.setup.revoke(f.id)).phase,'cleanup_required');f.credentials.forget=originalForget;
+  let release,started;const blocked=new Promise(r=>{release=r;}),entered=new Promise(r=>{started=r;});let pause=true;
+  f.credentials.get=async profile=>{if(pause){pause=false;started();await blocked;}return originalGet(profile);};
+  const enabling=f.setup.enable(f.id,confirm());await entered;const revoking=f.setup.revoke(f.id);release();
+  await assert.rejects(enabling,{code:'setup_cancelled'});const disabled=await revoking;
+  assert.equal(disabled.phase,'revoked');assert.equal(disabled.grantActive,false);assert.equal(f.credentials.items.size,0);assert.equal(f.credentials.creates,1,'No new token/profile may be minted after cancellation');
+  assert.ok(f.store.tokens().every(token=>token.revoked));assert.equal(f.store.token(first.id).revoked,1);assert.throws(()=>f.hub.authenticate(bearer),{code:'invalid_token'});
+});

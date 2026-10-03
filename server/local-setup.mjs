@@ -14,7 +14,7 @@ const credentialFailure=()=>fail(503,'credential_store_unavailable','Protected c
 // exists in private memory and the OS store; SQLite contains only its hash.
 export class LocalSetup {
   constructor(hub,{credentials=new CredentialStore(),gatewayPort=3211}={}){
-    Object.assign(this,{hub,credentials,gatewayPort});this.busy=new Map();
+    Object.assign(this,{hub,credentials,gatewayPort});this.busy=new Map();this.generations=new Map();
     // A crash before final activation must never turn an enrollment into a grant.
     for(const a of hub.store.accounts()){
       const record=this.record(a.id);
@@ -57,20 +57,23 @@ export class LocalSetup {
   enable(id,value){
     const data=input.parse(value),pending=this.busy.get(id);
     if(pending){if(pending.chatIds&&same(pending.chatIds,data.chatIds))return pending.promise;fail(409,'setup_busy','Setup is in progress. Wait before changing the selection.');}
-    const promise=this.enroll(id,data).finally(()=>{if(this.busy.get(id)?.promise===promise)this.busy.delete(id);});
+    const promise=this.enroll(id,data,this.generations.get(id)??0).finally(()=>{if(this.busy.get(id)?.promise===promise)this.busy.delete(id);});
     this.busy.set(id,{chatIds:data.chatIds,promise});return promise;
   }
-  async enroll(id,data){
+  checkAttempt(id,generation){if((this.generations.get(id)??0)!==generation)fail(409,'setup_cancelled','Setup was cancelled. Its grant is revoked.');}
+  async enroll(id,data,generation){
     this.validate(id,data);
     let existing=this.record(id);
     if(existing?.phase==='enabled'){
       if(!same(existing.chatIds,data.chatIds))fail(409,'setup_scope_conflict','Disable the current setup before confirming a different chat scope.');
       const state=await this.status(id);
+      this.checkAttempt(id,generation);
       if(!state.grantActive||state.credentialStatus!=='protected'||existing.url!==this.url)fail(409,'setup_needs_reset','Disable this setup, then explicitly enable it again. Existing profiles will not be overwritten.');
       return state;
     }
     if(existing&&existing.phase!=='revoked'){
       await this.cleanup(id,existing);existing=this.record(id);
+      this.checkAttempt(id,generation);
       if(existing.phase!=='revoked')credentialFailure();
     }
     this.validate(id,data);
@@ -86,14 +89,14 @@ export class LocalSetup {
     try{
       storageAttempted=true;await this.credentials.create(profile,this.url,{token:minted.token});
       if(!await this.owns(record))fail(409,'profile_conflict','Protected credential verification failed. Existing profiles were not replaced.');
-      this.checkPending(id,record);this.validate(id,data);
+      this.checkAttempt(id,generation);this.checkPending(id,record);this.validate(id,data);
       if(selection(this.hub.store.chats(id))!==snapshot)fail(409,'selection_changed','The chat selection changed during setup. Review it again.');
       this.hub.store.transaction(()=>{
         for(const chat of before)this.hub.store.designate(id,chat.id,data.chatIds.includes(chat.id));
         record={...record,phase:'starting',selectionApplied:true};this.save(id,record);
       });
       await this.hub.monitor(id,true);
-      this.checkPending(id,record);this.validate(id,data);
+      this.checkAttempt(id,generation);this.checkPending(id,record);this.validate(id,data);
       if(!same(this.hub.store.chats(id).filter(c=>c.enabled).map(c=>c.id),data.chatIds))fail(409,'selection_changed','The chat selection changed during setup. Review it again.');
       this.hub.store.transaction(()=>{
         this.hub.store.db.prepare('UPDATE tokens SET revoked=0 WHERE id=?').run(record.tokenId);
@@ -133,10 +136,18 @@ export class LocalSetup {
   }
   revoke(id){
     const pending=this.busy.get(id);if(pending?.operation==='revoke')return pending.promise;
+    // Cover the whole enable attempt, including cleanup before its new token
+    // exists. A late cleanup response cannot start a cancelled enrollment.
+    this.generations.set(id,(this.generations.get(id)??0)+1);
     const record=this.record(id);if(!record)return this.status(id);
     // Revoke synchronously, including during an in-flight keystore/worker call.
     this.hub.store.transaction(()=>{this.hub.store.revoke(record.tokenId);this.save(id,{...record,phase:'cleanup_required'});this.hub.store.audit('local-admin','local-setup.revoke',id,null,'ok');});
-    const promise=(async()=>{await pending?.promise.catch(()=>{});await this.cleanup(id,this.record(id));return this.status(id);})().finally(()=>{if(this.busy.get(id)?.promise===promise)this.busy.delete(id);});
+    const promise=(async()=>{
+      await pending?.promise.catch(()=>{});
+      const current=this.record(id);
+      this.hub.store.transaction(()=>{this.hub.store.revoke(current.tokenId);this.save(id,{...current,phase:'cleanup_required'});});
+      await this.cleanup(id,this.record(id));return this.status(id);
+    })().finally(()=>{if(this.busy.get(id)?.promise===promise)this.busy.delete(id);});
     this.busy.set(id,{operation:'revoke',promise});return promise;
   }
 }
