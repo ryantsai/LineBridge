@@ -62,6 +62,7 @@ test('app enrollment refuses an existing profile and does not place secrets in h
       calls.push({args,input:options.input});
       if(platform==='win32')return {code:0,stdout:Buffer.from('synthetic-protected-ciphertext').toString('base64')};
       if(args.includes('-i')){if(saved&&!options.input.includes(' -U '))return {code:45,stdout:''};saved=options.input.match(/ -w (\S+)/)[1];return {code:0,stdout:''};}
+      if(args[0]==='search')return {code:0,stdout:saved?'[synthetic-item]\n':''};
       if(args[0]==='lookup')return saved?{code:0,stdout:saved}:{code:1,stdout:''};
       if(args[0]==='store'){saved=options.input;return {code:0,stdout:''};}
       assert.fail('Unexpected helper');

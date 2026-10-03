@@ -83,6 +83,15 @@ export class CredentialStore {
     if(!path || !isAbsolute(path) || /["\\\r\n\0]/.test(path))throw credentialError();
     return path;
   }
+  async linuxPresence(profile){
+    // Unlike lookup, search returns success with empty output for a confirmed
+    // absence. Do not pass --unlock: a locked item still produces metadata and
+    // must be treated as present, even when its secret cannot be retrieved.
+    // All output (which may contain a secret) stays inside the private pipe.
+    const result=await this.helper('/usr/bin/secret-tool',['search','--all','application',SERVICE,'profile',profile]);
+    if(result.code!==0)throw credentialError();
+    return result.stdout.trim()!=='';
+  }
   async set(profile,url,input,{replace=true}={}) {
     profile = profileName(profile);
     const record = {version:1,profile,url:endpoint(url),...credentialInput(input)};
@@ -107,9 +116,7 @@ export class CredentialStore {
       if(result.code!==0) throw credentialError();
     } else if(this.platform === 'linux') {
       if(!replace){
-        const found=await this.helper('/usr/bin/secret-tool',['lookup','application',SERVICE,'profile',profile]);
-        if(found.code===0)throw new ClientError('profile_conflict','This protected profile already exists.',EXIT.credentials);
-        if(found.code!==1)throw credentialError();
+        if(await this.linuxPresence(profile))throw new ClientError('profile_conflict','This protected profile already exists.',EXIT.credentials);
       }
       const result = await this.helper('/usr/bin/secret-tool',['store','--label=LineBridge CLI','application',SERVICE,'profile',profile],encoded);
       if(result.code!==0) throw credentialError();
@@ -135,9 +142,10 @@ export class CredentialStore {
       encoded = result.stdout.trim();
     } else if(this.platform === 'linux') {
       const result = await this.helper('/usr/bin/secret-tool',['lookup','application',SERVICE,'profile',profile]);
-      // secret-tool returns the same status for a missing item and an unavailable
-      // service. Keep both failures explicit rather than silently using a file.
-      if(result.code!==0) throw credentialError();
+      // lookup exit 1 is ambiguous. Only a successful, empty search confirms
+      // absence; locked items and service errors remain storage failures.
+      if(result.code===1&&!await this.linuxPresence(profile))throw missingCredentials();
+      if(result.code!==0)throw credentialError();
       encoded = result.stdout;
     } else throw credentialError();
     try {

@@ -6,6 +6,7 @@ import {Vault} from '../server/vault.mjs';
 import {Hub,adminActor} from '../server/hub.mjs';
 import {LocalSetup} from '../server/local-setup.mjs';
 import {DemoDriver} from '../server/drivers.mjs';
+import {CredentialStore} from '../client/credentials.mjs';
 
 export class SyntheticCredentials {
   constructor(){this.items=new Map();this.protection='synthetic protected store';this.creates=0;}
@@ -109,4 +110,26 @@ test('gateway port changes require explicit reset without overwriting the old bo
   assert.equal((await moved.status(f.id)).health,'endpoint_changed');assert.equal((await moved.status(f.id)).ready,false);
   await assert.rejects(moved.enable(f.id,confirm()),{code:'setup_needs_reset'});assert.equal(f.setup.record(f.id).profile,original.profile);
   await moved.revoke(f.id);const updated=await moved.enable(f.id,confirm());assert.equal(updated.url,'http://127.0.0.1:54322');assert.notEqual(updated.profile,original.profile);
+});
+
+
+test('Linux adapter recovers from unavailable service with no item; locked and unowned items are preserved',async t=>{
+  const f=await fixture(t);let available=false,locked=false;const items=new Map(),calls=[];
+  const run=async(_file,args,{input})=>{
+    calls.push(args);const profile=args.at(-1);
+    if(!available)return {code:1,stdout:''};
+    if(args[0]==='search')return {code:0,stdout:items.has(profile)?'[synthetic-item]\nlabel = test\n':''};
+    if(args[0]==='lookup')return items.has(profile)&&!locked?{code:0,stdout:items.get(profile)}:{code:1,stdout:''};
+    if(args[0]==='store'){items.set(profile,input);return {code:0,stdout:''};}
+    if(args[0]==='clear'){if(locked)return {code:1,stdout:''};items.delete(profile);return {code:0,stdout:''};}
+    assert.fail('Unexpected helper');
+  };
+  const credentials=new CredentialStore({platform:'linux',run,env:{}}),setup=new LocalSetup(f.hub,{credentials,gatewayPort:54321});
+  await assert.rejects(setup.enable(f.id,confirm()),{code:'credential_store_unavailable'});assert.equal(setup.record(f.id).phase,'cleanup_required');assert.equal(items.size,0);
+  available=true;assert.equal((await setup.revoke(f.id)).phase,'revoked');assert.equal(calls.filter(a=>a[0]==='clear').length,0,'Confirmed absence needs no deletion');
+  const state=await setup.enable(f.id,confirm());assert.equal(state.grantActive,true);assert.equal(items.size,1);
+  locked=true;await assert.rejects(credentials.create(state.profile,state.url,{token:'synthetic-conflict'}),{code:'profile_conflict'});assert.equal((await setup.revoke(f.id)).phase,'cleanup_required');assert.equal(items.size,1);assert.equal(calls.filter(a=>a[0]==='clear').length,0,'A locked item must not be deleted');
+  locked=false;assert.equal((await setup.revoke(f.id)).phase,'revoked');assert.equal(items.size,0);
+  await setup.enable(f.id,confirm());const profile=setup.record(f.id).profile;items.set(profile,Buffer.from(JSON.stringify({version:1,profile,url:'https://old.example',token:'synthetic-unowned-token'})).toString('base64'));
+  assert.equal((await setup.revoke(f.id)).phase,'revoked');assert.equal(items.size,1,'A mismatched profile is retained');assert.ok(calls.filter(a=>a[0]==='search').every(a=>!a.includes('--unlock')));
 });
