@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LineDriver, squareMessages, joinedSquareRooms, discoveryErrorCode } from '../server/drivers.mjs';
+test('monitor cancellation scopes SDK fetches and preserves request deadlines and concurrent account RPCs',async t=>{
+  const requests=[];t.mock.method(globalThis,'fetch',async request=>{requests.push(request);return new Response();});
+  const driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}});t.after(()=>driver.stop());
+  const receiver=new AbortController(),deadline=new AbortController(),other=new AbortController();
+  await driver.monitorRequest(receiver.signal,async()=>{await new Promise(resolve=>setImmediate(resolve));await driver.client.fetch(new Request('https://synthetic.invalid/poll',{signal:deadline.signal}));});
+  await driver.client.fetch(new Request('https://synthetic.invalid/profile',{signal:other.signal}));
+  receiver.abort();assert.equal(requests[0].signal.aborted,true);assert.equal(requests[1].signal.aborted,false);
+  assert.throws(()=>driver.monitorRequest(receiver.signal,()=>assert.fail('Stopped receiver must not dispatch')),{name:'AbortError'});
+  const next=new AbortController();await driver.monitorRequest(next.signal,()=>driver.client.fetch(new Request('https://synthetic.invalid/poll',{signal:deadline.signal})));
+  deadline.abort(new DOMException('synthetic deadline','TimeoutError'));assert.equal(requests[2].signal.reason.name,'TimeoutError');assert.equal(requests[1].signal.aborted,false);
+  driver.stop();assert.equal(requests[1].signal.aborted,true);
+});
 test('expired device authorization requires QR login, while transient failures remain retryable',async()=>{
   const d=Object.create(LineDriver.prototype),error=Object.assign(new Error('private upstream details'),{name:'RequestError',data:{errorCode:'NOT_AUTHORIZED_DEVICE'}});
   d.storage={get:async()=> 'synthetic-token'};d.client={loginProcess:{login:async()=>{throw error;}}};

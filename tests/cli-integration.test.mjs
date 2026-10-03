@@ -49,6 +49,13 @@ test('CLI accounts exposes per-stream receiver success and missing-stream health
   assert.equal(monitor.health,'waiting');assert.equal(monitor.streams.talk.lastSuccessAt,lastSuccessAt);
   assert.equal(monitor.streams.talk.health,'healthy');assert.equal(monitor.streams['demo-openchat'].lastSuccessAt,null);
   assert.equal(monitor.staleAfterMs,60000);assert.ok(monitor.checkedAt);
+  const streams=hub.runtime.get(account.id).monitorStreams;
+  streams['demo-openchat']={status:'running',lastSuccessAt,ready:true};
+  Object.assign(streams.talk,{error:'monitor_poll_failed',pollTimeoutMs:180000,pollDeadlineAt:new Date(Date.now()+180000).toISOString(),lastFailure:{at:lastSuccessAt,kind:'timeout',stage:'poll',errorName:'TimeoutError',elapsedMs:180000,pollTimeoutMs:180000,retryInMs:2000}});
+  const retry=(await cli(['accounts'])).json[0].monitor;
+  assert.equal(retry.status,'retrying');assert.equal(retry.health,'retrying');assert.equal(retry.streams.talk.status,'polling');
+  assert.equal(retry.streams['demo-openchat'].health,'healthy');assert.deepEqual(retry.streams.talk.lastFailure,streams.talk.lastFailure);
+  assert.equal(retry.streams.talk.pollTimeoutMs,180000);assert.equal(retry.streams.talk.pollDeadlineAt,streams.talk.pollDeadlineAt);
 });
 
 test('installed entrypoint uses scoped gateway reads/search/events and preserves replay for file/stdin sends',async t=>{

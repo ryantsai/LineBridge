@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {fail} from './errors.mjs';
 import {indexMessage} from './search.mjs';
+import {MONITOR_STALE_AFTER_MS} from './monitor-policy.mjs';
 
 export function capture(store,vault,account,chat,message){
   if(!message||typeof message.id!=='string'||!message.id||message.id.length>150||JSON.stringify(message).length>100000)fail(502,'invalid_message','Invalid incoming message.');
@@ -27,7 +28,7 @@ export function inboxMessages(store,vault,account,chat,limit){
   return store.db.prepare('SELECT event_id,cipher FROM messages WHERE account_id=? AND chat_id=? ORDER BY seq DESC LIMIT ?').all(account,chat,limit).reverse().map(row=>enrich(vault.unseal(row.cipher,`message:${row.event_id}`),kind,names));
 }
 export function monitorStatus(store,account,streams={},connectionStatus='connected',chatIds){
-  const enabled=store.setting(`monitor:${account}`,false),now=Date.now(),staleAfterMs=60000;
+  const enabled=store.setting(`monitor:${account}`,false),now=Date.now(),staleAfterMs=MONITOR_STALE_AFTER_MS;
   const demo=store.account(account)?.kind==='demo',chats=store.chats(account).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id)));
   // Include every designated stream, even before its first event, so one active
   // room cannot hide another room that never started or stopped responding.
@@ -35,12 +36,13 @@ export function monitorStatus(store,account,streams={},connectionStatus='connect
   streams=Object.fromEntries(channels.map(channel=>{
     const stream=streams[channel]??{channel,status:'waiting'},lastSuccessAt=stream.lastSuccessAt??null;
     const age=lastSuccessAt?now-Date.parse(lastSuccessAt):null;
-    const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':stream.status==='retrying'?'retrying':age===null||!['running','polling','initializing'].includes(stream.status)?'waiting':age>staleAfterMs?'stale':stream.ready===false||stream.status==='initializing'?'initializing':'healthy';
+    const overdue=stream.status==='polling'&&stream.pollDeadlineAt&&now>=Date.parse(stream.pollDeadlineAt);
+    const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':stream.status==='retrying'||stream.error?'retrying':age===null||!Number.isFinite(age)||age<0||!['running','polling','initializing'].includes(stream.status)?'waiting':age>staleAfterMs||overdue?'stale':stream.ready===false||stream.status==='initializing'?'initializing':'healthy';
     return [channel,{...stream,channel,lastAttemptAt:stream.lastAttemptAt??null,lastSuccessAt,health}];
   }));
   const values=Object.values(streams);
   const health=!enabled?'off':connectionStatus!=='connected'?'disconnected':demo?'sandbox':!values.length?'no_chats':
     ['retrying','stale','waiting','initializing'].find(status=>values.some(s=>s.health===status))??'healthy';
   const counts=store.db.prepare(`SELECT COUNT(*) AS storedMessages,COALESCE(MAX(seq),0) AS lastSequence,MAX(at) AS lastMessage FROM messages WHERE account_id=? ${chatIds?`AND chat_id IN (${chatIds.map(()=>'?').join(',')})`:''}`).get(account,...(chatIds??[]));
-  return {enabled,status:!enabled?'off':connectionStatus!=='connected'?'disconnected':values.some(v=>v.status==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',health,checkedAt:new Date(now).toISOString(),staleAfterMs,streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
+  return {enabled,status:!enabled?'off':connectionStatus!=='connected'?'disconnected':values.some(v=>v.health==='retrying')?'retrying':values.some(v=>['running','polling'].includes(v.status))?'running':'waiting',health,checkedAt:new Date(now).toISOString(),staleAfterMs,streams,...counts,retention:null,retentionPolicy:'until_account_removed',searchable:true};
 }
