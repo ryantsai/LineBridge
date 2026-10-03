@@ -31,7 +31,7 @@ A Dot session that controls the PC's terminal can use its loopback gateway with 
 
 ## Build desktop installers on the target OS
 
-Use Node 26.5.0, Rust 1.98.1 (and Go 1.27.1 on macOS to build the bundled Tailcat) and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.0 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
+Use Node 26.5.0, Rust 1.98.1 (and Go 1.27.1 on macOS to build the bundled Tailcat) and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.1 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
 
 ```sh
 npm ci --ignore-scripts
