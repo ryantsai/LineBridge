@@ -4,6 +4,7 @@ import {BaseStorage} from 'lineclientbot';
 import {LineDriver} from '../server/drivers.mjs';
 import {HubError,SendRejectedError,publicError} from '../server/errors.mjs';
 import {LiveMonitor} from './monitor.mjs';
+import {accountCheckError} from '../server/account-health.mjs';
 
 // This process owns only LINE RPCs. The parent owns policy, storage and HTTP.
 // stdout is a private JSON pipe; never attach the adapter's raw logging events.
@@ -65,7 +66,10 @@ async function handle(request){
       }
     }
     emit({type:'result',id,result});
-  }catch(error){const safe=publicError(error);emit({type:'result',id,error:{status:safe.status,code:safe.code,message:safe.message,rejected_send:error instanceof SendRejectedError}});}
+  }catch(error){
+    const checked=method==='check'?accountCheckError(error):error,safe=publicError(checked);
+    emit({type:'result',id,error:{status:safe.status,code:safe.code,message:safe.message,rejected_send:error instanceof SendRejectedError,...(method==='check'?{accountDiagnostic:checked.accountDiagnostic}:{})}});
+  }
 }
 const input=createInterface({input:process.stdin,crlfDelay:Infinity});
 input.on('line',line=>{

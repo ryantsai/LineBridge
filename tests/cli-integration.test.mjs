@@ -49,6 +49,11 @@ test('CLI accounts exposes per-stream receiver success and missing-stream health
   assert.equal(monitor.health,'waiting');assert.equal(monitor.streams.talk.lastSuccessAt,lastSuccessAt);
   assert.equal(monitor.streams.talk.health,'healthy');assert.equal(monitor.streams['demo-openchat'].lastSuccessAt,null);
   assert.equal(monitor.staleAfterMs,60000);assert.ok(monitor.checkedAt);
+  hub.runtime.get(account.id).driver.check=async()=>{throw Object.assign(new TypeError('private profile URL and token'),{cause:{code:'ECONNRESET'}});};
+  await hub.healthcheck();const retryAccount=(await cli(['accounts'])).json[0];
+  assert.equal(retryAccount.status,'connected');assert.equal(retryAccount.accountHealth.status,'retrying');
+  assert.equal(retryAccount.accountHealth.lastFailure.code,'ECONNRESET');assert.equal(retryAccount.accountHealth.lastFailure.retryInMs,5000);
+  assert.equal(retryAccount.monitor.streams.talk.lastSuccessAt,lastSuccessAt);assert.ok(!JSON.stringify(retryAccount).includes('private profile'));
   const streams=hub.runtime.get(account.id).monitorStreams;
   streams['demo-openchat']={status:'running',lastSuccessAt,ready:true};
   Object.assign(streams.talk,{error:'monitor_poll_failed',pollTimeoutMs:180000,pollDeadlineAt:new Date(Date.now()+180000).toISOString(),lastFailure:{at:lastSuccessAt,kind:'timeout',stage:'poll',errorName:'TimeoutError',elapsedMs:180000,pollTimeoutMs:180000,retryInMs:2000}});

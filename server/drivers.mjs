@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { fail, SendRejectedError } from './errors.mjs';
 import {AliasResolver,contactName} from './aliases.mjs';
+import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -71,7 +72,15 @@ export class LineDriver {
   // The SDK accepts a deadline, but no per-call signal. Scope cancellation to
   // this async request so stopping a receiver leaves concurrent account RPCs alone.
   monitorRequest(signal,operation) { signal.throwIfAborted();return this.requestSignal.run(signal,operation); }
-  async check() { const p=await this.client.talk.getProfile(); this.client.profile=p;return { displayName:p.displayName,mid:p.mid }; }
+  async check(signal) {
+    const deadline=AbortSignal.any([this.abort.signal,AbortSignal.timeout(ACCOUNT_CHECK_TIMEOUT_MS),signal].filter(Boolean));
+    try{
+      const p=await this.monitorRequest(deadline,()=>this.client.talk.getProfile());
+      deadline.throwIfAborted();
+      if(!p||typeof p.mid!=='string'||!p.mid||typeof p.displayName!=='string')throw new Error('invalid_profile');
+      this.client.profile=p;return {displayName:p.displayName,mid:p.mid};
+    }catch(error){throw accountCheckError(error);}
+  }
   get aliases(){return this.aliasResolver ??= new AliasResolver(this.client,this.storage);}
   async resolveMessageNames(chat,messages){return this.aliases.resolveMessages(chat,messages);}
   async discover() {

@@ -7,6 +7,7 @@ import { ProtocolWorker } from './worker.mjs';
 import { capture, cachedNames, enrich, inboxMessages, monitorStatus } from './inbox.mjs';
 import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
 import {initializeSearch,searchInput,searchArchive} from './search.mjs';
+import {ACCOUNT_CHECK_TIMEOUT_MS,ACCOUNT_CHECK_INTERVAL_MS,accountDiagnostic,accountRetryDelay} from './account-health.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
 const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
@@ -27,7 +28,7 @@ export class Hub {
   view(account,chatIds) {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
-      profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,
+      profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,accountHealth:r?.accountHealth ?? null,
       canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id))).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected',chatIds)};
   }
   accounts(actor) {
@@ -81,7 +82,8 @@ export class Hub {
   }
   async initialize() {
     await Promise.allSettled(this.store.accounts().filter(a=>a.connected || a.kind==='demo').map(a=>this.connect(a.id,false)));
-    this.timer=setInterval(()=>{void this.healthcheck();},60000);this.timer.unref();
+    if(this.stopping)return;
+    this.timer=setInterval(()=>{void this.healthcheck();},ACCOUNT_CHECK_INTERVAL_MS);this.timer.unref();
   }
   async addAccount(input) {
     const data=accountInput.parse(input),a=this.store.addAccount(data.label,data.kind,data.device);
@@ -93,7 +95,7 @@ export class Hub {
     const a=this.record(id),previous=this.runtime.get(id);
     if(previous?.status==='awaiting_login' || previous?.status==='connecting') fail(409,'login_in_progress','A login is already in progress.');
     if(previous?.driver?.ready && qr) fail(409,'already_connected','Disconnect this account before starting another QR login.');
-    previous?.driver?.stop();
+    this.cancelHealth(previous);previous?.driver?.stop();
     const r={status:qr?'awaiting_login':'connecting',qr:null,pin:null};this.runtime.set(id,r);
     const storage=new VaultStorage(this.store,this.vault,id);
     let driver;
@@ -101,12 +103,13 @@ export class Hub {
     driver=this.driverFactory(a,storage,{
       qr:url=>{if(this.runtime.get(id)===r) {void QRCode.toDataURL(url,{width:240,margin:2}).then(image=>{if(this.runtime.get(id)===r)r.qr=image;}).catch(()=>{if(this.runtime.get(id)===r){r.status='error';r.error='qr_render_failed';}});}},
       pin:pin=>{if(this.runtime.get(id)===r) r.pin=pin;},
-      fault:error=>{if(this.runtime.get(id)===r){r.status='error';r.error=error;}},
+      fault:error=>{if(this.runtime.get(id)===r){this.cancelHealth(r);r.status='error';r.error=error;if(r.accountHealth)r.accountHealth.status='unavailable';r.driver?.stop();}},
       monitor:stream=>{if(this.runtime.get(id)===r){r.monitorStreams??={};r.monitorStreams[stream.channel]=stream;}}
     });r.driver=driver;
       r.profile=await driver.login(qr);
       if(this.runtime.get(id)!==r || this.stopping) {driver.stop();return;}
       r.status='connected';r.qr=null;r.pin=null;r.lastChecked=new Date().toISOString();
+      r.accountHealth={status:'healthy',lastAttemptAt:r.lastChecked,lastSuccessAt:r.lastChecked,lastFailure:null,consecutiveFailures:0,nextRetryAt:null};
       this.store.connect(id,true);this.store.audit('local-admin','account.connect',id,null,'ok');
       if(this.store.setting(`monitor:${id}`,false))await this.monitor(id,true);
     } catch(error) {
@@ -122,7 +125,7 @@ export class Hub {
   }
   loginState(id) {this.record(id);const r=this.runtime.get(id);return {status:r?.status ?? 'disconnected',qr:r?.qr ?? null,pin:r?.pin ?? null,error:r?.error ?? null};}
   disconnect(id,forget=false) {
-    this.record(id);this.runtime.get(id)?.driver?.stop();this.runtime.set(id,{status:'disconnected'});this.store.connect(id,false);
+    this.record(id);const r=this.runtime.get(id);this.cancelHealth(r);r?.driver?.stop();this.runtime.set(id,{status:'disconnected'});this.store.connect(id,false);
     if(forget) this.store.deleteSecrets(id);
     this.store.audit('local-admin',forget?'account.forget':'account.disconnect',id,null,'ok');
   }
@@ -141,7 +144,7 @@ export class Hub {
     // controls so a delayed start cannot run after a newer stop. Skip controls
     // superseded before dispatch, and never let old failures rewrite a choice.
     const prior=this.monitorQueues.get(id),job=(prior??Promise.resolve()).catch(()=>{}).then(async()=>{
-      if(this.stopping||this.store.setting(`monitorRevision:${id}`,0)!==revision)return;
+      if(this.stopping||this.runtime.get(id)!==r||r?.status!=='connected'||this.store.setting(`monitorRevision:${id}`,0)!==revision)return;
       if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh);else if(driver?.ready)await driver.stopMonitor?.();
     });this.monitorQueues.set(id,job);
     try{await job;}
@@ -260,12 +263,45 @@ export class Hub {
     this.store.audit('local-admin','token.create',null,null,'ok');const {hash,...safe}=record;return {...safe,token};
   }
   tokens() {return this.store.tokens().map(({hash,...safe})=>safe);}
-  async healthcheck() {
-    for(const [id,r] of this.runtime) {
-      if(r.status!=='connected' || this.queues.has(id))continue;
-      try{await this.serialized(id,async()=>{r.profile=await r.driver.check();if(this.runtime.get(id)===r){r.lastChecked=new Date().toISOString();r.error=null;}});}
-      catch{if(this.runtime.get(id)===r){r.status='error';r.error='health_check_failed';r.driver.stop();}}
-    }
+  cancelHealth(r) {
+    if(!r)return;
+    clearTimeout(r.healthTimer);r.healthTimer=null;r.healthController?.abort();
+    if(r.accountHealth)r.accountHealth.nextRetryAt=null;
   }
-  close() {this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values())r.driver?.stop();this.worker.close();}
+  probeAccount(id,r) {
+    const current=()=>!this.stopping&&this.runtime.get(id)===r&&r.status==='connected'&&r.driver?.ready;
+    if(!current()||this.queues.has(id)||r.healthJob||Date.parse(r.accountHealth?.nextRetryAt)>Date.now())return;
+    clearTimeout(r.healthTimer);r.healthTimer=null;
+    const job=this.serialized(id,async()=>{
+      if(!current())return;
+      const startedAt=Date.now(),controller=new AbortController();r.healthController=controller;
+      r.accountHealth={...r.accountHealth,status:'checking',lastAttemptAt:new Date(startedAt).toISOString(),nextRetryAt:null};
+      // The private driver has a 30s scoped transport deadline. Bound the parent
+      // queue too, including a small margin for IPC, without aborting receivers.
+      const timer=setTimeout(()=>controller.abort(new DOMException('Account check timed out.','TimeoutError')),ACCOUNT_CHECK_TIMEOUT_MS+5000);
+      let cancelled;
+      try{
+        const cancellation=new Promise((_,reject)=>{cancelled=()=>reject(controller.signal.reason);controller.signal.addEventListener('abort',cancelled,{once:true});});
+        const profile=await Promise.race([Promise.resolve().then(()=>r.driver.check(controller.signal)),cancellation]);
+        if(!current()||controller.signal.aborted)return;
+        if(!profile||typeof profile.mid!=='string'||!profile.mid||typeof profile.displayName!=='string')throw new Error('invalid_profile');
+        const now=new Date().toISOString();r.profile=profile;r.lastChecked=now;r.error=null;
+        r.accountHealth={...r.accountHealth,status:'healthy',lastSuccessAt:now,consecutiveFailures:0,nextRetryAt:null};
+      }catch(error){
+        if(!current())return;
+        const diagnostic=accountDiagnostic(error),now=new Date().toISOString();
+        const failures=Math.min(Number.MAX_SAFE_INTEGER,(r.accountHealth?.consecutiveFailures??0)+1),auth=diagnostic.kind==='auth',retryInMs=auth?null:accountRetryDelay(failures);
+        r.accountHealth={...r.accountHealth,status:auth?'auth_invalid':'retrying',consecutiveFailures:failures,nextRetryAt:auth?null:new Date(Date.now()+retryInMs).toISOString(),lastFailure:{at:now,...diagnostic,elapsedMs:Date.now()-startedAt,retryInMs}};
+        r.error=auth?'login_required':'health_check_failed';
+        if(auth){r.status='error';this.store.connect(id,false);r.driver.stop();}
+        else {r.healthTimer=setTimeout(()=>{r.healthTimer=null;void this.probeAccount(id,r);},retryInMs);r.healthTimer.unref();}
+      }finally{
+        clearTimeout(timer);controller.signal.removeEventListener('abort',cancelled);
+        if(r.healthController===controller)r.healthController=null;
+      }
+    }).finally(()=>{if(r.healthJob===job)r.healthJob=null;});
+    r.healthJob=job;return job;
+  }
+  async healthcheck() {await Promise.allSettled([...this.runtime].map(([id,r])=>this.probeAccount(id,r)));}
+  close() {this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values()){this.cancelHealth(r);r.driver?.stop();}this.worker.close();}
 }
