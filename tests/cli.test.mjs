@@ -54,7 +54,7 @@ test('routes preserve bounded pages, opaque cursors, Unicode queries, and Access
 test('send file/stdin keep UTF-8 and multiline text exact; input failures happen before dispatch',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'linebridge-cli-text-'));t.after(()=>removeClientFixture(dir));
   const text='首行 😀\r\nArabic العربية\n末行\n',file=join(dir,'message with spaces.txt');await writeFile(file,text);
-  const calls=[],fetchImpl=async(url,options)=>{calls.push(options);return new Response('{"replayed":false}');};
+  const calls=[],fetchImpl=async(url,options)=>{calls.push(options);return new Response('{"messageId":"synthetic-id","replayed":false}');};
   const target=['send','--account','a','--chat','c','--key','unicode-key-001'];
   for(const args of [['--text-file',file],['--stdin'],['--text',text]]){const result=await cli([...target,...args],{input:text,fetchImpl});assert.equal(result.code,0);}
   for(const options of calls){assert.deepEqual(JSON.parse(options.body),{text});assert.equal(options.headers['Idempotency-Key'],'unicode-key-001');}
@@ -100,7 +100,7 @@ test('remote errors have stable exits and never echo raw gateway errors, credent
   const crashed=await cli(['accounts'],{fetchImpl:()=>{throw new Error(`${token}:private-url`);}});assert.equal(crashed.code,5);assert.ok(!crashed.stdout.includes(token));
 });
 test('sends never retry network failures, malformed replies or delivery_unknown; reads classify transport separately',async()=>{
-  for(const fail of [()=>{throw new Error('private-token');},()=>new Response('not-json'),()=>new Response('{"error":"delivery_unknown"}',{status:502}),()=>new Response('{"error":"gateway_error"}',{status:503})]){
+  for(const fail of [()=>{throw new Error('private-token');},()=>new Response('not-json'),()=>new Response('{}'),()=>new Response('[]'),()=>new Response('{"messageId":""}'),()=>new Response('{"error":"delivery_unknown"}'),()=>new Response('{"error":"delivery_unknown"}',{status:502}),()=>new Response('{"error":"gateway_error"}',{status:503})]){
     let calls=0;
     const result=await cli(['send','--account','a','--chat','c','--key','unknown-key','--text','secret message'],{fetchImpl:async(...args)=>{calls++;return fail(...args);}});
     assert.equal(result.code,8);assert.equal(result.json.error,'delivery_unknown');assert.equal(calls,1);assert.ok(!result.stdout.includes('secret message'));

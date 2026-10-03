@@ -70,7 +70,7 @@ Choose exactly one text source. File/stdin input must be UTF-8; Unicode, embedde
 
 `--key` accepts 8-128 ASCII letters, digits, dots, underscores, colons or hyphens. Actor-scoped gateway semantics remain intact: identical account/chat/text with the same key replays the saved successful result (`replayed:true`); different content fails with `idempotency_conflict`. Newline changes count as different content. LINE acceptance is not recipient delivery/read confirmation.
 
-**`delivery_unknown` exits 8 and is never automatically resent.** Send network failures, timeouts, unusable responses and server errors conservatively report unknown delivery. Inspect the chat before any further send. Never automatically generate a replacement key or turn exit 8 into a retry loop. An explicit repetition with the same key remains subject to the server's saved state, which also refuses to re-dispatch an unknown send.
+**`delivery_unknown` exits 8 and is never automatically resent.** Send network failures, timeouts, unusable responses, a missing message-ID acknowledgement and server errors conservatively report unknown delivery. Inspect the chat before any further send. Never automatically generate a replacement key or turn exit 8 into a retry loop. An explicit repetition with the same key remains subject to the server's saved state, which also refuses to re-dispatch an unknown send.
 
 Credentials and text cannot share stdin. For `send --stdin` or `search --query-stdin`, use a profile or transient environment credentials. Credential stdin can accompany `--text-file`/`--query-file`.
 

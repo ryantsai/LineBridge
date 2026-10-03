@@ -46,5 +46,8 @@ export async function gatewayRequest({url,credentials,path,method='GET',body,key
     if(send && response.status>=500)throw unknownDelivery(response.status);
     throw remoteError(response.status,result);
   }
+  // A successful HTTP status alone cannot confirm a send. Match the gateway's
+  // minimum acknowledgement contract before reporting success to automation.
+  if(send && (result.error!==undefined || typeof result.messageId!=='string' || !result.messageId.trim()))throw unknownDelivery(response.status);
   return result;
 }
