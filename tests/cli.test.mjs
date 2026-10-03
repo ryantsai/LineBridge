@@ -106,7 +106,7 @@ test('sends never retry network failures, malformed replies or delivery_unknown;
   }
   const read=await cli(['accounts'],{fetchImpl:async()=>new Response('bad')});assert.equal(read.code,5);
 });
-test('real HTTP redirect and body deadlines are bounded with no second send',async t=>{
+test('real HTTP redirects and deadlines are bounded with no second send',async t=>{
   let sends=0,redirectTarget=0;
   const server=createServer((req,res)=>{
     if(req.url==='/redirect'){res.writeHead(302,{Location:'/target'});res.end();}
@@ -117,7 +117,11 @@ test('real HTTP redirect and body deadlines are bounded with no second send',asy
   const url=`http://127.0.0.1:${server.address().port}`,credentials={token};
   await assert.rejects(gatewayRequest({url,credentials,path:'/redirect',timeoutMs:1000}),{code:'transport_error'});assert.equal(redirectTarget,0);
   await assert.rejects(gatewayRequest({url,credentials,path:'/stalled',timeoutMs:50}),{code:'request_timeout'});
-  await assert.rejects(gatewayRequest({url,credentials,path:'/stalled',method:'POST',body:{text:'synthetic'},send:true,timeoutMs:50}),{code:'delivery_unknown'});assert.equal(sends,1);
+  let attempts=0;
+  await assert.rejects(gatewayRequest({url,credentials,path:'/stalled',method:'POST',body:{text:'synthetic'},send:true,timeoutMs:50,fetchImpl:(...args)=>{attempts++;return fetch(...args);}}),{code:'delivery_unknown'});
+  // Under CI load the deadline can expire before the loopback server receives
+  // the request. Both pre-dispatch and post-dispatch timeouts remain unknown.
+  assert.equal(attempts,1);assert.ok(sends<=1);
 });
 test('executable usage failures return JSON and stderr without a stack trace',async()=>{
   const result=await new Promise((resolve,reject)=>{
