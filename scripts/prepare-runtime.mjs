@@ -64,13 +64,17 @@ export async function prepareRuntime(plan=buildPlan()){
     if(module.Sum!==runtimes.tailcatModuleSum)throw new Error('Tailcat module checksum does not match the pinned source.');
     if((await readFile(join(module.Dir,'build-tags.txt'),'utf8')).trim()!==tags)throw new Error('Tailcat build flags differ from the pinned release.');
     execFileSync('go',['install','-trimpath',`-tags=${tags}`,`-ldflags=-s -w -X main.version=v${TAILCAT_VERSION}`,`github.com/tailscale/tailcat/cmd/tailcat@v${TAILCAT_VERSION}`],{env:goEnv,stdio:'inherit'});
-    await copyFile(join(dest,'tailcat'),tailcatPath);await chmod(tailcatPath,0o755);await copyFile(join(module.Dir,'LICENSE'),join(runtime,'tailcat-LICENSE.txt'));
+    await copyFile(join(dest,'tailcat'),tailcatPath);await chmod(tailcatPath,0o755);
+    // Go's module cache is read-only. Resource copies must stay writable so
+    // Tauri can copy them again during test, Clippy and the release build.
+    const licensePath=join(runtime,'tailcat-LICENSE.txt');await chmod(licensePath,0o644).catch(error=>{if(error.code!=='ENOENT')throw error;});
+    await writeFile(licensePath,await readFile(join(module.Dir,'LICENSE')),{mode:0o644});
     await copyFile(tailcatPath,join(tools,`tailcat-${plan.target}`));await chmod(join(tools,`tailcat-${plan.target}`),0o755);
     tailcatSource={version:TAILCAT_VERSION,source:'github.com/tailscale/tailcat',moduleSum:module.Sum,go:execFileSync('go',['version'],{encoding:'utf8'}).trim(),checksumVerified:true};
   }
   verifyExecutable(await readFile(tailcatPath),plan);if(execFileSync(tailcatPath,['version'],{encoding:'utf8'}).trim()!==`v${TAILCAT_VERSION}`)throw new Error('Unexpected Tailcat version.');
   await writeFile(join(runtime,'tailcat-source.json'),JSON.stringify({...tailcatSource,platform:plan.platform,architecture:plan.arch,sha256:sha256(await readFile(tailcatPath)),license:'tailcat-LICENSE.txt'},null,2)+'\n');
-  console.log(`Prepared verified ${plan.slug} runtimes: Node ${nodeVersion}, cloudflared ${runtimes.cloudflaredVersion}.`);
+  console.log(`Prepared verified ${plan.slug} runtimes: Node ${nodeVersion}, cloudflared ${runtimes.cloudflaredVersion}, Tailcat ${TAILCAT_VERSION}.`);
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
   try{await prepareRuntime();}catch(error){console.error(error.message);process.exitCode=1;}
