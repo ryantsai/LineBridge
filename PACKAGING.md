@@ -2,6 +2,8 @@
 
 LineBridge provides desktop installers and portable CLI/service bundles. Both include Node and application dependencies; users need no Node installation or compiler. The native Tauri shell and portable launcher run the same service for LINE, authorization, encrypted SQLite and full-text search. The npm archive remains an option for hosts that already have Node.
 
+The desktop bundle also includes `bin/linebridge.mjs` alongside its Node runtime. After explicit local read + send setup, the dashboard supplies a safely quoted invocation using those exact local paths and the automatically enrolled protected profile. The AI can use data commands without a separate portable CLI installation, PATH changes or user Terminal enrollment.
+
 ## Portable CLI and service bundles
 
 For an AI agent with authorized terminal access to the user's computer, use the portable bundle. Extract the whole folder and run `.\linebridge.cmd` (Windows) or `./linebridge` (macOS/Linux). The launcher resolves its own bundled runtime without relying on Node/npm on PATH, preserves the caller's working directory, forwards arguments/stdin and returns the CLI's exit code. `serve` runs in the foreground; `status` and `stop` operate on the selected data directory. Extraction does not install a system service or change PATH/autostart.

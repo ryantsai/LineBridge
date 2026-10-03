@@ -55,7 +55,7 @@ export function createWizard(ctx){
     const instructions=root.querySelector('#setup-ai-instructions');
     if(instructions&&setup?.grantActive&&setup.credentialStatus==='protected'){
       if(!instructions.querySelector('textarea'))instructions.innerHTML='<h3>交給這台電腦上的 AI</h3><p>使用已保存的設定檔即可；不需要複製金鑰或開啟 Terminal。</p><textarea aria-label="本機 AI 指令" rows="7" readonly></textarea><button class="button" id="setup-copy">複製 AI 指令</button><span id="setup-copy-status" role="status"></span>';
-      instructions.querySelector('textarea').value=localCliInstructions(a);
+      instructions.querySelector('textarea').value=localCliInstructions(a,ctx.getState()?.cli);
       instructions.querySelector('#setup-copy').onclick=()=>action(async()=>{const el=instructions.querySelector('textarea');try{await navigator.clipboard.writeText(el.value);}catch{el.select();if(!document.execCommand('copy'))throw new Error('請選取並複製 AI 指令。');}instructions.querySelector('#setup-copy-status').textContent='已複製';});
     }else if(instructions)instructions.innerHTML='';
 
