@@ -16,13 +16,14 @@ test('ngrok credentials stay encrypted and are never returned in status; discove
 });
 test('Funnel owns only newly created routes and does not overwrite or remove other services',async t=>{
   const {tunnels}=fixture(t),calls=[],dns='machine.test.ts.net';let current={Web:{[dns+':8443']:{Handlers:{'/':{Proxy:'http://127.0.0.1:3211'}}}},TCP:{8443:{HTTPS:true}}};
+  tunnels.tailscale='synthetic-tailscale';
   tunnels.connectTailscale=async()=>({connected:true});tunnels.ts=async args=>{calls.push(args);if(args[0]==='status')return {BackendState:'Running',Self:{DNSName:dns+'.'}};if(args[1]==='status')return structuredClone(current);if(args[0]==='funnel'&&args.includes('--bg')){current.Web[dns+':443']={Handlers:{'/':{Proxy:'http://127.0.0.1:3211'}}};current.AllowFunnel={[dns+':443']:true};}if(args.at(-1)==='off'){delete current.Web[dns+':443'];delete current.AllowFunnel[dns+':443'];}return {};};
   tunnels.configure({provider:'tailscale_funnel'});assert.equal((await tunnels.start()).url,'https://'+dns);assert.equal((await tunnels.status()).connected,true);assert.ok(calls.some(a=>a[0]==='funnel'&&a.includes('--https=443')));await tunnels.stop();assert.ok(current.Web[dns+':8443']);assert.ok(!current.Web[dns+':443']);
   tunnels.configure({provider:'tailscale_funnel',httpsPort:8443});await assert.rejects(tunnels.start(),{code:'serve_conflict'});assert.ok(current.Web[dns+':8443']);
   tunnels.configure({provider:'tailscale'});await tunnels.start();await tunnels.stop();assert.ok(current.Web[dns+':8443'],'Matching external route must not be removed');
 });
 test('Funnel cleanup refuses a changed route and exposes only a validated consent URL',async t=>{
-  const {tunnels}=fixture(t);let current={};tunnels.connectTailscale=async()=>({connected:true});tunnels.ts=async args=>{if(args[0]==='status')return {Self:{DNSName:'machine.test.ts.net'}};if(args[1]==='status')return current;if(args.includes('--bg')){const e=new Error();e.code='funnel_authorization_required';e.authUrl='https://login.tailscale.com/f/funnel?node=test';throw e;}throw Error('Must not delete a changed route');};
+  const {tunnels}=fixture(t);tunnels.tailscale='synthetic-tailscale';let current={};tunnels.connectTailscale=async()=>({connected:true});tunnels.ts=async args=>{if(args[0]==='status')return {Self:{DNSName:'machine.test.ts.net'}};if(args[1]==='status')return current;if(args.includes('--bg')){const e=new Error();e.code='funnel_authorization_required';e.authUrl='https://login.tailscale.com/f/funnel?node=test';throw e;}throw Error('Must not delete a changed route');};
   tunnels.configure({provider:'tailscale_funnel'});assert.equal((await tunnels.start()).state,'NeedsFunnelAuth');
   tunnels.ownedRoute={host:'machine.test.ts.net:443',port:443,proxy:'http://127.0.0.1:3211',funnel:true};current={Web:{'machine.test.ts.net:443':{Handlers:{'/':{Proxy:'http://127.0.0.1:9999'}}}},AllowFunnel:{'machine.test.ts.net:443':true}};await tunnels.close();assert.equal(tunnels.ownedRoute,null);
 });
