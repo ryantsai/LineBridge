@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {HubError,SendRejectedError} from './errors.mjs';
 import {VaultStorage} from './vault.mjs';
+import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
 
 const encode=value=>JSON.stringify(value,(_,v)=>typeof v==='bigint'?{$bigint:String(v)}:v);
 const decode=value=>JSON.parse(value,(_,v)=>v&&typeof v==='object'&&'$bigint' in v?BigInt(v.$bigint):v);
@@ -35,7 +36,7 @@ export class ProtocolWorker {
     if(message.type==='result'){
       const request=this.pending.get(message.id);if(!request)return;
       clearTimeout(request.timer);this.pending.delete(message.id);
-      if(message.error){const e=message.error;request.reject(new (e.rejected_send?SendRejectedError:HubError)(e.status||502,e.code||'upstream_unavailable',e.message||'LINE operation failed.'));}
+      if(message.error){const e=message.error;request.reject(request.method==='check'?accountCheckError(e):new (e.rejected_send?SendRejectedError:HubError)(e.status||502,e.code||'upstream_unavailable',e.message||'LINE operation failed.'));}
       else request.resolve(message.result);
     }else if(message.type==='event'){
       const emit=this.events.get(message.accountId);if(message.event==='monitor_status')emit?.monitor?.(message.value);else emit?.[message.event]?.(message.value);
@@ -55,11 +56,15 @@ export class ProtocolWorker {
       this.write({type:message.type==='capture'?'capture_ack':'storage_ack',id:message.id,ok});
     }
   }
-  call(method,params={},timeout=40000){
+  call(method,params={},timeout=40000,signal){
+    if(signal?.aborted)return Promise.reject(signal.reason);
     this.start();const id=randomUUID();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{this.pending.delete(id);reject(new HubError(502,'upstream_unavailable','The LINE operation timed out.'));},timeout);
-      this.pending.set(id,{resolve,reject,timer});this.write({id,method,params});
+      const finish=(callback,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',cancel);this.pending.delete(id);callback(value);};
+      const cancel=()=>finish(reject,signal.reason);
+      const timer=setTimeout(()=>finish(reject,method==='check'?accountCheckError({name:'TimeoutError'}):new HubError(502,'upstream_unavailable','The LINE operation timed out.')),timeout);
+      this.pending.set(id,{method,resolve:value=>finish(resolve,value),reject:error=>finish(reject,error),timer});
+      signal?.addEventListener('abort',cancel,{once:true});this.write({id,method,params});
     });
   }
   driver(account,emit){
@@ -69,7 +74,7 @@ export class ProtocolWorker {
     return {
       ready:false,
       async login(qr){const profile=await worker.call('connect',{accountId:id,account,storage:storage.getAll(),qr},240000);this.ready=true;return profile;},
-      check:()=>call('check'),discover:()=>call('discover'),
+      check:signal=>worker.call('check',{accountId:id},ACCOUNT_CHECK_TIMEOUT_MS+5000,signal),discover:()=>call('discover'),
       read:(chat,limit,cursor)=>call('read',{chat,limit,cursor}),
       send:(chat,text)=>call('send',{chat,text}),
       resolveMessageNames:(chat,messages)=>call('resolve_names',{chat,messages}),
