@@ -2,29 +2,17 @@
 
 LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The desktop bundles Node and cloudflared. The portable CLI bundles Node, while tunnel helpers are optional separate installations. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **API 金鑰與 AI 存取**; read grants include archive search, while send grants are independent.
 
-For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILCAT`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
+For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
 
-Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access, Tailcat, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
+Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the app running; closing it stops monitoring and its owned connector. Quick Tunnel, Cloudflare Tunnel + Access, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
+
+An unsupported provider saved by an older installation falls back to local access. Choose a supported provider in the dashboard to restore remote access; saved Cloudflare named-tunnel settings remain available.
 
 ## Test from the cloud VM
 
 Choose a provider, start it, then click **複製雲端 AI 測試指令**. Give those instructions and a scoped LineBridge token to the cloud AI. A successful connection from this PC does not establish that the VM can reach it. Each VM/network may filter different hostnames, IP addresses or protocols.
 
 The dependency-free `examples/probe-connection.mjs` runs on Node 18+ from the VM. Set `LINE_BRIDGE_TOKEN` in its environment and run `node examples/probe-connection.mjs URL`. It checks DNS, LineBridge health, unauthenticated rejection, scoped API, admin isolation and MCP tool discovery. It does not contact LINE or send messages. Without a token, it checks reachability and unauthenticated rejection only.
-
-## Tailcat
-
-Choose **Tailcat · 免帳號私人通道** and start. The desktop bundles Tailcat 0.7.0. It starts a fresh ephemeral-key server serving only the AI gateway; no SSH, files, other ports or exit-node access are enabled. Stop or app exit invalidates that address. The address contains tunnel key material; copy it only to the intended client. LineBridge still requires its separate scoped Bearer token.
-
-The cloud VM needs Tailcat 0.7.0 from the [official release](https://github.com/tailscale/tailcat/releases/tag/v0.7.0), then the exact command shown in the dashboard, for example:
-
-```sh
-tailcat forward --bind=127.0.0.1 <tailcat-address> 3211:3211
-```
-
-Keep it running and connect the AI to `http://127.0.0.1:3211/mcp` **on the VM**. HTTP in that URL is inside the encrypted peer tunnel. Use a free matching port; the dashboard command follows a customized gateway port. The server prints a full address with embedded relay information, so the client does not need to fetch a DERP map to resolve it. Tailcat needs neither a Tailscale account nor root, but its relay/direct traffic must be allowed by the VM. [Tailcat documentation](https://github.com/tailscale/tailcat).
-
-For Linux, verify the release archive before extracting: x64 SHA-256 `23c0b1887a5ec422f0d18a9c52b4f5357815febdaae738a1eb54036d10bd9ee6`; arm64 `bbb1ab50f24f00effe1e1fd86d0501803fb80793a90785a2a16ff3428f03d8ef`.
 
 ## ngrok
 

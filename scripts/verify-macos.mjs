@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,realpathSync,rmdirSync} from 'node:fs';
+import {mkdtempSync,readFileSync,readdirSync,realpathSync,rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {basename,join} from 'node:path';
 import {buildPlan,root,runtimes,sha256} from './packaging.mjs';
@@ -16,9 +16,9 @@ try{
 // the delivered image instead, without depending on the build folder.
 execFileSync('hdiutil',['attach',dmg,'-readonly','-nobrowse','-mountpoint',mount],{stdio:'inherit'});attached=true;
 const app=join(mount,'LineBridge.app'),bin=join(app,'Contents/MacOS'),resources=join(app,'Contents/Resources');
+assert.deepEqual(readdirSync(bin).sort(),['LineBridge','cloudflared','node']);
 execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'inherit'});
-for(const name of ['LineBridge','node','cloudflared','tailcat'])assert.equal(execFileSync('lipo',['-archs',join(bin,name)],{encoding:'utf8'}).trim(),plan.arch==='x64'?'x86_64':'arm64');
-assert.equal(execFileSync(join(bin,'tailcat'),['version'],{encoding:'utf8'}).trim(),'v0.7.0');
+for(const name of ['LineBridge','node','cloudflared'])assert.equal(execFileSync('lipo',['-archs',join(bin,name)],{encoding:'utf8'}).trim(),plan.arch==='x64'?'x86_64':'arm64');
 assert.equal(execFileSync(join(bin,'node'),['--version'],{encoding:'utf8'}).trim(),`v${runtimes.nodeVersion}`);
 assert.match(execFileSync(join(bin,'cloudflared'),['--version'],{encoding:'utf8'}),new RegExp(`cloudflared version ${runtimes.cloudflaredVersion.replaceAll('.','\\.')}`));
 const input=JSON.stringify({id:'packaging-check',method:'check',params:{accountId:'synthetic-missing'}})+'\n';

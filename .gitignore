@@ -10,8 +10,6 @@ release/
 tools/*.exe
 tools/cloudflared
 tools/cloudflared-*-apple-darwin
-tools/tailcat
-tools/tailcat-*-apple-darwin
 dashboard-preview.png
 discovery-fixed.png
 zh-TW-preview.png

@@ -3,15 +3,25 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {Store} from '../server/store.mjs';
 import {Vault} from '../server/vault.mjs';
-import {Tunnels,publicHostname,tailcatAddress} from '../server/tunnels.mjs';
+import {Tunnels,publicHostname} from '../server/tunnels.mjs';
 import {connectorPlan,verifiedDownload} from '../server/connector-install.mjs';
 function fixture(t){const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'test'),tunnels=new Tunnels(store,vault,process.cwd(),3211);t.after(()=>store.close());return {store,vault,tunnels};}
+test('retired saved providers use local access without starting a connector or losing named settings',async t=>{
+  const {store,tunnels}=fixture(t),named={provider:'cloudflare',hostname:'gateway.example',teamDomain:'team.cloudflareaccess.com',audience:'saved-audience'};
+  store.setSetting('cloudflareNamed',named);
+  store.setSetting('tunnel',{provider:'retired-provider',hostname:'obsolete.example',teamDomain:'old.cloudflareaccess.com',audience:'old-audience'});
+  tunnels.tailscale=null;tunnels.spawnConnector=()=>assert.fail('A retired provider must not start a connector');
+  const status=await tunnels.status();
+  assert.equal(status.provider,'local');assert.equal(status.url,'http://127.0.0.1:3211');assert.equal(status.hostname,'');assert.equal(tunnels.gatewayHostname(),'');
+  assert.deepEqual(status.namedConfig,named);assert.equal((await tunnels.start()).url,'http://127.0.0.1:3211');assert.equal(tunnels.child,undefined);
+  assert.throws(()=>tunnels.configure({provider:'retired-provider'}));
+  tunnels.configure({provider:'cloudflare_quick'});assert.equal(tunnels.config().provider,'cloudflare_quick');assert.deepEqual(store.setting('cloudflareNamed'),named);
+});
 test('ngrok credentials stay encrypted and are never returned in status; discovery URL is strict',async t=>{
   const {store,vault,tunnels}=fixture(t);tunnels.tailscale=null;tunnels.configure({provider:'ngrok',ngrokDomain:'TEST.ngrok.app'});tunnels.setNgrokToken('synthetic-secret-ngrok-123');
   assert.equal(vault.unseal(store.setting('ngrokAuthtoken'),'ngrok.authtoken'),'synthetic-secret-ngrok-123');assert.ok(!store.setting('ngrokAuthtoken').includes('synthetic-secret'));assert.ok(!JSON.stringify(await tunnels.status()).includes('synthetic-secret'));
   assert.equal(publicHostname('https://test.ngrok.app'),'test.ngrok.app');for(const v of ['http://test.ngrok.app','https://user@evil.test','https://test.ngrok.app/a','https://test.ngrok.app?x=1','https://test.ngrok.app:8443'])assert.equal(publicHostname(v),null);
   tunnels.forgetNgrokToken();assert.equal((await tunnels.status()).ngrok.hasAuthtoken,false);assert.throws(()=>tunnels.setNgrokToken('bad secret'),{code:'invalid_ngrok_token'});
-  assert.ok(tailcatAddress('tc'+'A'.repeat(80)));assert.equal(tailcatAddress('tc'+'A'.repeat(80)+';whoami'),null);
   assert.throws(()=>tunnels.configure({provider:'ngrok',ngrokDomain:'https://evil.test'}),{code:'invalid_hostname'});
 });
 test('Funnel owns only newly created routes and does not overwrite or remove other services',async t=>{

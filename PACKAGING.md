@@ -17,7 +17,7 @@ For an AI agent with authorized terminal access to the user's computer, use the 
 
 Linux builds use official glibc Node binaries; Alpine/musl is unsupported. These baselines follow the [bundled Node 26.5.0 requirements](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md). Use a supported OS release. Windows ARM64 native bundles are not included.
 
-Build on each target OS/architecture with Node 26.5.0 and the native `tar` command available (included with supported Windows). Rust, Go and desktop build tools are unnecessary for this distribution:
+Build on each target OS/architecture with Node 26.5.0 and the native `tar` command available (included with supported Windows). Rust and desktop build tools are unnecessary for this distribution:
 
 ```sh
 npm ci --ignore-scripts
@@ -33,7 +33,7 @@ A Dot session that controls the PC's terminal can use its loopback gateway with 
 
 ## Build desktop installers on the target OS
 
-Use Node 26.5.0, Rust 1.98.1 (and Go 1.27.1 on macOS to build the bundled Tailcat) and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.1 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
+Use Node 26.5.0, Rust 1.98.1 and the platform's native Tauri prerequisites. The locked CLI is 2.12.1, Tauri library 2.12.1 and esbuild 0.28.2. Node/cloudflared assets and SHA-256 digests are pinned in `packaging/runtimes.json`.
 
 ```sh
 npm ci --ignore-scripts
@@ -44,7 +44,7 @@ npm run build:macos       # native Apple Silicon or Intel Mac
 npm run test:desktop     # synthetic native startup, auth, persistence and shutdown
 ```
 
-The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, bundles Tailcat 0.7.0 from its checksummed Windows release or pinned Go module on Mac, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
+The build bundles the service/private worker into `runtime/app`, vendors the dashboard and dependency notices, verifies helper checksums/architectures/versions, then creates the installer. Windows uses a current-user NSIS installer with Traditional Chinese and English choices. macOS builds architecture-specific DMGs with Node and cloudflared as signed sidecars in `Contents/MacOS`; `npm run verify:macos` mounts the finished DMG read-only and checks its checksum, signatures, architecture and native startup.
 
 Outputs are under `release/windows-x64`, `release/macos-arm64` or `release/macos-x64`, with an installer, `SHA256SUMS.txt` and `build-info.json`. The installer must be built on its target OS/architecture. GitHub Actions runs native Windows and both Mac jobs, plus portable Node tests on Linux/Windows/macOS.
 

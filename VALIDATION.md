@@ -1,3 +1,12 @@
+# LineBridge 0.6.2 desktop runtime validation
+
+Verified locally on macOS Apple Silicon, 2026-10-03 (Asia/Taipei):
+
+- Desktop preparation and packaging completed without Go installed. The delivered app's executable directory contains only `LineBridge`, `node` and `cloudflared`.
+- JavaScript syntax checks, all **112 tests**, HTTP/official MCP service smoke, and Rust formatting/build checks passed. A regression test verifies that retired saved providers fall back to local access without starting a connector or losing Cloudflare named-tunnel settings.
+- `npm run verify:macos` mounted the delivered DMG read-only and passed checksum, strict signatures, native architecture and helper-version checks, private worker startup, scoped authentication, multilingual archive search, encrypted persistence across restart, restored monitoring and owned-process shutdown. All accounts and sends were synthetic.
+- Artifact: `release/macos-arm64/LineBridge_0.6.2_aarch64.dmg`, SHA-256 `e5824cce7a313cd3fe61acd21bcdc59c827ab287083ff1f2bd8f8adbebd48ef1`. This is a local build; the previous release's Windows/Intel results below do not verify this artifact on those platforms.
+
 # LineBridge 0.6 portable Node bundle validation
 
 Verified locally on Windows x64, 2026-10-03 (Asia/Taipei):
@@ -9,16 +18,15 @@ Verified locally on Windows x64, 2026-10-03 (Asia/Taipei):
 
 # LineBridge 0.6 provider validation
 
-Verified on 2026-10-03 (Asia/Taipei). Added Tailcat, ngrok and Tailscale Funnel to the separate cloud connection page, with local encrypted ngrok token storage and cloud AI probe instructions.
+Verified on 2026-10-03 (Asia/Taipei). Added ngrok and Tailscale Funnel to the separate cloud connection page, with local encrypted ngrok token storage and cloud AI probe instructions.
 
 - JavaScript syntax, **56 tests** and HTTP/official MCP integration passed on Windows Node 26.5.0. New tests cover encrypted ngrok tokens, URL validation, Funnel route conflicts and ownership, authorization and pinned download rejection.
-- Live Tailcat peer forwarding passed token enforcement, scoped HTTP/MCP, multilingual archive search, admin isolation and process cleanup using a disposable synthetic store. Tailcat 0.7.0 serves only the gateway with new ephemeral keys.
-- Live Funnel passed those same checks using a public DNS resolver and TLS hostname verification, and removed only its newly created port-443 route. The existing private port-8443 route remained unchanged.
+- Live Funnel passed token enforcement, scoped HTTP/MCP, multilingual archive search, admin isolation and process cleanup using a public DNS resolver and TLS hostname verification, and removed only its newly created port-443 route. The existing private port-8443 route remained unchanged.
 - Official ngrok 3.39.11 download, SHA-256 verification, extraction, reported version and YAML configuration validation passed. The real ngrok endpoint requires the user to enter their Authtoken locally; it has not yet been claimed as live-verified.
 - The dependency-free cloud probe passed anonymous and authenticated checks against a synthetic service: health, token enforcement, admin isolation and all six MCP tools. The provider form was inspected in an isolated browser session, including Funnel's default port 443 and ngrok's password field. [Connection form preview](design/connections-ngrok.jpg).
-- Rust formatting, its Windows path regression and Clippy passed. The 0.6.0 NSIS installer built and installed successfully; native startup, encrypted multilingual search across restart and owned-process shutdown passed. The installed app finds bundled Tailcat, preserves all 6 accounts and 3 tokens, preserves the enabled monitoring preference and retains the existing private Tailscale route. Read-only counts confirm the original messages/index remain intact. The user subsequently selected and started Tailcat; its read-only status reports connected.
+- Rust formatting, its Windows path regression and Clippy passed. The 0.6.0 NSIS installer built and installed successfully; native startup, encrypted multilingual search across restart and owned-process shutdown passed. The installed app preserves all 6 accounts and 3 tokens, preserves the enabled monitoring preference and retains the existing private Tailscale route. Read-only counts confirm the original messages/index remain intact.
 - [Portable verification](https://github.com/ryantsai/LineBridge/actions/runs/37081141679) passed all 56 tests, HTTP/MCP integration and archive validation on Node 24/26 across Linux and Windows at commit `3887757`.
-- [Native installer verification](https://github.com/ryantsai/LineBridge/actions/runs/37081141673) passed Windows x64 NSIS and both Mac DMGs at that same commit. All three checked native startup, scoped authentication, encrypted multilingual archive persistence, restored monitoring preferences and shutdown. Mac checks additionally verified the delivered DMG checksum, signatures and native helper versions/architectures, including bundled Tailcat 0.7.0. Mac resources copied from Go's read-only module cache are normalized to writable build inputs; repeat Rust test, Clippy and release resource copies passed.
+- [Native installer verification](https://github.com/ryantsai/LineBridge/actions/runs/37081141673) passed Windows x64 NSIS and both Mac DMGs at that same commit. All three checked native startup, scoped authentication, encrypted multilingual archive persistence, restored monitoring preferences and shutdown. Mac checks additionally verified the delivered DMG checksum, signatures and native helper versions/architectures.
 - These checks run from this PC. The blocked cloud VM must run the supplied probe against each address; no provider is claimed reachable from that VM yet.
 
 The previous restoration/data validation follows for historical reference; its 0.5 installer hashes/runs are not evidence for 0.6 artifacts.
