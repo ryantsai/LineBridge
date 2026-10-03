@@ -103,17 +103,15 @@ npm run build:macos      # native ARM/Intel DMG on the matching Mac
 npm run publish:github -- --dry-run # preview local build + GitHub Release upload
 ```
 
-To publish local builds, install the [GitHub CLI](https://cli.github.com/), authenticate, commit the release changes, and push the matching version tag:
+To increment the version and publish local builds, install the [GitHub CLI](https://cli.github.com/), authenticate, and commit your application changes first:
 
 ```sh
 gh auth login
-git tag v0.6.1
-git push origin HEAD
-git push origin v0.6.1
-npm run publish:github
+npm run publish:github -- --bump patch --dry-run
+npm run publish:github -- --bump patch
 ```
 
-Use the version in `package.json`; an existing tag must already point to the clean checkout's HEAD. The command builds, tests and uploads this machine's native artifacts to GitHub Releases. Use `npm run publish:github -- --kind all` to include the npm archive, or `publish:desktop`, `publish:portable`, or `publish:npm` for one distribution. `--draft`, `--prerelease`, and `--notes-file PATH` configure a new release. [Release publishing setup and options](PACKAGING.md#publish-local-builds-to-github-releases).
+`--bump` accepts `patch`, `minor`, `major`, or an explicit higher version. It synchronizes the application versions, tests/builds, then commits the version files, tags and pushes the branch/tag to `origin` before uploading. It requires a clean branch checkout and `origin` pointing to the selected repository. Run without `--bump` for an already prepared version or additional platforms; its GitHub tag must point to the clean checkout's HEAD. The command uploads this machine's native artifacts. Use `--kind all` to include the npm archive, or `publish:desktop`, `publish:portable`, or `publish:npm` for one distribution. `--draft`, `--prerelease`, and `--notes-file PATH` configure a new release. [Release publishing setup, recovery and options](PACKAGING.md#publish-local-builds-to-github-releases).
 
 For source-checkout operation on a machine that can reach LINE, run `npm start -- --data-dir ./data`. `linebridge status` and `stop` use verified service identity. The separate npm archive requires Node and is not published to the npm registry. `--trust-local` is an explicit development opt-in restricted to the local provider and direct loopback requests. The desktop always requires scoped tokens.
 

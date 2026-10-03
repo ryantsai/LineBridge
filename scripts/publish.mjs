@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {buildPlan, root, sha256} from './packaging.mjs';
 import {portablePlan} from './portable.mjs';
 import {npm} from './npm.mjs';
+import {applyVersionPlan, validateBump, versionPlan} from './version.mjs';
 
 const help = `Publish local builds to GitHub Releases (never to the npm registry).
 
@@ -12,15 +13,21 @@ Usage: npm run publish:github -- [options]
   --kind native|desktop|portable|npm|all
                          Default: native (desktop + portable; portable on Linux)
   --repo OWNER/REPO      Default: repository selected by gh for this checkout
+  --bump patch|minor|major|VERSION
+                         Sync versions, test/build, commit, tag and push to origin
   --draft               Create a draft release
   --prerelease          Create a prerelease
   --notes-file PATH     Release notes for a new release (otherwise generated)
-  --dry-run             Show the plan without building or contacting GitHub
+  --dry-run             Show the plan without changing files or contacting GitHub
   --help                Show this help
 
 Requires gh auth login, a clean checkout, and a GitHub tag v<package version>
-pointing to HEAD. Builds and tests always run before upload. Existing releases
+pointing to HEAD (created and pushed for --bump). Bumping requires a branch and
+origin pointing to the selected repository. Builds and tests run before the
+release commit, tag, push and upload. Existing releases
 receive new assets only; existing assets and release settings are never replaced.
+Failed builds leave synchronized version edits for inspection; finish the
+commit/tag/push manually and retry without --bump.
 `;
 
 export function parseOptions(args) {
@@ -29,7 +36,7 @@ export function parseOptions(args) {
     const [key, ...parts] = args[i].split('=');
     if (['--help', '--dry-run', '--draft', '--prerelease'].includes(key) && !parts.length) {
       options[key.slice(2)] = true;
-    } else if (['--kind', '--repo', '--notes-file'].includes(key)) {
+    } else if (['--kind', '--repo', '--notes-file', '--bump'].includes(key)) {
       const value = parts.length ? parts.join('=') : args[++i];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${key}.`);
       options[key.slice(2)] = value;
@@ -37,6 +44,7 @@ export function parseOptions(args) {
   }
   if (!['native', 'desktop', 'portable', 'npm', 'all'].includes(options.kind)) throw new Error('Invalid --kind. Use native, desktop, portable, npm or all.');
   if (options.repo && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repo)) throw new Error('--repo must be OWNER/REPO.');
+  if (options.bump !== undefined) validateBump(options.bump);
   return options;
 }
 
@@ -81,8 +89,38 @@ export async function stageAssets(plan, version, releaseRoot = join(root, 'relea
   return staged;
 }
 
-function command(executable, args, inherit = false) {
-  return execFileSync(executable, args, {cwd: root, encoding: 'utf8', windowsHide: true, stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe']})?.trim();
+function command(executable, args, inherit = false, directory = root) {
+  return execFileSync(executable, args, {cwd: directory, encoding: 'utf8', windowsHide: true, stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe']})?.trim();
+}
+
+export function githubTagCommit(repo, tag, run = command) {
+  try {
+    // Require an actual tag, not a branch with the same version-shaped name.
+    run('gh', ['api', `repos/${repo}/git/ref/tags/${encodeURIComponent(tag)}`, '--jq', '.ref']);
+  } catch (error) {
+    if (String(error.stderr).includes('(HTTP 404)')) return null;
+    throw error;
+  }
+  return run('gh', ['api', `repos/${repo}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`, '--jq', '.sha']);
+}
+
+export function checkBumpCheckout(repo, tag, run = command) {
+  try { run('git', ['symbolic-ref', '--quiet', '--short', 'HEAD']); }
+  catch { throw new Error('--bump requires a branch checkout; switch off detached HEAD first.'); }
+  const remote = run('git', ['remote', 'get-url', '--push', '--all', 'origin']);
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)\/?$/.exec(remote.replace(/\.git$/, ''));
+  if (!match || match[1].toLowerCase() !== repo.toLowerCase()) throw new Error(`--bump requires origin to have one push URL pointing to ${repo}.`);
+  if (run('git', ['tag', '--list', tag])) throw new Error(`Local tag ${tag} already exists. Choose another version or publish its checkout without --bump.`);
+  // Fail before modifying files if Git cannot create the release commit.
+  run('git', ['var', 'GIT_AUTHOR_IDENT']);
+  run('git', ['var', 'GIT_COMMITTER_IDENT']);
+}
+
+async function checkPreparedCheckout(versions, head, directory, run) {
+  const changed = run('git', ['diff', '--name-only', 'HEAD']).split('\n').filter(Boolean).sort();
+  const expected = versions.files.map(file => file.path).sort();
+  if (run('git', ['rev-parse', 'HEAD']) !== head || JSON.stringify(changed) !== JSON.stringify(expected) || run('git', ['ls-files', '--others', '--exclude-standard'])) throw new Error('Checkout changed during the build; refusing to commit or publish.');
+  for (const file of versions.files) if (await readFile(join(directory, file.path), 'utf8') !== file.after) throw new Error(`${file.path} changed during the build; refusing to commit or publish.`);
 }
 
 export function findRelease(repo, tag, run = command) {
@@ -109,38 +147,59 @@ export function publishAssets({repo, tag, assets, existing, options}, run = comm
   }
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args = process.argv.slice(2), {
+  directory = root,
+  run = (executable, args, inherit) => command(executable, args, inherit, directory),
+  runNpm = npm,
+  log = console.log,
+} = {}) {
   const options = parseOptions(args);
   if (options.help) { console.log(help); return; }
   if (options['notes-file']) options['notes-file'] = resolve(options['notes-file']);
-  const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
-  if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(pkg.version)) throw new Error('Unsupported package version.');
-  const tag = `v${pkg.version}`, plan = releasePlan(options.kind);
-  console.log(`GitHub release: ${options.repo ?? '(current repository)'} / ${tag}`);
-  console.log('npm run check\nnpm test\nnpm run test:smoke');
-  for (const item of plan) console.log(`npm run ${item.build}\nnpm run ${item.test}\n  Assets: release/${item.directory} (verified artifact + uniquely named checksum and metadata)`);
-  console.log(`Staging: release/github/${tag}/`);
+  const versions = await versionPlan(options.bump, directory);
+  const tag = `v${versions.version}`, plan = releasePlan(options.kind);
+  log(`GitHub release: ${options.repo ?? '(current repository)'} / ${tag}`);
+  if (options.bump) log(`Version: ${versions.current} -> ${versions.version}\nUpdate: ${versions.files.map(file => file.path).join(', ')}`);
+  log('npm run check\nnpm test\nnpm run test:smoke');
+  for (const item of plan) log(`npm run ${item.build}\nnpm run ${item.test}\n  Assets: release/${item.directory} (verified artifact + uniquely named checksum and metadata)`);
+  log(`Staging: release/github/${tag}/`);
+  if (options.bump) log(`After verification: git add <version files>\ngit commit -m "Release ${tag}"\ngit tag ${tag}\ngit push --atomic origin HEAD refs/tags/${tag}`);
   if (options['dry-run']) return;
 
-  command('gh', ['auth', 'status']);
-  const repo = options.repo ?? command('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
-  if (command('git', ['status', '--porcelain'])) throw new Error('Commit or stash checkout changes before publishing.');
-  const head = command('git', ['rev-parse', 'HEAD']);
-  // Require an actual tag, not a branch with the same version-shaped name.
-  command('gh', ['api', `repos/${repo}/git/ref/tags/${encodeURIComponent(tag)}`, '--jq', '.ref']);
-  const taggedCommit = command('gh', ['api', `repos/${repo}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`, '--jq', '.sha']);
-  if (taggedCommit !== head) throw new Error(`GitHub tag ${tag} must point to this checkout's HEAD (${head}). Push the matching version tag first.`);
+  run('gh', ['auth', 'status']);
+  const repo = options.repo ?? run('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
+  if (run('git', ['status', '--porcelain'])) throw new Error('Commit or stash checkout changes before publishing.');
+  let head = run('git', ['rev-parse', 'HEAD']);
+  if (options.bump) checkBumpCheckout(repo, tag, run);
+  const taggedCommit = githubTagCommit(repo, tag, run);
+  if (options.bump && taggedCommit) throw new Error(`GitHub tag ${tag} already exists. Choose another version.`);
+  if (!options.bump && taggedCommit !== head) throw new Error(`GitHub tag ${tag} must point to this checkout's HEAD (${head}). Push the matching version tag first.`);
   if (options['notes-file']) await readFile(options['notes-file'], 'utf8');
-  const existing = findRelease(repo, tag);
+  const existing = findRelease(repo, tag, run);
+  if (options.bump && existing) throw new Error(`GitHub release ${tag} already exists. Choose another version.`);
   if (existing && (options.draft || options.prerelease || options['notes-file'])) throw new Error('Release creation options cannot change an existing release. Omit --draft, --prerelease and --notes-file to append assets.');
-  for (const script of ['check', 'test', 'test:smoke']) npm(['run', script], {cwd: root, stdio: 'inherit'});
+  if (options.bump) await applyVersionPlan(versions, directory);
+  for (const script of ['check', 'test', 'test:smoke']) await runNpm(['run', script], {cwd: directory, stdio: 'inherit'});
   for (const item of plan) {
-    npm(['run', item.build], {cwd: root, stdio: 'inherit'});
-    npm(['run', item.test], {cwd: root, stdio: 'inherit'});
+    await runNpm(['run', item.build], {cwd: directory, stdio: 'inherit'});
+    await runNpm(['run', item.test], {cwd: directory, stdio: 'inherit'});
   }
-  if (command('git', ['rev-parse', 'HEAD']) !== head || command('git', ['status', '--porcelain'])) throw new Error('Checkout changed during the build; refusing to upload.');
-  const assets = await stageAssets(plan, pkg.version);
-  publishAssets({repo, tag, assets, existing, options});
+  const assets = await stageAssets(plan, versions.version, join(directory, 'release'));
+  if (options.bump) {
+    await checkPreparedCheckout(versions, head, directory, run);
+    run('git', ['add', '--', ...versions.files.map(file => file.path)]);
+    run('git', ['commit', '-m', `Release ${tag}`], true);
+    const committed = run('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).split('\n').filter(Boolean).sort();
+    if (run('git', ['rev-parse', 'HEAD^']) !== head || JSON.stringify(committed) !== JSON.stringify(versions.files.map(file => file.path).sort()) || run('git', ['status', '--porcelain'])) throw new Error('Checkout changed during the release commit; refusing to push or upload.');
+    head = run('git', ['rev-parse', 'HEAD']);
+    // Hooks must not silently change the version files that were built and tested.
+    for (const file of versions.files) if (await readFile(join(directory, file.path), 'utf8') !== file.after) throw new Error(`${file.path} changed during the release commit; refusing to push or upload.`);
+    run('git', ['tag', tag]);
+    run('git', ['push', '--atomic', 'origin', 'HEAD', `refs/tags/${tag}`], true);
+    if (githubTagCommit(repo, tag, run) !== head) throw new Error(`GitHub tag ${tag} does not match the release commit; refusing to upload.`);
+  }
+  if (run('git', ['rev-parse', 'HEAD']) !== head || run('git', ['status', '--porcelain'])) throw new Error('Checkout changed during the build; refusing to upload.');
+  publishAssets({repo, tag, assets, existing, options}, run);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

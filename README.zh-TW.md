@@ -62,6 +62,6 @@ Windows 使用目前使用者的 DPAPI 保護主金鑰；macOS／Linux 以 0600 
 
 ## 開發與打包
 
-本機建置並上傳到 GitHub Releases：提交變更並推送對應版本標籤後，執行 `npm run publish:github`。可先用 `npm run publish:github -- --dry-run` 預覽流程。[發布設定與選項](PACKAGING.md#publish-local-builds-to-github-releases)。
+本機建置並上傳到 GitHub Releases：先提交程式變更，再用 `npm run publish:github -- --bump patch --dry-run` 預覽，確認後執行 `npm run publish:github -- --bump patch`。`--bump` 支援 `patch`、`minor`、`major` 或明確指定較高版本，會同步應用程式版本；測試與建置通過後，只提交版本檔案、建立標籤，將分支與標籤推送到 `origin`，再上傳發布檔案。需要乾淨的分支工作目錄，且 `origin` 指向選定的 GitHub 儲存庫。其他平台或已準備好版本與標籤時，執行不含 `--bump` 的 `npm run publish:github`。[發布設定、失敗復原與選項](PACKAGING.md#publish-local-builds-to-github-releases)。
 
 Node 服務共用所有授權、SQLite、LINE 與監控功能，Rust 只負責 Tauri 視窗及服務生命週期。Windows NSIS 與 ARM／Intel Mac DMG 使用校驗過的原生執行檔。[打包說明](PACKAGING.md)、[驗證結果](VALIDATION.md)。命令列與 npm 壓縮包保留供本機維運使用，未發布到 npm registry；桌面版一律要求權杖。本機免權杖僅保留為 CLI 明確指定 `--trust-local` 的開發選項。

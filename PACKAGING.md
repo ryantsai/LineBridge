@@ -54,10 +54,24 @@ Windows installers are unsigned. Mac apps are ad-hoc signed with Node JIT entitl
 
 ## Publish local builds to GitHub Releases
 
-Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` with an account that can write releases to this repository. Install build dependencies with `npm ci --ignore-scripts` and use the native build prerequisites above. Commit your changes, ensure the package and desktop versions agree, then create and push the matching version tag:
+Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` with an account that can write releases to this repository. Install build dependencies with `npm ci --ignore-scripts` and use the native build prerequisites above. Commit your application changes, then optionally increment the version and publish in one command:
+
+```sh
+npm run publish:github -- --bump patch --dry-run
+npm run publish:github -- --bump patch
+```
+
+`--bump` accepts `patch`, `minor`, `major`, or an explicit higher version such as `0.7.0` or `0.7.0-rc.1`. It synchronizes `package.json`, both application entries in `package-lock.json`, `server/version.mjs`, the Tauri configuration, the Rust workspace version and its application lockfile entry, and `openapi.json`. Dependency versions and documentation/download links are preserved. Existing application versions must agree before publishing.
+
+The bump flow requires a clean branch checkout, a configured Git author/committer, and `origin`'s push URL pointing to the selected GitHub repository. It rejects existing local or GitHub tags for the new version. After all tests, builds and artifact verification pass, it commits only the seven version files as `Release v<version>`, creates the matching local tag, atomically pushes the branch and tag to `origin`, verifies the GitHub tag, and uploads the release assets. Add `--kind all`, `--draft`, `--prerelease`, or `--notes-file PATH` as needed; an explicit prerelease version still needs `--prerelease` to mark the GitHub release as a prerelease.
+
+If a build or test fails, the synchronized version edits remain for inspection; no release commit, tag, push or upload occurs. Fix the failure and finish the commit/tag/push manually, then run without `--bump`. If the push fails after the release commit/tag, retry `git push --atomic origin HEAD refs/tags/v<version>` and publish without `--bump`. Use `--bump` only for the first native build of a new version; other platforms should check out the pushed tag and publish without it.
+
+To publish an already prepared version without incrementing it, ensure the package and desktop versions agree, commit your changes, then create and push the matching tag:
 
 ```sh
 git tag v0.6.1
+git push origin HEAD
 git push origin v0.6.1
 npm run publish:github -- --dry-run
 npm run publish:github
@@ -79,7 +93,7 @@ Before uploading, each command runs syntax checks, unit tests and the service sm
 
 A new release is published with generated notes by default. For its first upload, use `--draft`, `--prerelease`, or `--notes-file PATH` as needed. Later uploads append assets to the existing release and preserve its notes and draft/prerelease state; omit creation options on these runs. Existing asset names cause an error and are never overwritten. If an upload is interrupted, inspect the release and remove only the incomplete assets you intend to replace before retrying. A draft can be published from GitHub once all platforms have been added.
 
-`--dry-run` prints the build/upload plan without building, contacting GitHub or changing a release. `npm run publish:github -- --help` lists all options. These commands do not run the GitHub Actions build workflows or publish anything to npm.
+`--dry-run` prints the version/build/upload plan without changing files, creating commits/tags, building, contacting GitHub or changing a release. `npm run publish:github -- --help` lists all options. These commands do not run the GitHub Actions build workflows or publish anything to npm.
 
 ## Process and data ownership
 
