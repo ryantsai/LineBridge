@@ -10,10 +10,12 @@ For an AI agent with authorized terminal access to the user's computer, use the 
 
 | Target | Archive | OS baseline |
 | --- | --- | --- |
-| Windows x64 | `LineBridge-0.6.1-windows-x64.zip` | Supported Windows 10/11 or Server 2016+ |
-| macOS Apple Silicon | `LineBridge-0.6.1-macos-arm64.tar.gz` | Supported macOS 13.5+ |
-| macOS Intel | `LineBridge-0.6.1-macos-x64.tar.gz` | Supported macOS 13.5+ |
-| Linux x64 / ARM64 | `LineBridge-0.6.1-linux-x64.tar.gz` / `LineBridge-0.6.1-linux-arm64.tar.gz` | glibc 2.28+, kernel 4.18+, libstdc++ 6.0.25+, libatomic (`libatomic1` on Debian/Ubuntu) |
+| Windows x64 | ZIP | Supported Windows 10/11 or Server 2016+ |
+| macOS Apple Silicon | ARM64 tar.gz | Supported macOS 13.5+ |
+| macOS Intel | x64 tar.gz | Supported macOS 13.5+ |
+| Linux x64 / ARM64 | Matching x64 / ARM64 tar.gz | glibc 2.28+, kernel 4.18+, libstdc++ 6.0.25+, libatomic (`libatomic1` on Debian/Ubuntu) |
+
+These are supported build targets, not a promise that every target is present in each release. Before installing, query the [latest stable release](https://github.com/ryantsai/LineBridge/releases/latest) and use its actual asset names and matching checksums. Do not substitute an older release when the latest lacks a compatible asset.
 
 Linux builds use official glibc Node binaries; Alpine/musl is unsupported. These baselines follow the [bundled Node 26.5.0 requirements](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md). Use a supported OS release. Windows ARM64 native bundles are not included.
 

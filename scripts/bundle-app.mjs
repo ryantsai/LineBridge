@@ -14,6 +14,7 @@ export async function bundleApp(destination,entries){
     }
   }
   await cp(join(root,'public'),join(destination,'public'),{recursive:true});
+  await cp(join(root,'LICENSE'),join(destination,'LICENSE'));
   let notices='LineBridge bundled service — third-party notices\n\n';
   for(const name of [...packages].sort()){
     const dir=join(root,'node_modules',name),pkg=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));

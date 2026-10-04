@@ -3,7 +3,7 @@
   "version": "0.6.6",
   "type": "module",
   "description": "LineBridge desktop + tunnel LINE gateway with an encrypted, multilingual searchable SQLite archive",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "bin": {
     "linebridge": "bin/linebridge.mjs"
   },
@@ -16,6 +16,7 @@
     "public/",
     "examples/",
     "openapi.json",
+    "LICENSE",
     "README.md",
     "README.en.md",
     "README.ja.md",
