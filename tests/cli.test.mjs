@@ -19,7 +19,7 @@ async function cli(args,{input='',env={},fetchImpl=async()=>new Response('{}'),s
 test('data help stays parseable and malformed options never echo input or touch credentials/network',async()=>{
   const help=await cli(['read','--help']);assert.equal(help.code,0);assert.ok(help.json.commands.includes('send'));assert.match(help.stderr,/--cursor/);
   for(const args of [
-    ['read'], ['chats','--account',''], ['events','--account','a','--after','9007199254740992'],
+    ['read'], ['refresh'], ['refresh','--account','a'], ['refresh','--account','a','--chat','c','--cursor','unsupported'], ['chats','--account',''], ['events','--account','a','--after','9007199254740992'],
     ['read','--account','a','--chat','c','--limit','101'],['read','--account','a','--chat','c','--limit','1.5'],
     ['accounts','--timeout-ms','0'],['search','--query','q','--chat','c'],['search','--query','q','--mode','regex'],
     ['send','--account','a','--chat','c','--text','t'],['send','--account','a','--chat','c','--key','synthetic-key','--text','t','--stdin'],

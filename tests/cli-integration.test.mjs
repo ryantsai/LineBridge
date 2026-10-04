@@ -48,7 +48,7 @@ test('CLI accounts exposes per-stream receiver success and missing-stream health
   const monitor=result.json[0].monitor;
   assert.equal(monitor.health,'waiting');assert.equal(monitor.streams.talk.lastSuccessAt,lastSuccessAt);
   assert.equal(monitor.streams.talk.health,'healthy');assert.equal(monitor.streams['demo-openchat'].lastSuccessAt,null);
-  assert.equal(monitor.staleAfterMs,60000);assert.ok(monitor.checkedAt);
+  assert.equal(monitor.intervalSeconds,60);assert.equal(monitor.staleAfterMs,120000);assert.ok(monitor.checkedAt);
   hub.runtime.get(account.id).driver.check=async()=>{throw Object.assign(new TypeError('private profile URL and token'),{cause:{code:'ECONNRESET'}});};
   await hub.healthcheck();const retryAccount=(await cli(['accounts'])).json[0];
   assert.equal(retryAccount.status,'connected');assert.equal(retryAccount.accountHealth.status,'retrying');
@@ -86,6 +86,22 @@ test('installed entrypoint uses scoped gateway reads/search/events and preserves
   const outside=await cli(['chats','--account',other.id]);assert.equal(outside.code,4);
   hub.designate(account.id,'demo-group',false);assert.equal((await cli(['read','--account',account.id,'--chat','demo-group'])).json.error,'chat_not_designated');
 });
+test('CLI refresh fetches upstream immediately with monitoring off, preserves scope, and refuses cached-only fallback',async t=>{
+  const {hub,store,account,other,reader,cli}=await fixture(t);
+  hub.capture(account.id,'demo-group',{id:'cached',text:'old cached message',timestamp:new Date().toISOString()});
+  await hub.monitor(account.id,false);await hub.setRefreshSettings({intervalSeconds:3600});
+  const driver=hub.driver(account.id),calls=[];
+  driver.read=async(chat,limit)=>{calls.push([chat.id,limit]);return {messages:[{id:'fresh',text:'fresh upstream message',timestamp:new Date().toISOString()}],cursor:null,coverage:'Synthetic upstream'};};
+  const args=['refresh','--account',account.id,'--chat','demo-group','--limit','1'];
+  const refreshed=await cli(args,{token:reader.token});assert.equal(refreshed.code,0);assert.equal(refreshed.json.messages[0].id,'fresh');assert.deepEqual(calls,[['demo-group',1]]);
+  assert.equal(store.setting(`monitor:${account.id}`),false);assert.equal(hub.refreshSettings().intervalSeconds,3600);
+  driver.read=async()=>{throw new Error('Synthetic upstream unavailable');};
+  const failed=await cli(args,{token:reader.token});assert.equal(failed.code,7);assert.equal(failed.json.error,'upstream_unavailable');assert.equal(failed.json.messages,undefined);
+  const cached=await cli(['read','--account',account.id,'--chat','demo-group'],{token:reader.token});assert.equal(cached.code,0);assert.equal(cached.json.upstreamError,'upstream_unavailable');
+  assert.equal((await cli(['refresh','--account',other.id,'--chat','demo-group'])).code,4);
+  hub.designate(account.id,'demo-group',false);assert.equal((await cli(args)).json.error,'chat_not_designated');
+});
+
 test('CLI delivery_unknown does not dispatch again, and revocation/pause still apply through the gateway',async t=>{
   const {store,hub,account,writer,cli}=await fixture(t);
   let sends=0;hub.driver(account.id).send=async()=>{sends++;throw new Error('synthetic lost acknowledgement');};

@@ -1,6 +1,6 @@
 import {normalizeMessage,squareMessages} from '../server/drivers.mjs';
 import timers from 'node:timers/promises';
-import {TALK_POLL_TIMEOUT_MS} from '../server/monitor-policy.mjs';
+import {TALK_POLL_TIMEOUT_MS,DEFAULT_REFRESH_INTERVAL_SECONDS} from '../server/monitor-policy.mjs';
 
 export function talkChatId(message,ownMid){
   return message.to===ownMid ? String(message.from ?? '') : String(message.to ?? '');
@@ -31,7 +31,15 @@ export function pollDiagnostic(error,stage,elapsedMs,pollTimeoutMs,retryInMs){
 // Bounded polling avoids the library's unhandled push-loop failures. There are
 // no read receipts or send calls in this listener. Cursors advance after durable ACK.
 export class LiveMonitor {
-  constructor(driver,event,capture){this.driver=driver;this.event=event;this.capture=capture;this.active=true;this.abort=new AbortController();this.allowed=new Map();this.rooms=new Map();this.pollStates=new Map();this.talkTask=this.talkLoop();}
+  constructor(driver,event,capture,{refreshIntervalMs=DEFAULT_REFRESH_INTERVAL_SECONDS*1000}={}){this.driver=driver;this.event=event;this.capture=capture;this.active=true;this.abort=new AbortController();this.intervalChanged=new AbortController();this.refreshIntervalMs=refreshIntervalMs;this.allowed=new Map();this.rooms=new Map();this.pollStates=new Map();this.talkTask=this.talkLoop();}
+  setRefreshInterval(ms){this.refreshIntervalMs=ms;this.intervalChanged.abort();this.intervalChanged=new AbortController();}
+  async waitForNextPoll(signal){
+    const since=Date.now();
+    while(!signal.aborted){
+      const remaining=this.refreshIntervalMs-(Date.now()-since);if(remaining<=0)return;
+      await pause(remaining,AbortSignal.any([signal,this.intervalChanged.signal]));
+    }
+  }
   update(chats){
     this.allowed=new Map(chats.map(c=>[c.id,c]));
     for(const [id,room] of this.rooms)if(!this.allowed.has(id)){room.active=false;room.abort.abort();this.rooms.delete(id);this.status(id,'stopped');}
@@ -77,7 +85,7 @@ export class LiveMonitor {
         }
         if(!this.active)break;
         stage='checkpoint';const next=nextTalkCursor(cursor,response);await this.driver.storage.set('monitor.talk',next);cursor=next;
-        this.status('talk','running',undefined,true);retries=0;await pause(500,signal);
+        this.status('talk','running',undefined,true);retries=0;await this.waitForNextPoll(signal);
       }catch(error){if(!this.active)break;const retryInMs=Math.min(30000,2000*2**Math.min(retries++,4));this.status('talk','retrying','monitor_poll_failed',false,{diagnostic:pollDiagnostic(error,stage,Date.now()-startedAt,timeoutMs,retryInMs)});await pause(retryInMs,signal);}
     }
   }
@@ -103,7 +111,7 @@ export class LiveMonitor {
         if(!response.syncToken)throw new Error('cursor_unavailable');
         stage='checkpoint';await this.driver.storage.set(`monitor.square:${chatId}`,{syncToken:response.syncToken,ready:!nextBaseline});cursor=response.syncToken;baseline=nextBaseline;
         if(!this.active||!room.active)break;
-        this.status(chatId,baseline?'initializing':'running',undefined,true);retries=0;await pause(baseline?100:2000,signal);
+        this.status(chatId,baseline?'initializing':'running',undefined,true);retries=0;await this.waitForNextPoll(signal);
       }catch(error){if(!this.active||!room.active)break;const retryInMs=Math.min(30000,2000*2**Math.min(retries++,4));this.status(chatId,'retrying','monitor_poll_failed',false,{diagnostic:pollDiagnostic(error,stage,Date.now()-startedAt,timeoutMs,retryInMs)});await pause(retryInMs,signal);}
     }
   }

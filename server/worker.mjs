@@ -78,7 +78,8 @@ export class ProtocolWorker {
       read:(chat,limit,cursor)=>call('read',{chat,limit,cursor}),
       send:(chat,text)=>call('send',{chat,text}),
       resolveMessageNames:(chat,messages)=>call('resolve_names',{chat,messages}),
-      startMonitor:(chats,reset)=>call('monitor_start',{chats,reset}),
+      startMonitor:(chats,reset,refreshIntervalMs)=>call('monitor_start',{chats,reset,refreshIntervalMs}),
+      setRefreshInterval:refreshIntervalMs=>call('monitor_interval',{refreshIntervalMs}),
       updateMonitor:chats=>call('monitor_update',{chats}),
       stopMonitor:()=>call('monitor_stop'),
       stop(){this.ready=false;worker.events.delete(id);if(worker.child)void call('disconnect').catch(()=>{});}

@@ -41,7 +41,7 @@ test('transient account failure recovers on the same driver without renewing any
   t.mock.timers.tick(1);await flush();assert.equal(driver.checks,2);assert.equal(r.accountHealth.status,'healthy');assert.equal(r.error,null);
   assert.equal(r.profile.displayName,'Recovered');assert.equal(driver.starts,1);assert.equal(driver.stops,0);assert.equal(r.accountHealth.consecutiveFailures,0);
   assert.deepEqual(r.accountHealth.lastFailure,originalFailure);assert.equal(r.accountHealth.nextRetryAt,null);
-  t.mock.timers.tick(60001);await hub.healthcheck();
+  t.mock.timers.tick(120001);await hub.healthcheck();
   assert.equal(r.accountHealth.status,'healthy');const view=hub.accounts(adminActor)[0];assert.equal(view.monitor.health,'stale');
   for(const stream of Object.values(view.monitor.streams))assert.equal(stream.lastSuccessAt,success);
   assert.ok(!JSON.stringify(view.accountHealth).includes('secret'));

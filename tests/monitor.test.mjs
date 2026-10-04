@@ -11,7 +11,7 @@ test('OpenChat baseline is discarded before new events are captured with an encr
   const envelope=(id,text)=>({payload:{receiveMessage:{squareMessage:{message:{id,from:'person',text}}}}});
   const driver={storage:{get:async()=>undefined,set:async(key,value)=>{saved.push(value);if(value.syncToken==='live'){monitor.stop();finish();}}},client:{square:{fetchSquareChatEvents:async request=>{assert.equal(request.direction,'FORWARD');const pages=[{events:[envelope('old','history')],syncToken:'baseline'},{events:[],syncToken:'ready'},{events:[envelope('new','incoming')],syncToken:'live'}];return pages[index++];}}}};
   driver.resolveMessageNames=async(chat,messages)=>{resolved.push(...messages.map(m=>m.id));return messages.map(m=>({...m,senderName:'OpenChat nickname'}));};
-  monitor=new LiveMonitor(driver,()=>{},async(id,message)=>captured.push([id,message]));monitor.update([{id:'room',kind:'openchat'}]);
+  monitor=new LiveMonitor(driver,()=>{},async(id,message)=>captured.push([id,message]),{refreshIntervalMs:500});monitor.update([{id:'room',kind:'openchat'}]);
   const timer=setTimeout(finish,5000);try{await done;assert.equal(index,3);assert.equal(captured.length,1);assert.deepEqual(resolved,['new']);assert.equal(captured[0][1].senderName,'OpenChat nickname');assert.equal(captured[0][1].text,'incoming');assert.deepEqual(saved[0],{syncToken:'baseline',ready:false});assert.deepEqual(saved[1],{syncToken:'ready',ready:true});}finally{clearTimeout(timer);monitor.stop();}
 });
 test('sync cursor preserves bigint revisions and global/individual checkpoints',()=>{
@@ -25,7 +25,7 @@ test('empty successful polls establish liveness; a later failure preserves the l
     if(++polls===1)return {operationResponse:{operations:[]}};
     throw new Error('synthetic network outage');
   }}}};
-  monitor=new LiveMonitor(driver,(_event,state)=>{states.push(state);if(state.status==='retrying'){monitor.stop();finish();}},()=>{throw new Error('No messages should be captured');});
+  monitor=new LiveMonitor(driver,(_event,state)=>{states.push(state);if(state.status==='retrying'){monitor.stop();finish();}},()=>{throw new Error('No messages should be captured');},{refreshIntervalMs:500});
   monitor.update([{id:'chosen',kind:'group'}]);
   const timer=setTimeout(finish,4000);
   try{

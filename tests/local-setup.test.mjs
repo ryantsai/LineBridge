@@ -94,7 +94,7 @@ test('restart revokes incomplete setup and reports healthy only when EVERY selec
   const f=await fixture(t,{line:true});await f.setup.enable(f.id,confirm(['chosen','room']));const runtime=f.hub.runtime.get(f.id),now=new Date().toISOString();
   runtime.monitorStreams={talk:{channel:'talk',status:'running',lastSuccessAt:now,ready:true}};assert.equal((await f.setup.status(f.id)).ready,false);
   runtime.monitorStreams.room={channel:'room',status:'running',lastSuccessAt:now,ready:true};assert.equal((await f.setup.status(f.id)).ready,true);
-  runtime.monitorStreams.room.lastSuccessAt=new Date(Date.now()-61000).toISOString();assert.equal((await f.setup.status(f.id)).health,'stale');runtime.monitorStreams.room.lastSuccessAt=now;runtime.monitorStreams.room.status='retrying';assert.equal((await f.setup.status(f.id)).health,'retrying');
+  runtime.monitorStreams.room.lastSuccessAt=new Date(Date.now()-121000).toISOString();assert.equal((await f.setup.status(f.id)).health,'stale');runtime.monitorStreams.room.lastSuccessAt=now;runtime.monitorStreams.room.status='retrying';assert.equal((await f.setup.status(f.id)).health,'retrying');
   f.credentials.get=unavailable;assert.equal((await f.setup.status(f.id)).ready,false);
   const record=f.setup.record(f.id);f.setup.save(f.id,{...record,phase:'enrolling'});new LocalSetup(f.hub,{credentials:f.credentials});assert.equal(f.store.token(record.tokenId).revoked,1);assert.equal(f.setup.record(f.id).phase,'cleanup_required');
 });

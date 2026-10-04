@@ -33,6 +33,8 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const first=await fetch(endpoint,{method:'POST',headers:{...headers,'Content-Type':'application/json','Idempotency-Key':'http-send-001'},body:'{"text":"hello"}'});
   assert.equal(first.status,200);assert.equal((await first.json()).delivery,'sandbox_only');
   const read=await (await fetch(endpoint,{headers})).json();assert.ok(read.messages.some(m=>m.text==='hello'));
+  assert.equal((await fetch(`${endpoint}?fresh=true`,{headers})).status,200);
+  assert.equal((await fetch(`${endpoint}?fresh=invalid`,{headers})).status,400);
   const search=await fetch(`${base}/api/v1/messages/search`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({query:'HELLO',mode:'phrase'})});assert.equal(search.status,200);assert.equal((await search.json()).results[0].message.text,'hello');
   assert.equal((await fetch(`${base}/api/v1/messages/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{"query":"hello"}'})).status,401);
   const client=new Client({name:'integration-test',version:'1.0.0'});
@@ -68,6 +70,22 @@ async function localGateway(t,requireToken=false){
   t.after(()=>{hub.close();tunnels.close();for(const s of [admin,gateway]){s.closeAllConnections();s.close();}store.close();});
   return {store,hub,base:`http://127.0.0.1:${gatewayPort}`,adminBase:`http://127.0.0.1:${adminPort}`};
 }
+test('only the local admin can save refresh settings, with strict bounds and state round-trip',async t=>{
+  const {hub,base,adminBase}=await localGateway(t,true);
+  const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];
+  const headers={Cookie:cookie,Origin:adminBase,'X-Line-Bridge':'dashboard','Content-Type':'application/json'};
+  const state=()=>fetch(`${adminBase}/admin/state`,{headers:{Cookie:cookie}}).then(r=>r.json());
+  assert.equal((await state()).refresh.intervalSeconds,60);
+  const path=`${adminBase}/admin/refresh-settings`;
+  assert.equal((await fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:'{"intervalSeconds":120}'})).status,401);
+  assert.equal((await fetch(path,{method:'PUT',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{"intervalSeconds":120}'})).status,403);
+  for(const value of [2,3601,1.5,'60',null])assert.equal((await fetch(path,{method:'PUT',headers,body:JSON.stringify({intervalSeconds:value})})).status,400);
+  const saved=await fetch(path,{method:'PUT',headers,body:'{"intervalSeconds":120}'});assert.equal(saved.status,200);assert.equal((await saved.json()).intervalSeconds,120);
+  assert.equal((await state()).refresh.intervalSeconds,120);assert.equal(hub.store.setting('messageRefreshIntervalSeconds'),120);
+  const a=await hub.addAccount({label:'Settings access',kind:'demo'}),token=hub.createToken({name:'reader',grants:[{accountId:a.id,read:true,send:false}]});
+  assert.equal((await fetch(`${base}/admin/refresh-settings`,{method:'PUT',headers:{Authorization:`Bearer ${token.token}`,'Content-Type':'application/json'},body:'{"intervalSeconds":3}'})).status,404);
+});
+
 test('same-VM HTTP and official MCP clients read/send without minting a token',async t=>{
   const {hub,store,base,adminBase}=await localGateway(t);
   assert.deepEqual(await (await fetch(`${base}/api/v1/accounts`)).json(),[]);

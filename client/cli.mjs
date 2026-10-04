@@ -6,10 +6,10 @@ import {ClientError, EXIT, usage} from './errors.mjs';
 import {gatewayRequest} from './request.mjs';
 import {VERSION} from '../server/version.mjs';
 
-export const DATA_COMMANDS = ['accounts','chats','read','search','events','send','auth'];
+export const DATA_COMMANDS = ['accounts','chats','read','refresh','search','events','send','auth'];
 const common = ['profile','url','timeout-ms','credential-stdin'];
 const commandOptions = {
-  accounts:[], chats:['account'], read:['account','chat','limit','cursor'], events:['account','after','limit'],
+  accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
   search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
   send:['account','chat','key','text','text-file','stdin'],
   auth:['token-stdin']
@@ -20,6 +20,7 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
   linebridge accounts
   linebridge chats --account ACCOUNT
   linebridge read --account ACCOUNT --chat CHAT [--limit 30] [--cursor CURSOR]
+  linebridge refresh --account ACCOUNT --chat CHAT [--limit 30]
   linebridge events --account ACCOUNT [--after 0] [--limit 100]
   linebridge search --query QUERY [--account ACCOUNT] [--chat CHAT]
                     [--mode all|phrase] [--before SEQUENCE] [--limit 30]
@@ -31,6 +32,9 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
 Common: --profile NAME (default: default), --url GATEWAY, --timeout-ms 45000,
         --credential-stdin (transient JSON credentials through a private pipe).
 Search also accepts --query-file UTF8_FILE or --query-stdin instead of --query.
+Refresh immediately reads the latest upstream messages for one permitted chat,
+bypassing the automatic refresh interval. Upstream failures return errors,
+not a cached-only result. It does not start monitoring.
 Limits: 1-100 records per page; deadline 1-120000 ms. No automatic pagination,
 redirects or retries. Pass returned cursor/nextBefore explicitly to continue.
 Credentials are never accepted as command-line arguments or printed.
@@ -44,7 +48,7 @@ be inspected before any further send. See CLI.md for exit codes and examples.
 
 function parse(argv) {
   const command=argv[0];
-  if(!DATA_COMMANDS.includes(command))usage('Use accounts, chats, read, search, events, send or auth. See --help.');
+  if(!DATA_COMMANDS.includes(command))usage('Use accounts, chats, read, refresh, search, events, send or auth. See --help.');
   const allowed=new Set([...common,...commandOptions[command],'help']);
   const options=Object.fromEntries([...allowed].map(name=>[name,{type:booleans.has(name)?'boolean':'string'}]));
   let parsed;
@@ -130,8 +134,8 @@ async function execute(argv,context) {
   if(values['credential-stdin'] && (values.stdin || values['query-stdin']))usage('Credentials and message/query text cannot both consume stdin. Use an enrolled profile or transient environment credentials.');
   if(values['credential-stdin'] && values.profile!==undefined)usage('Choose an enrolled profile or transient credential stdin, not both.');
   const account=values.account===undefined?undefined:identifier(values.account,'account'),chat=values.chat===undefined?undefined:identifier(values.chat,'chat');
-  if(['chats','read','events','send'].includes(command) && !account)usage('Supply --account with an explicit account ID.');
-  if(['read','send'].includes(command) && !chat)usage('Supply --chat with an explicit chat ID.');
+  if(['chats','read','refresh','events','send'].includes(command) && !account)usage('Supply --account with an explicit account ID.');
+  if(['read','refresh','send'].includes(command) && !chat)usage('Supply --chat with an explicit chat ID.');
   if(chat && !account)usage('--chat requires --account.');
   const base=account?`/api/v1/accounts/${encodeURIComponent(account)}`:undefined;
   const limit=integer(values.limit,command==='events'?100:30,1,100,'limit');
@@ -139,8 +143,9 @@ async function execute(argv,context) {
   if(command==='accounts')request={path:'/api/v1/accounts'};
   if(command==='chats')request={path:`${base}/chats`};
   if(command==='events')request={path:`${base}/events?${new URLSearchParams({after:String(integer(values.after,0,0,Number.MAX_SAFE_INTEGER,'after')),limit:String(limit)})}`};
-  if(command==='read') {
+  if(command==='read'||command==='refresh') {
     const params=new URLSearchParams({limit:String(limit)});
+    if(command==='refresh')params.set('fresh','true');
     if(values.cursor!==undefined){if(!values.cursor || values.cursor.length>4096)usage('cursor must contain 1-4096 characters.');params.set('cursor',values.cursor);}
     request={path:`${base}/chats/${encodeURIComponent(chat)}/messages?${params}`};
   }

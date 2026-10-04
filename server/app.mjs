@@ -13,6 +13,7 @@ import {VERSION} from './version.mjs';
 import {LocalSetup} from './local-setup.mjs';
 
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+function freshQuery(req){if(req.query.fresh===undefined)return false;if(!['true','false'].includes(req.query.fresh))fail(400,'invalid_input','fresh must be true or false.');return req.query.fresh==='true';}
 function harden(app) {
   app.disable('x-powered-by');app.set('trust proxy',false);
   app.use((req,res,next)=>{
@@ -51,7 +52,8 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   }));
   const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
   admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},accounts:await Promise.all(hub.accounts(adminActor).map(async a=>({...a,localSetup:await localSetup.status(a.id),localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)}))),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
-    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},vault:hub.vault.protection})));
+    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},refresh:hub.refreshSettings(),vault:hub.vault.protection})));
+  admin.put('/admin/refresh-settings',asyncRoute(async(req,res)=>res.json(await hub.setRefreshSettings(req.body))));
   admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
   admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
   admin.post('/admin/accounts/:id/login',(req,res)=>res.json(hub.beginLogin(req.params.id)));
@@ -69,7 +71,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
   admin.post('/admin/accounts/:id/chats',(req,res)=>res.status(201).json(hub.addChat(req.params.id,req.body)));
   admin.patch('/admin/accounts/:id/chats/:chatId',(req,res)=>{hub.designate(req.params.id,req.params.chatId,req.body.enabled);res.json({ok:true});});
-  admin.get('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(adminActor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
+  admin.get('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(adminActor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor,freshQuery(req)))));
   admin.post('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(adminActor,req.params.id,req.params.chatId,req.body.text,req.body.idempotencyKey))));
   admin.post('/admin/tokens',(req,res)=>res.status(201).json(hub.createToken(req.body)));
   admin.delete('/admin/tokens/:id',(req,res)=>{hub.store.revoke(req.params.id);hub.store.audit('local-admin','token.revoke',null,null,'ok');res.json({ok:true});});
@@ -126,7 +128,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));
   gateway.get('/api/v1/accounts/:id/events',(req,res)=>res.json(hub.events(req.actor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
   gateway.post('/api/v1/messages/search',(req,res)=>res.json(hub.search(req.actor,req.body)));
-  gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor))));
+  gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor,freshQuery(req)))));
   gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key']))));
   gateway.get('/openapi.json',(req,res)=>res.json(openapi));
   gateway.post('/mcp',asyncRoute((req,res)=>mcpHandler(hub,req,res)));

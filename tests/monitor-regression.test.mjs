@@ -11,7 +11,7 @@ const empty={operationResponse:{operations:[]}};
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 function clock(t){t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-10-03T00:00:00Z')});}
 function fixture(t,driver,chats=[{id:'chosen',kind:'group'}],capture=()=>{}){
-  const states=[],monitor=new LiveMonitor(driver,(_event,state)=>states.push(state),capture);
+  const states=[],monitor=new LiveMonitor(driver,(_event,state)=>states.push(state),capture,{refreshIntervalMs:500});
   monitor.update(chats);
   t.after(async()=>{monitor.stop();await Promise.all([monitor.talkTask,...[...monitor.rooms.values()].map(r=>r.task)]);});
   return {monitor,states};
@@ -134,11 +134,12 @@ test('diagnostics allowlist names and codes and drop raw messages, causes, data,
   assert.equal(pollDiagnostic({name:'AbortError'},'poll',10,180000,2000).kind,'cancelled');
 });
 
-test('60-second freshness, pending deadlines, sticky failure, and EVERY stream remain independent',t=>{
+test('interval-aware freshness, pending deadlines, sticky failure, and EVERY stream remain independent',t=>{
   clock(t);const store=new Store(':memory:');t.after(()=>store.close());const account=store.addAccount('Synthetic receiver','line','IOSIPAD');
   for(const chat of [{id:'chosen',kind:'group'},{id:'room',kind:'openchat'}]){store.putChat(account.id,{...chat,name:chat.id});store.designate(account.id,chat.id,true);}store.setSetting(`monitor:${account.id}`,true);
   const success=new Date().toISOString(),streams={talk:{status:'polling',ready:true,lastAttemptAt:success,lastSuccessAt:success,pollTimeoutMs:180000,pollDeadlineAt:new Date(Date.now()+180000).toISOString()},room:{status:'running',ready:true,lastSuccessAt:success}};
-  t.mock.timers.tick(60000);assert.equal(monitorStatus(store,account.id,streams).health,'healthy');
+  assert.equal(monitorStatus(store,account.id,streams).staleAfterMs,120000);
+  t.mock.timers.tick(120000);assert.equal(monitorStatus(store,account.id,streams).health,'healthy');
   t.mock.timers.tick(1);streams.room.lastSuccessAt=new Date().toISOString();let health=monitorStatus(store,account.id,streams);
   assert.equal(health.health,'stale');assert.equal(health.streams.talk.health,'stale');assert.equal(health.streams.room.health,'healthy');assert.equal(streams.talk.lastSuccessAt,success);
   streams.talk.lastSuccessAt=new Date().toISOString();streams.talk.error='monitor_poll_failed';assert.equal(monitorStatus(store,account.id,streams).health,'retrying');

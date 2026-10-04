@@ -13,11 +13,11 @@ test('health checks every designated stream and cannot hide missing, stale, disa
   for(const c of [{id:'group',kind:'group'},{id:'room',kind:'openchat'}]){store.putChat(a.id,{...c,name:c.id});store.designate(a.id,c.id,true);}
   store.setSetting(`monitor:${a.id}`,true);
   t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-10-03T00:02:00Z')});
-  const recent='2026-10-03T00:01:59Z',old='2026-10-03T00:00:00Z';
+  const recent='2026-10-03T00:01:59Z',old='2026-10-02T23:59:00Z';
   const streams={talk:{status:'polling',lastSuccessAt:recent},room:{status:'polling',lastSuccessAt:old}};
   let status=monitorStatus(store,a.id,streams);
   assert.equal(status.health,'stale');assert.equal(status.streams.talk.health,'healthy');assert.equal(status.streams.room.health,'stale');
-  assert.equal(status.checkedAt,'2026-10-03T00:02:00.000Z');assert.equal(status.staleAfterMs,60000);
+  assert.equal(status.checkedAt,'2026-10-03T00:02:00.000Z');assert.equal(status.staleAfterMs,120000);
   delete streams.room;status=monitorStatus(store,a.id,streams);assert.equal(status.health,'waiting');assert.equal(status.streams.room.lastSuccessAt,null);
   streams.room={status:'polling',lastSuccessAt:recent,ready:false};assert.equal(monitorStatus(store,a.id,streams).health,'initializing');
   streams.room.ready=true;assert.equal(monitorStatus(store,a.id,streams).health,'healthy');

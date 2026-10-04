@@ -12,6 +12,7 @@ const nice=label;
 const when=value=>value?new Date(value).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}): '—';
 let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,toastTimer,sendAttempt,chatFilter='all',chatSearch='';
 let refreshRunning=false,reading=false,sending=false;
+let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
 let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
 const observedSequences=new Map();
 async function api(path,options={}) {
@@ -23,6 +24,18 @@ async function action(job){try{return await job();}catch(error){toast(error.mess
 function badge(text,kind=''){return `<span class="badge ${kind}">${escape(text)}</span>`;}
 function accountStatus(a){return a.status==='connected'&&a.accountHealth?.status==='retrying'?'帳號驗證重試中':a.status==='connected'&&a.accountHealth?.status==='checking'?'帳號驗證中':nice(a.status);}
 function statusBadge(a){return badge(a.kind==='demo'?'沙盒':accountStatus(a),a.status==='connected'&&(!a.accountHealth||a.accountHealth.status==='healthy')?'good':a.status==='error'?'danger':'warn');}
+function configureRefreshTimer(seconds=60){
+  if(refreshTimer&&seconds===refreshIntervalSeconds)return;
+  clearInterval(refreshTimer);refreshIntervalSeconds=seconds;
+  refreshTimer=setInterval(()=>{void refresh();},seconds*1000);
+}
+function renderRefreshSettings(){
+  const settings=state.refresh,field=$('#refresh-interval');
+  configureRefreshTimer(settings.intervalSeconds);
+  if(refreshSettingsVersion!==settings.intervalSeconds&&!field.matches(':focus')){field.value=settings.intervalSeconds;refreshSettingsVersion=settings.intervalSeconds;}
+  field.min=settings.minSeconds;field.max=settings.maxSeconds;
+  $('#refresh-summary').textContent=`追蹤指定聊天室的新訊息，自動更新間隔為 ${settings.intervalSeconds} 秒。`;
+}
 function renderAccountHealth(a){
   const notice=$('#account-health-notice');if(notice){notice.hidden=!a.error;notice.textContent=a.error==='health_check_failed'?'帳號驗證暫時失敗，將自動重試。各聊天室的接收狀態請查看訊息監控。':a.error?`${nice(a.error)}。請恢復連線以驗證工作階段。`:'';}
   const checked=$('#account-last-checked');if(checked)checked.textContent=when(a.lastChecked);
@@ -74,7 +87,7 @@ async function refresh(){
     $('#metric-tunnel-detail').textContent=providerName(state.tunnel.provider);
     $('#metric-gateway').textContent=state.gateway.enabled?'可使用':'已暫停';$('#metric-gateway').className=`text-status ${state.gateway.enabled?'good':'warn'}`;
     $('#pause').textContent=state.gateway.enabled?'暫停':'恢復';$('#vault-detail').textContent=`本機 SQLite · ${state.vault}`;
-    renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();archive.render();wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);
+    renderRefreshSettings();renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();archive.render();wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);
     const base=state.tunnel.url || `http://127.0.0.1:${state.gateway.port}`;
     $('#mcp-url').textContent=`${base}/mcp`;$('#api-url').textContent=`${base}/openapi.json`;
     if(selectedAccount&&!state.accounts.some(a=>a.id===selectedAccount)){selectedAccount=null;selectedChat=null;chats=[];renderAccountPane();}
@@ -83,6 +96,13 @@ async function refresh(){
   }catch(error){$('#service-error').textContent=`管理服務暫時無法使用： ${error.message}`;$('#service-error').hidden=false;$('#local-status-dot').classList.add('offline');$('#local-status-text').textContent='本機服務暫時無法使用';}finally{refreshRunning=false;}
 }
 $('#refresh').addEventListener('click',()=>action(async()=>{await refresh();if(selectedAccount)await loadChats();}));
+$('#refresh-settings-form').addEventListener('submit',event=>{
+  event.preventDefault();action(async()=>{
+    const button=$('#save-refresh-settings');button.disabled=true;
+    try{const settings=await api('/refresh-settings',{method:'PUT',body:JSON.stringify({intervalSeconds:Number($('#refresh-interval').value)})});state.refresh=settings;renderRefreshSettings();$('#refresh-settings-status').textContent=`已儲存：每 ${settings.intervalSeconds} 秒自動更新。`;}
+    finally{button.disabled=false;}
+  });
+});
 $('#pause').addEventListener('click',()=>action(async()=>{await api('/pause',{method:'POST',body:JSON.stringify({enabled:!state.gateway.enabled})});await refresh();}));
 function renderAccounts(){
   $('#account-count').textContent=state.accounts.length;
@@ -141,7 +161,7 @@ function renderMonitoring(){
   $('#toggle-monitor').textContent=m.enabled?'停止監聽':'開始監聽';$('#toggle-monitor').disabled=!a||(!m.enabled&&a.status!=='connected');
   $('#monitor-detail').textContent=a?`${nice(a.status==='connected'?m.status:m.enabled?'disconnected':'off')} · ${a.designatedChats} 個指定聊天室 · 已儲存 ${m.storedMessages || 0} 則${m.lastMessage?` · 最新 ${when(m.lastMessage)}`:''}`:'前往「開始設定」連接帳號。';
   const streams=Array.isArray(m.streams)?m.streams:Object.values(m.streams ?? {});
-  const healthLabel={healthy:'輪詢正常',stale:'超過 60 秒未成功',waiting:'等待首次成功',initializing:'建立起始位置',retrying:'重試中',disconnected:'帳號未連線',off:'已停止',sandbox:'模擬沙盒',no_chats:'尚未指定聊天室'};
+  const healthLabel={healthy:'輪詢正常',stale:`超過 ${(m.staleAfterMs??120000)/1000} 秒未成功`,waiting:'等待首次成功',initializing:'建立起始位置',retrying:'重試中',disconnected:'帳號未連線',off:'已停止',sandbox:'模擬沙盒',no_chats:'尚未指定聊天室'};
   $('#monitor-streams').innerHTML=streams.map(s=>`<div class="monitor-stream-health">${badge(`${s.channel==='talk'?'一對一與群組':s.channel==='demo'?'沙盒':'OpenChat'} · ${healthLabel[s.health]||nice(s.status)}`,s.health==='healthy'?'good':['stale','retrying','disconnected'].includes(s.health)?'warn':'')}<span>最後成功輪詢：${s.lastSuccessAt?escape(when(s.lastSuccessAt)):s.channel==='demo'?'沙盒不輪詢 LINE':'尚無成功紀錄'}</span>${s.lastAttemptAt?`<small>最後嘗試：${escape(when(s.lastAttemptAt))}</small>`:''}${s.channel!=='talk'&&s.channel!=='demo'?`<small>${escape(s.channel)}</small>`:''}</div>`).join('')||`<p>${healthLabel[m.health]||'尚未開始輪詢'}</p>`;
   if(!a)$('#monitor-feed').innerHTML='<div class="empty"><h3>連接你的第一個帳號</h3><p>完成設定後，就能在這裡查看指定聊天室的新訊息。</p></div>';
 }
@@ -231,4 +251,4 @@ function renderAudit(){
 }
 const connections=createConnections({api,action,toast,refresh,escape,when,getState:()=>state});
 function renderTunnel(){connections.render();}
-await refresh();setInterval(()=>{void refresh();},3000);
+await refresh();configureRefreshTimer(state?.refresh?.intervalSeconds??60);

@@ -58,9 +58,10 @@ async function handle(request){
               writes.set(ackId,{resolve:()=>{clearTimeout(timer);resolve();},reject:()=>{clearTimeout(timer);reject(new Error('capture_failed'));}});
               emit({type:'capture',id:ackId,accountId,chatId,message});
             });
-          });monitor.update(params.chats ?? []);monitors.set(accountId,monitor);result={ok:true};break;
+          },{refreshIntervalMs:params.refreshIntervalMs});monitor.update(params.chats ?? []);monitors.set(accountId,monitor);result={ok:true};break;
         }
         case 'monitor_update':monitors.get(accountId)?.update(params.chats ?? []);result={ok:true};break;
+        case 'monitor_interval':monitors.get(accountId)?.setRefreshInterval(params.refreshIntervalMs);result={ok:true};break;
         case 'monitor_stop':monitors.get(accountId)?.stop();monitors.delete(accountId);result={ok:true};break;
         default:throw new Error('Unknown worker operation');
       }

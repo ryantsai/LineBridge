@@ -8,6 +8,7 @@ import { capture, cachedNames, enrich, inboxMessages, monitorStatus } from './in
 import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
 import {initializeSearch,searchInput,searchArchive} from './search.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,ACCOUNT_CHECK_INTERVAL_MS,accountDiagnostic,accountRetryDelay} from './account-health.mjs';
+import {refreshIntervalSeconds,MIN_REFRESH_INTERVAL_SECONDS,MAX_REFRESH_INTERVAL_SECONDS} from './monitor-policy.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
 const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
@@ -25,6 +26,14 @@ export class Hub {
     this.runtime=new Map();this.queues=new Map();this.monitorQueues=new Map();this.rates=new Map();this.stopping=false;
   }
   record(id) { const a=this.store.account(id);if(!a) fail(404,'account_not_found','Account not found.');return a; }
+  refreshSettings(){return {intervalSeconds:refreshIntervalSeconds(this.store),minSeconds:MIN_REFRESH_INTERVAL_SECONDS,maxSeconds:MAX_REFRESH_INTERVAL_SECONDS};}
+  async setRefreshSettings(data){
+    const {intervalSeconds}=z.object({intervalSeconds:z.number().int().min(MIN_REFRESH_INTERVAL_SECONDS).max(MAX_REFRESH_INTERVAL_SECONDS)}).strict().parse(data);
+    this.store.setSetting('messageRefreshIntervalSeconds',intervalSeconds);
+    await Promise.all([...this.runtime.values()].filter(r=>r.status==='connected').map(r=>r.driver?.setRefreshInterval?.(intervalSeconds*1000)));
+    this.store.audit('local-admin','refresh.update',null,null,'ok');
+    return this.refreshSettings();
+  }
   view(account,chatIds) {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
@@ -145,7 +154,7 @@ export class Hub {
     // superseded before dispatch, and never let old failures rewrite a choice.
     const prior=this.monitorQueues.get(id),job=(prior??Promise.resolve()).catch(()=>{}).then(async()=>{
       if(this.stopping||this.runtime.get(id)!==r||r?.status!=='connected'||this.store.setting(`monitorRevision:${id}`,0)!==revision)return;
-      if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh);else if(driver?.ready)await driver.stopMonitor?.();
+      if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh,refreshIntervalSeconds(this.store)*1000);else if(driver?.ready)await driver.stopMonitor?.();
     });this.monitorQueues.set(id,job);
     try{await job;}
     catch(error){if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
@@ -199,7 +208,7 @@ export class Hub {
   }
   designate(id,chatId,enabled) {this.authorize(adminActor,id,null,chatId);if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');this.store.designate(id,chatId,enabled);this.store.audit('local-admin','chat.designate',id,chatId,enabled?'enabled':'disabled');void this.updateMonitor(id).catch(()=>{const r=this.runtime.get(id);if(r)r.monitorStreams={worker:{status:'retrying'}};});}
   chats(actor,id) {this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor);return this.store.chats(id).filter(c=>active.admin || c.enabled&&this.chatAllowed(active,id,c.id)).map(({account_id,...c})=>c);}
-  async read(actor,id,chatId,limit=30,cursor) {
+  async read(actor,id,chatId,limit=30,cursor,fresh=false) {
     this.authorize(actor,id,'read',chatId);this.limit(actor);
     if(!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_limit','limit must be between 1 and 100.');
     if(cursor && (typeof cursor!=='string'||cursor.length>4096))fail(400,'invalid_cursor','Invalid cursor.');
@@ -210,6 +219,7 @@ export class Hub {
         let result;
         try{result=await driver.read(chat,limit,cursor);}catch(error){
           this.authorize(actor,id,'read',chatId);
+          if(fresh)throw error;
           if(!inboxMessages(this.store,this.vault,id,chatId,limit).length)throw error;
           result={messages:[],cursor:null,coverage:'Encrypted local inbox; upstream history is currently unavailable.',upstreamError:publicError(error).code};
         }
