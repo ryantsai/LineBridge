@@ -21,9 +21,11 @@ execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'inherit'});
 for(const name of ['LineBridge','node','cloudflared'])assert.equal(execFileSync('lipo',['-archs',join(bin,name)],{encoding:'utf8'}).trim(),plan.arch==='x64'?'x86_64':'arm64');
 assert.equal(execFileSync(join(bin,'node'),['--version'],{encoding:'utf8'}).trim(),`v${runtimes.nodeVersion}`);
 assert.match(execFileSync(join(bin,'cloudflared'),['--version'],{encoding:'utf8'}),new RegExp(`cloudflared version ${runtimes.cloudflaredVersion.replaceAll('.','\\.')}`));
-const input=JSON.stringify({id:'packaging-check',method:'check',params:{accountId:'synthetic-missing'}})+'\n';
+// Probe worker startup/IPC with a disconnected account; health checks normalize
+// their errors separately and are covered by the account-health tests.
+const input=JSON.stringify({id:'packaging-check',method:'disconnect',params:{accountId:'synthetic-missing'}})+'\n';
 const worker=JSON.parse(execFileSync(join(bin,'node'),[join(resources,'app/protocol/worker.mjs')],{input,encoding:'utf8',timeout:20000}).trim());
-assert.equal(worker.id,'packaging-check');assert.equal(worker.error.code,'account_disconnected');
+assert.equal(worker.type,'result');assert.equal(worker.id,'packaging-check');assert.equal(worker.error.status,409);assert.equal(worker.error.code,'account_disconnected');
 execFileSync(process.execPath,['tests/desktop-smoke.mjs'],{cwd:root,stdio:'inherit',env:{...process.env,LINE_BRIDGE_DESKTOP_BINARY:join(bin,'LineBridge')}});
 console.log(`macOS ${plan.arch}: delivered DMG checksum, signatures, native runtime architecture, private worker and bundled native service verified.`);
 }finally{if(attached)execFileSync('hdiutil',['detach',mount],{stdio:'inherit'});rmdirSync(mount);}

@@ -10,6 +10,9 @@ import {SendRejectedError} from '../server/errors.mjs';
 test('private worker RPC returns bounded sanitized errors and stops cleanly',async t=>{
   const store=new Store(':memory:'),worker=new ProtocolWorker(store,new Vault(randomBytes(32),'test'),()=>{});t.after(()=>{worker.close();store.close();});
   await assert.rejects(worker.call('disconnect',{accountId:'missing'}),{code:'account_disconnected'});assert.equal(worker.pending.size,0);assert.ok(worker.child);
+  await assert.rejects(worker.call('check',{accountId:'missing'}),error=>{
+    assert.equal(error.code,'health_check_failed');assert.equal(error.status,502);assert.deepEqual(error.accountDiagnostic,{kind:'unknown',errorName:'Error'});return true;
+  });assert.equal(worker.pending.size,0);
   worker.close();assert.equal(worker.child,null);
 });
 test('storage and incoming-message acknowledgements follow durable encrypted writes',async t=>{

@@ -91,9 +91,10 @@ try{
   const version=await run(['--version']);assert.equal(version.code,0);assert.equal(version.stdout.trim(),VERSION);
   assert.ok((await json(['accounts','--help'])).commands.includes('send'));
   const invalid=await run(['send','--text','synthetic']);assert.equal(invalid.code,2);assert.equal(JSON.parse(invalid.stdout).error,'invalid_input');
-  // Import the separately bundled private worker without a real LINE account.
-  const worker=execFileSync(node,[join(bundle,'app/protocol/worker.mjs')],{cwd,env,encoding:'utf8',windowsHide:true,timeout:10000,input:JSON.stringify({id:'synthetic',method:'check',params:{accountId:'missing'}})+'\n'});
-  assert.equal(JSON.parse(worker).error.code,'account_disconnected');
+  // Probe bundled worker startup/IPC without a real LINE account. A disconnect
+  // preserves this error independently of health-check error normalization.
+  const worker=JSON.parse(execFileSync(node,[join(bundle,'app/protocol/worker.mjs')],{cwd,env,encoding:'utf8',windowsHide:true,timeout:10000,input:JSON.stringify({id:'synthetic',method:'disconnect',params:{accountId:'missing'}})+'\n'}));
+  assert.equal(worker.type,'result');assert.equal(worker.id,'synthetic');assert.equal(worker.error.status,409);assert.equal(worker.error.code,'account_disconnected');
   let adminPort=await port(),gatewayPort=await port();
   while(gatewayPort>=65535 || adminPort===gatewayPort || adminPort===gatewayPort+1)gatewayPort=await port();
   const call=await start(adminPort,gatewayPort),gateway=`http://127.0.0.1:${gatewayPort}`;
