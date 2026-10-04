@@ -54,6 +54,47 @@ Windows installers are unsigned. Mac apps are ad-hoc signed with Node JIT entitl
 
 ## Publish local builds to GitHub Releases
 
+### Release helper scripts (Windows, macOS and Linux)
+
+The helpers share `scripts/release.mjs`, so version, tag and release behavior is the same on every platform. They require Node.js 24+ on PATH; tagging also requires Git, and publishing requires authenticated GitHub CLI, installed npm dependencies and the native build prerequisites above. Each launcher resolves the repository from its own location, preserves the caller's working directory for relative paths such as `--notes-file`, forwards arguments and returns a nonzero exit code on failure.
+
+| Shell | Helper invocation |
+| --- | --- |
+| Windows PowerShell | `.\scripts\release.ps1 <command> [options]` |
+| Windows Command Prompt | `scripts\release.cmd <command> [options]` |
+| macOS / Linux (POSIX shell) | `sh scripts/release.sh <command> [options]` |
+| Any platform with npm | `npm run release -- <command> [options]` |
+
+To bump, commit, tag, push and publish together, start from a clean branch with application changes already committed. Preview first, then run the same command without `--dry-run`:
+
+```powershell
+# Windows PowerShell (use scripts\release.cmd in Command Prompt)
+.\scripts\release.ps1 publish --bump patch --dry-run
+.\scripts\release.ps1 publish --bump patch
+```
+
+```sh
+# macOS / Linux
+sh scripts/release.sh publish --bump patch --dry-run
+sh scripts/release.sh publish --bump patch
+```
+
+For separate steps, `bump` accepts `patch` (the default), `minor`, `major`, or an explicit higher version. It validates and synchronizes all seven application version files without making a commit. Review and commit those edits before `tag`. `tag` marks the current committed HEAD with `v<application version>`; it requires synchronized versions and a clean checkout, refuses a tag pointing to another commit, and reuses a matching tag for retries. `tag --push` requires a branch and exactly one `origin` push URL, then atomically pushes that branch and tag. It leaves the local tag in place if pushing fails; retry the same command after fixing the push failure.
+
+```sh
+npm run version:bump -- minor --dry-run
+npm run version:bump -- minor
+# Review the diff and commit the version changes before continuing.
+npm run release:tag -- --dry-run
+npm run release:tag -- --push
+npm run release -- publish --dry-run
+npm run release -- publish
+```
+
+After the first platform publishes a version, check out the same pushed tag on each other native OS/architecture and run `publish` without `--bump` to append its packages. Windows/macOS publish desktop + portable packages by default; Linux publishes portable packages. `publish --kind all` also includes the npm archive (upload it only once per version). Use `publish --help` for repository, draft, prerelease and release-notes options. Every command accepts `--dry-run` without writes, builds, pushes or GitHub requests; `tag` previews still run local read-only Git checks.
+
+### Publisher setup and recovery
+
 Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` with an account that can write releases to this repository. Install build dependencies with `npm ci --ignore-scripts` and use the native build prerequisites above. Commit your application changes, then optionally increment the version and publish in one command:
 
 ```sh

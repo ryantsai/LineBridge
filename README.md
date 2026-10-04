@@ -177,7 +177,20 @@ npm run build:macos      # native ARM/Intel DMG on the matching Mac
 npm run publish:github -- --dry-run # preview local build + GitHub Release upload
 ```
 
-To increment the version and publish local builds, install the [GitHub CLI](https://cli.github.com/), authenticate, and commit your application changes first:
+The release helper works on Windows, macOS and Linux. Use `npm run release -- <command>`, `.\scripts\release.ps1 <command>` in PowerShell, `scripts\release.cmd <command>` in Command Prompt, or `sh scripts/release.sh <command>` on macOS/Linux. It supports separate version and tag steps:
+
+```sh
+npm run version:bump -- patch --dry-run
+npm run version:bump -- patch
+# Review and commit the version edits, then mark that commit and push:
+npm run release:tag -- --push
+npm run release -- publish --dry-run
+npm run release -- publish
+```
+
+`bump` synchronizes all application versions and leaves the edits for review. `tag` uses `v<package version>` and requires a clean committed checkout; `--push` atomically pushes the branch and tag to `origin`. All commands support `--dry-run` and `--help`. [Platform examples and release prerequisites](PACKAGING.md#release-helper-scripts-windows-macos-and-linux).
+
+To increment the version and publish local builds in one command, install the [GitHub CLI](https://cli.github.com/), authenticate, and commit your application changes first:
 
 ```sh
 gh auth login
