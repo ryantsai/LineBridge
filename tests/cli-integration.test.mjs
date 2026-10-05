@@ -11,6 +11,7 @@ import {Hub} from '../server/hub.mjs';
 import {Tunnels} from '../server/tunnels.mjs';
 import {createApps} from '../server/app.mjs';
 import {removeClientFixture} from './client-test-utils.mjs';
+import {VERSION} from '../server/version.mjs';
 
 async function fixture(t) {
   const directory=await mkdtemp(join(tmpdir(),'linebridge-cli-integration-'));
@@ -65,6 +66,7 @@ test('CLI accounts exposes per-stream receiver success and missing-stream health
 
 test('installed entrypoint uses scoped gateway reads/search/events and preserves replay for file/stdin sends',async t=>{
   const {hub,account,other,reader,directory,cli}=await fixture(t);
+  const version=await cli(['version']);assert.equal(version.code,0);assert.deepEqual(version.json,{service:'LineBridge',version:VERSION});assert.equal(version.stderr,'');
   const accounts=await cli(['accounts']);assert.equal(accounts.code,0);assert.deepEqual(accounts.json.map(a=>a.id),[account.id]);assert.equal(accounts.stderr,'');
   const chats=await cli(['chats','--account',account.id]);assert.deepEqual(chats.json.map(c=>c.id).sort(),['demo-group','demo-openchat']);
   const text='會議 日本語 😀\nمتعدد الأسطر\r\n最後一行\n',path=join(directory,'unicode message.txt');await writeFile(path,text);

@@ -123,6 +123,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     hub.limit(req.actor);next();
   }));
   gateway.use(express.json({limit:'32kb'}));
+  gateway.get('/api/v1/version',(req,res)=>res.json({service:'LineBridge',version:VERSION}));
   gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,authentication:req.actor.local?'local':'token',accounts:hub.accounts(req.actor),setup:{dashboard:`http://127.0.0.1:${adminPort}`,mcp:`http://127.0.0.1:${gatewayPort}/mcp`,steps:['Pair your LINE account by scanning its QR code on your phone.','Designate chats, enable monitoring and create a scoped AI token.','Start a tunnel on this PC and connect your cloud AI with its HTTPS URL and token.']}}));
   gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
   gateway.get('/api/v1/accounts/:id/chats',(req,res)=>res.json(hub.chats(req.actor,req.params.id)));

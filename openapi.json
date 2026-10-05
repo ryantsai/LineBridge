@@ -20,6 +20,54 @@
     }
   },
   "paths": {
+    "/api/v1/version": {
+      "get": {
+        "operationId": "getVersion",
+        "summary": "Check the running LineBridge app version",
+        "description": "Returns app metadata without querying LINE or reading account/chat data.",
+        "responses": {
+          "200": {
+            "description": "Running app version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "service",
+                    "version"
+                  ],
+                  "properties": {
+                    "service": {
+                      "type": "string",
+                      "const": "LineBridge"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
     "/api/v1/messages/search": {
       "post": {
         "operationId": "searchMessages",

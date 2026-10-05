@@ -9,7 +9,7 @@ import {VERSION} from '../server/version.mjs';
 const help=`LineBridge ${VERSION} — local LINE MCP / HTTP gateway
 
 Usage: linebridge [serve|tray|status|stop] [options]
-       linebridge accounts|chats|read|refresh|search|events|send|auth [options]
+       linebridge version|accounts|chats|read|refresh|search|events|send|auth [options]
 
   serve                    Run in the foreground without a tray icon (default)
   tray                     Open the portable Windows/macOS tray launcher
@@ -20,10 +20,11 @@ Usage: linebridge [serve|tray|status|stop] [options]
   --gateway-port PORT      Local AI gateway (default 3211)
   --require-token          Require a Bearer token even for direct localhost
   --trust-local            Opt in to token-free direct loopback development
-  --version                Print version
+  --version                Print the installed CLI version
   --help                   Print this help
 
 Data client: linebridge accounts --help (JSON stdout, diagnostics on stderr).
+Gateway app version: linebridge version [--profile NAME].
 See CLI.md for scoped credentials, pagination and explicit sends.
 
 Portable archives bundle Node. npm/source installs need Node.js 24+.
@@ -75,7 +76,7 @@ async function main(){
 }
 if(!['win32','darwin'].includes(process.platform)) {
   console.error('LineBridge supports Windows and macOS only.');process.exitCode=1;
-} else if(['accounts','chats','read','refresh','search','events','send','auth'].includes(process.argv[2])) {
+} else if(['version','accounts','chats','read','refresh','search','events','send','auth'].includes(process.argv[2])) {
   const {runCli}=await import('../client/cli.mjs');process.exitCode=await runCli(process.argv.slice(2));
 } else {
   try{await main();}catch(error){console.error(error?.code==='EADDRINUSE'?`Port ${error.port??'requested'} is already in use. Check linebridge status. Choose free --admin-port and --gateway-port values; also leave gateway + 1 free for connector health. No ports were changed automatically.`:error?.status?`${error.code}: ${error.message}`:error.message??'LineBridge could not complete the command.');process.exitCode=1;}

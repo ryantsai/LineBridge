@@ -6,9 +6,10 @@ import {ClientError, EXIT, usage} from './errors.mjs';
 import {gatewayRequest} from './request.mjs';
 import {VERSION} from '../server/version.mjs';
 
-export const DATA_COMMANDS = ['accounts','chats','read','refresh','search','events','send','auth'];
+export const DATA_COMMANDS = ['version','accounts','chats','read','refresh','search','events','send','auth'];
 const common = ['profile','url','timeout-ms','credential-stdin'];
 const commandOptions = {
+  version:[],
   accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
   search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
   send:['account','chat','key','text','text-file','stdin'],
@@ -17,6 +18,7 @@ const commandOptions = {
 const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
 export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS/Linux)
 
+  linebridge version [--profile NAME | --url GATEWAY]
   linebridge accounts
   linebridge chats --account ACCOUNT
   linebridge read --account ACCOUNT --chat CHAT [--limit 30] [--cursor CURSOR]
@@ -31,6 +33,7 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
 
 Common: --profile NAME (default: default), --url GATEWAY, --timeout-ms 45000,
         --credential-stdin (transient JSON credentials through a private pipe).
+Version checks the connected gateway app; --version prints the installed CLI version.
 Search also accepts --query-file UTF8_FILE or --query-stdin instead of --query.
 Refresh immediately reads the latest upstream messages for one permitted chat,
 bypassing the automatic refresh interval. Upstream failures return errors,
@@ -48,7 +51,7 @@ be inspected before any further send. See CLI.md for exit codes and examples.
 
 function parse(argv) {
   const command=argv[0];
-  if(!DATA_COMMANDS.includes(command))usage('Use accounts, chats, read, refresh, search, events, send or auth. See --help.');
+  if(!DATA_COMMANDS.includes(command))usage('Use version, accounts, chats, read, refresh, search, events, send or auth. See --help.');
   const allowed=new Set([...common,...commandOptions[command],'help']);
   const options=Object.fromEntries([...allowed].map(name=>[name,{type:booleans.has(name)?'boolean':'string'}]));
   let parsed;
@@ -140,6 +143,7 @@ async function execute(argv,context) {
   const base=account?`/api/v1/accounts/${encodeURIComponent(account)}`:undefined;
   const limit=integer(values.limit,command==='events'?100:30,1,100,'limit');
   let request;
+  if(command==='version')request={path:'/api/v1/version'};
   if(command==='accounts')request={path:'/api/v1/accounts'};
   if(command==='chats')request={path:`${base}/chats`};
   if(command==='events')request={path:`${base}/events?${new URLSearchParams({after:String(integer(values.after,0,0,Number.MAX_SAFE_INTEGER,'after')),limit:String(limit)})}`};

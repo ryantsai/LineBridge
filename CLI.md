@@ -43,9 +43,12 @@ Profile names are case-insensitive and use 1-64 ASCII letters, digits, underscor
 
 ## Commands and pagination
 
+`linebridge --version` prints the installed CLI version without contacting a gateway. `linebridge version --profile work` checks the running gateway app through authenticated `GET /api/v1/version` and returns JSON with `service` and `version`. It accepts the same URL, profile, transient credentials and deadline options as other data commands. The dashboard shows this app version in its left sidebar. MCP clients can call the read-only `line_get_version` tool with no arguments to retrieve the same metadata; MCP initialization also reports the server version.
+
 Each data/auth command writes exactly one JSON value and a newline to stdout, including failures. Diagnostics and help go to stderr. Results retain the REST fields and cursors; empty pages succeed. Each data command makes one request. `serve`, `status` and `stop` retain their existing service behavior (`serve` has human startup output).
 
 ```sh
+linebridge version --profile work
 linebridge accounts --profile work
 linebridge chats --profile work --account ACCOUNT_ID
 linebridge read --profile work --account ACCOUNT_ID --chat CHAT_ID --limit 30

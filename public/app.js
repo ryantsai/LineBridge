@@ -109,6 +109,7 @@ async function refresh(){
   if(refreshRunning)return;refreshRunning=true;
   try {
     state=await api('/state');$('#service-error').hidden=true;$('#local-status').classList.remove('offline');$('#local-status-text').textContent='運作中';$('#local-status').title=`本機服務運作中 · ${state.vault}`;
+    $('#app-version').textContent=`v${state.version}`;$('#app-version').title=`LineBridge ${state.version}`;$('#app-version').hidden=false;
     const selected=state.accounts.find(a=>a.id===selectedAccount);
     if(selected?.discovery&&observedDiscoveries.get(selected.id)!==selected.discovery.at){
       const next=await api(`/accounts/${selected.id}/chats`);

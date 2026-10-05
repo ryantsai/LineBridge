@@ -25,7 +25,7 @@ try{
   assert.equal(health?.status,200,'Tunnel health not reachable');assert.equal((await health.json()).service,'LineBridge');
   assert.equal((await transport(base+'/api/v1/accounts',{headers})).status,401);
   headers.Authorization=`Bearer ${token.token}`;assert.equal((await transport(base+'/api/v1/accounts',{headers})).status,200);assert.equal((await transport(base+'/admin/state',{headers})).status,404);
-  client=new Client({name:'Alternative tunnel check',version:'1.0'});await client.connect(new StreamableHTTPClientTransport(new URL(base+'/mcp'),{requestInit:{headers},fetch:transport}));assert.equal((await client.listTools()).tools.length,6);
+  client=new Client({name:'Alternative tunnel check',version:'1.0'});await client.connect(new StreamableHTTPClientTransport(new URL(base+'/mcp'),{requestInit:{headers},fetch:transport}));assert.equal((await client.listTools()).tools.length,7);
   const result=await client.callTool({name:'line_search_messages',arguments:{query:'會議 مرحبا'}});assert.equal(result.isError,undefined);assert.equal(JSON.parse(result.content[0].text).results.length,1);
   await client.close();client=null;await tunnels.stop();assert.equal((await tunnels.status()).connected,false);
   console.log(provider+': live transport, token enforcement, scoped HTTP/MCP multilingual search, admin isolation and owned connector cleanup passed. Synthetic data only.');

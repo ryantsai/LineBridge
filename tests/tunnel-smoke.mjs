@@ -62,7 +62,7 @@ try {
   assert.equal((await tunnelFetch(`${tunnel.url}/admin/state`,{headers})).status,404);
   client=new Client({name:'Quick Tunnel JSON MCP check',version:'1.0'});
   await client.connect(new StreamableHTTPClientTransport(new URL(`${tunnel.url}/mcp`),{requestInit:{headers},fetch:tunnelFetch}));
-  assert.equal((await client.listTools()).tools.length,6);
+  assert.equal((await client.listTools()).tools.length,7);
   const search=await client.callTool({name:'line_search_messages',arguments:{query:'會議 مرحبا',mode:'all'}});assert.equal(search.isError,undefined);assert.equal(JSON.parse(search.content[0].text).results[0].message.text,'tunnel multilingual 會議 مرحبا 🦜');
   await client.close();client=null;
   await call('/tunnel/stop','POST',{});const stopped=(await call('/state')).tunnel;

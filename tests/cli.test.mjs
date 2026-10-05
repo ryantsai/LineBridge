@@ -51,6 +51,19 @@ test('routes preserve bounded pages, opaque cursors, Unicode queries, and Access
   assert.deepEqual(JSON.parse(calls[4].options.body),{query:'會議\n日本語 😀',mode:'phrase',limit:3,accountId:'a',chatId:'c',before:99});
   for(const {options} of calls){assert.equal(options.headers.Authorization,`Bearer ${token}`);assert.equal(options.headers['CF-Access-Client-Secret'],'synthetic-access-secret');assert.equal(options.redirect,'error');assert.ok(options.signal);}
 });
+test('version checks the selected gateway instead of reporting the client package version',async()=>{
+  let calls=0;
+  const result=await cli(['version','--url','https://gateway.example','--timeout-ms','1000'],{fetchImpl:async(url,options)=>{
+    calls++;assert.equal(url,'https://gateway.example/api/v1/version');assert.equal(options.method,'GET');
+    assert.equal(options.headers.Authorization,`Bearer ${token}`);
+    return new Response(JSON.stringify({service:'LineBridge',version:'99.1.2'}));
+  }});
+  assert.equal(calls,1);assert.equal(result.code,0);assert.equal(result.stderr,'');
+  assert.deepEqual(result.json,{service:'LineBridge',version:'99.1.2'});
+  const help=await cli(['version','--help'],{fetchImpl:()=>assert.fail('Help must not contact the gateway')});
+  assert.equal(help.code,0);assert.match(help.stderr,/installed CLI version/);
+  assert.equal((await cli(['version','--account','a'],{fetchImpl:()=>assert.fail()})).code,2);
+});
 test('send file/stdin keep UTF-8 and multiline text exact; input failures happen before dispatch',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'linebridge-cli-text-'));t.after(()=>removeClientFixture(dir));
   const text='首行 😀\r\nArabic العربية\n末行\n',file=join(dir,'message with spaces.txt');await writeFile(file,text);

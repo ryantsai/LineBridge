@@ -27,7 +27,10 @@
       <button class="nav" data-tab="activity" data-icon="history"><span class="nav-label">紀錄</span></button>
     </nav>
     <div class="sidebar-foot">
-      <span class="status" id="local-status" role="status"><span class="status-dot"></span><span id="local-status-text">連線中</span></span>
+      <div class="sidebar-info">
+        <span class="app-version" id="app-version" aria-label="LineBridge 版本" hidden></span>
+        <span class="status" id="local-status" role="status"><span class="status-dot"></span><span id="local-status-text">連線中</span></span>
+      </div>
       <button class="icon-btn" id="refresh" data-icon="refresh" aria-label="重新整理" title="重新整理"></button>
     </div>
   </aside>

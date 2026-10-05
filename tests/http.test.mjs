@@ -11,6 +11,7 @@ import { Vault } from '../server/vault.mjs';
 import { Hub } from '../server/hub.mjs';
 import { Tunnels } from '../server/tunnels.mjs';
 import { createApps } from '../server/app.mjs';
+import {VERSION} from '../server/version.mjs';
 
 async function freePort(){const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}
 async function rawStatus(url,headers){return new Promise((resolve,reject)=>{const req=request(url,{headers},res=>{res.resume();resolve(res.statusCode);});req.on('error',reject);req.end();});}
@@ -24,6 +25,10 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   await hub.monitor(a.id,true);
   const token=hub.createToken({name:'AI',grants:[{accountId:a.id,read:true,send:true}]});
   const base=`http://127.0.0.1:${gatewayPort}`,headers={Authorization:`Bearer ${token.token}`};
+  assert.equal((await fetch(`${base}/api/v1/version`)).status,401);
+  assert.equal((await fetch(`${base}/api/v1/version`,{headers:{Authorization:'Bearer invalid'}})).status,401);
+  const version=await (await fetch(`${base}/api/v1/version`,{headers})).json();assert.deepEqual(version,{service:'LineBridge',version:VERSION});
+  const schema=await (await fetch(`${base}/openapi.json`,{headers})).json();assert.equal(schema.paths['/api/v1/version'].get.operationId,'getVersion');
   assert.equal((await fetch(`${base}/api/v1/accounts`)).status,401);
   assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:{...headers,Origin:'https://attacker.example'}})).status,403);
   assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...headers,Host:'attacker.example'}),403);
@@ -40,7 +45,10 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const client=new Client({name:'integration-test',version:'1.0.0'});
   const transport=new StreamableHTTPClientTransport(new URL(`${base}/mcp`),{requestInit:{headers}});
   await client.connect(transport);t.after(()=>client.close());
-  const toolList=await client.listTools();assert.equal(toolList.tools.length,6);
+  const toolList=await client.listTools();assert.equal(toolList.tools.length,7);
+  const versionTool=toolList.tools.find(tool=>tool.name==='line_get_version');assert.equal(versionTool.annotations.readOnlyHint,true);
+  assert.equal(client.getServerVersion().version,VERSION);
+  const mcpVersion=await client.callTool({name:'line_get_version',arguments:{}});assert.deepEqual(JSON.parse(mcpVersion.content[0].text),version);
   const result=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-group',limit:10}});
   assert.equal(JSON.parse(result.content[0].text).untrustedContent,true);
   const archived=await client.callTool({name:'line_search_messages',arguments:{query:'hello'}});assert.equal(JSON.parse(archived.content[0].text).results.length,1);
@@ -48,6 +56,7 @@ test('HTTP and MCP share scopes; the gateway cannot expose dashboard routes or b
   const local=`http://127.0.0.1:${adminPort}`;
   assert.equal((await fetch(`${local}/admin/state`)).status,401);
   const index=await fetch(`${local}/`),cookie=index.headers.getSetCookie()[0].split(';')[0];assert.equal(index.status,200);
+  const dashboard=await (await fetch(`${local}/admin/state`,{headers:{Cookie:cookie}})).json();assert.equal(dashboard.version,version.version);
   assert.equal((await fetch(`${local}/admin/pause`,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{"enabled":false}'})).status,403);
   assert.equal(await rawStatus(`${local}/admin/state`,{Cookie:cookie,Host:'evil.example'}),403);
   const badCallback=await fetch(`${local}/oauth/cloudflare/callback?state=wrong&code=untrusted-secret`,{headers:{'Sec-Fetch-Site':'cross-site'}});
@@ -94,7 +103,7 @@ test('same-VM HTTP and official MCP clients read/send without minting a token',a
   const endpoint=`${base}/api/v1/accounts/${a.id}/chats/demo-group/messages`;
   const sent=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'local-http-001'},body:JSON.stringify({text:'local synthetic message'})});assert.equal(sent.status,200);
   const client=new Client({name:'same-VM-agent',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));t.after(()=>client.close());
-  assert.equal((await client.listTools()).tools.length,6);
+  assert.equal((await client.listTools()).tools.length,7);
   const read=await client.callTool({name:'line_read_messages',arguments:{accountId:a.id,chatId:'demo-group'}});assert.ok(JSON.parse(read.content[0].text).messages.some(m=>m.text==='local synthetic message'));
   const mcpSent=await client.callTool({name:'line_send_message',arguments:{accountId:a.id,chatId:'demo-group',text:'MCP synthetic message',idempotencyKey:'local-mcp-001'}});assert.equal(JSON.parse(mcpSent.content[0].text).delivery,'sandbox_only');
   const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];
