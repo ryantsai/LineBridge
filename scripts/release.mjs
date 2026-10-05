@@ -22,7 +22,8 @@ Commands:
                       --push atomically pushes the branch and tag to origin.
                       Reuses an existing tag only when it points to HEAD.
   publish [options]   Test, build and publish packages on this host OS.
-                      Add --arch x64 on macOS to select an Intel portable build.
+                      macOS defaults to arm64 + x64 when Rosetta is available.
+                      Add --arch x64 or --arch arm64 to build only that target.
                       Add --bump patch to also bump, commit, tag and push.
                       Use publish --help for all publishing options.
 

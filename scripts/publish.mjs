@@ -12,7 +12,8 @@ const help = `Publish local builds to GitHub Releases (never to the npm registry
 Usage: npm run publish:github -- [options]
   --kind native|portable|npm|all
                          Default: native (portable with tray on Windows/macOS)
-  --arch x64|arm64       Portable target architecture (default: this host's CPU)
+  --arch x64|arm64       Build only the selected portable architecture
+                         Default: both on macOS with Rosetta, otherwise host CPU
                          macOS only for cross-architecture builds; OS stays native
   --repo OWNER/REPO      Default: repository selected by gh for this checkout
   --bump patch|minor|major|VERSION
@@ -59,11 +60,27 @@ export function releasePlan(kind, platform = process.platform, arch = process.ar
   const kinds = kind === 'native' || kind === 'all'
     ? ['portable', ...(kind === 'all' ? ['npm'] : [])]
     : [kind];
-  return kinds.map(type => {
-    if (type === 'npm') return {type, slug: 'npm', directory: 'npm', manifest: 'package-info.json', build: 'package', test: 'test:package-cli'};
-    const plan = portablePlan(platform, arch);
-    return {type, platform: plan.platform, arch: plan.arch, slug: `portable-${plan.slug}`, directory: `portable/${plan.slug}`, manifest: 'build-info.json', build: 'package:portable', test: 'test:portable'};
+  const architectures = Array.isArray(arch) ? arch : [arch];
+  return kinds.flatMap(type => {
+    if (type === 'npm') return [{type, slug: 'npm', directory: 'npm', manifest: 'package-info.json', build: 'package', test: 'test:package-cli'}];
+    return architectures.map(architecture => {
+      const plan = portablePlan(platform, architecture);
+      return {type, platform: plan.platform, arch: plan.arch, slug: `portable-${plan.slug}`, directory: `portable/${plan.slug}`, manifest: 'build-info.json', build: 'package:portable', test: 'test:portable'};
+    });
   });
+}
+
+export function hasRosetta(platform = process.platform, {run = execFileSync} = {}) {
+  if (platform !== 'darwin') return false;
+  const options = {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000};
+  try {
+    // Check the hardware even when Node itself is running under Rosetta.
+    if (String(run('/usr/sbin/sysctl', ['-n', 'hw.optional.arm64'], options)).trim() !== '1') return false;
+    run('/usr/bin/arch', ['-x86_64', '/usr/bin/true'], options);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Read only the manifest's current-version artifact, never a recursive release/* glob.
@@ -161,12 +178,15 @@ export async function main(args = process.argv.slice(2), {
   log = console.log,
   platform = process.platform,
   arch = process.arch,
+  detectRosetta = hasRosetta,
 } = {}) {
   const options = parseOptions(args);
   if (options.help) { console.log(help); return; }
   if (options['notes-file']) options['notes-file'] = resolve(options['notes-file']);
   const versions = await versionPlan(options.bump, directory);
-  const tag = `v${versions.version}`, plan = releasePlan(options.kind, platform, options.arch ?? arch);
+  const architectures = options.arch === undefined && options.kind !== 'npm' && platform === 'darwin' && detectRosetta(platform)
+    ? ['arm64', 'x64'] : [options.arch ?? arch];
+  const tag = `v${versions.version}`, plan = releasePlan(options.kind, platform, architectures);
   log(`GitHub release: ${options.repo ?? '(current repository)'} / ${tag}`);
   if (options.bump) log(`Version: ${versions.current} -> ${versions.version}\nUpdate: ${versions.files.map(file => file.path).join(', ')}`);
   log('npm run check\nnpm test\nnpm run test:smoke');

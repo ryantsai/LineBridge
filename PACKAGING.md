@@ -79,14 +79,16 @@ npm run release -- publish --dry-run
 npm run release -- publish
 ```
 
-After the first platform publishes a version, check out the same pushed tag on each other supported build host and run `publish` without `--bump` to append its packages. To add Intel Mac assets from a Mac with the Intel execution prerequisites above, preview and then publish that same tag:
+On an Apple Silicon Mac with working Rosetta, `publish` defaults to building, testing and uploading both `arm64` and `x64` packages. It checks the hardware and executes an Intel system command to detect Rosetta, including when Node itself runs under Rosetta. Without Rosetta, or on an Intel Mac, it defaults to the build process's architecture. Rosetta is never installed automatically. Both targets must pass verification before any upload occurs.
+
+After the first platform publishes a version, check out the same pushed tag on each other supported build host and run `publish` without `--bump` to append its packages. Use `--arch arm64` or `--arch x64` to publish only one architecture, including when the other architecture is already on the release. To add only Intel Mac assets from a Mac with the Intel execution prerequisites above, preview and then publish that same tag:
 
 ```sh
 sh scripts/release.sh publish --arch x64 --dry-run
 sh scripts/release.sh publish --arch x64
 ```
 
-Do not bump the version when appending another architecture. Windows/macOS publish portable packages by default. `publish --kind all` selects distribution types (portable plus npm), not every CPU architecture; `--arch` selects the portable target. Upload the npm archive only once per version. Use `publish --help` for repository, draft, prerelease and release-notes options. Every command accepts `--dry-run` without writes, builds, pushes or GitHub requests; `tag` previews still run local read-only Git checks.
+Do not bump the version when appending another architecture. Windows/macOS publish portable packages by default. `publish --kind all` adds the npm archive once alongside the default or explicitly selected portable architectures. Upload the npm archive only once per version. Use `publish --help` for repository, draft, prerelease and release-notes options. Every command accepts `--dry-run` without writes, builds, pushes or GitHub requests; macOS publish previews still run local read-only Rosetta checks, and `tag` previews run local read-only Git checks.
 
 ### Publisher setup and recovery
 
@@ -115,7 +117,7 @@ npm run publish:github
 
 Use the version from `package.json` in place of `0.6.1`. If the tag already exists, check out its commit instead of recreating it. Publishing requires a clean checkout whose HEAD matches the tag on GitHub. The repository defaults to the one selected by `gh` for this checkout; use `--repo OWNER/REPO` to select it explicitly.
 
-`publish:github` builds and uploads the selected portable architecture on Windows/macOS. Run it on the corresponding OS with working target execution support to add that architecture to the same release; Mac x64 follows the Intel/Rosetta validation requirements above. To publish only one distribution:
+`publish:github` builds and uploads the default portable architectures on Windows/macOS: both Mac targets when Rosetta is detected, otherwise the host process's architecture. Use `--arch x64` or `--arch arm64` to select just one target. Run it on the corresponding OS with working target execution support to add packages to the same release; Mac x64 follows the Intel/Rosetta validation requirements above. To publish only one distribution:
 
 ```sh
 npm run publish:portable

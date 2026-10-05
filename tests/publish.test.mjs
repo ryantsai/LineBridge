@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFileSync} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
-import {parseOptions, releasePlan, stageAssets, findRelease, publishAssets, main, githubTagCommit} from '../scripts/publish.mjs';
+import {parseOptions, releasePlan, hasRosetta, stageAssets, findRelease, publishAssets, main, githubTagCommit} from '../scripts/publish.mjs';
 import {sha256} from '../scripts/packaging.mjs';
 import {removeClientFixture} from './client-test-utils.mjs';
 import {nextVersion, versionPlan, VERSION_FILES} from '../scripts/version.mjs';
@@ -26,6 +26,28 @@ test('publish options and native platform selection', () => {
   assert.throws(() => releasePlan('desktop', 'linux', 'x64'), /Unsupported/);
   assert.throws(() => releasePlan('portable', 'win32', 'arm64'), /Unsupported/);
   assert.equal(releasePlan('all', 'darwin', 'x64').length, 2);
+  assert.deepEqual(releasePlan('all', 'darwin', ['arm64', 'x64']).map(p => p.slug), ['portable-macos-arm64', 'portable-macos-x64', 'npm']);
+});
+
+test('Rosetta detection requires Apple Silicon hardware and working Intel execution', () => {
+  for (const scenario of ['available', 'intel', 'missing', 'sysctl failure']) {
+    const calls = [];
+    const available = hasRosetta('darwin', {run: (executable, args, options) => {
+      calls.push([executable, args]);
+      assert.ok(options.timeout > 0);
+      if (executable === '/usr/sbin/sysctl') {
+        if (scenario === 'sysctl failure') throw new Error('sysctl unavailable');
+        return scenario === 'intel' ? '0\n' : '1\n';
+      }
+      if (scenario === 'missing') throw new Error('Bad CPU type in executable');
+      return '';
+    }});
+    assert.equal(available, scenario === 'available');
+    assert.deepEqual(calls[0], ['/usr/sbin/sysctl', ['-n', 'hw.optional.arm64']]);
+    if (['available', 'missing'].includes(scenario)) assert.deepEqual(calls[1], ['/usr/bin/arch', ['-x86_64', '/usr/bin/true']]);
+    else assert.equal(calls.length, 1);
+  }
+  for (const platform of ['win32', 'linux']) assert.equal(hasRosetta(platform, {run: () => assert.fail('Only macOS probes Rosetta')}), false);
 });
 
 test('stage only current verified artifacts with distinct platform metadata names', async () => {
@@ -131,7 +153,7 @@ async function publishFixture(t) {
     const script = args[1];
     state.scripts.push(script);
     state.npmCalls.push(args);
-    if (script === state.failAt) throw new Error('synthetic build failure');
+    if (script === state.failAt && (!state.failAtArch || args[4] === state.failAtArch)) throw new Error('synthetic build failure');
     const version = (await versionPlan(undefined, directory)).current;
     if (script === 'package') {
       const out = join(directory, 'release', 'npm'), filename = `line-bridge-${version}.tgz`, bytes = Buffer.from('synthetic package'), digest = sha256(bytes);
@@ -153,8 +175,110 @@ async function publishFixture(t) {
     }
     if (script === 'test:package-cli' && state.changeDuringBuild) await writeFile(join(directory, 'unrelated.txt'), 'concurrent edit');
   };
-  return {directory, current, initial, git, state, dependencies: {directory, run, runNpm, log: message => state.output.push(message)}};
+  return {directory, current, initial, git, state, dependencies: {directory, run, runNpm, log: message => state.output.push(message), detectRosetta: () => false}};
 }
+
+test('macOS default dry-run includes both architectures with Rosetta, even under Intel Node', async t => {
+  for (const arch of ['arm64', 'x64']) {
+    const {directory, current, git, state, dependencies} = await publishFixture(t);
+    let probes = 0;
+    await main(['--bump', 'patch', '--dry-run'], {...dependencies, platform: 'darwin', arch, detectRosetta: platform => {
+      assert.equal(platform, 'darwin');
+      probes++;
+      return true;
+    }});
+    assert.equal(probes, 1);
+    for (const target of ['arm64', 'x64']) {
+      const output = state.output.join('\n');
+      assert.ok(output.includes(`npm run package:portable -- --arch ${target}`));
+      assert.ok(output.includes(`npm run test:portable -- --arch ${target}`));
+      assert.ok(output.includes(`release/portable/macos-${target}`));
+    }
+    assert.deepEqual(state.calls, []);
+    assert.deepEqual(state.npmCalls, []);
+    assert.equal((await versionPlan(undefined, directory)).current, current);
+    assert.equal(git(['status', '--porcelain']), '');
+  }
+});
+
+test('macOS without Rosetta uses the host CPU; explicit targets, npm and Windows skip detection', async t => {
+  const cases = [
+    {platform: 'darwin', arch: 'arm64', args: [], target: 'arm64', probes: 1},
+    {platform: 'darwin', arch: 'x64', args: [], target: 'x64', probes: 1},
+    {platform: 'darwin', arch: 'arm64', args: ['--arch', 'x64'], target: 'x64', probes: 0},
+    {platform: 'darwin', arch: 'arm64', args: ['--arch', 'arm64'], target: 'arm64', probes: 0},
+    {platform: 'darwin', arch: 'arm64', args: ['--kind', 'npm'], probes: 0},
+    {platform: 'win32', arch: 'x64', args: [], target: 'x64', probes: 0},
+  ];
+  for (const scenario of cases) {
+    const {state, dependencies} = await publishFixture(t);
+    let probes = 0;
+    await main([...scenario.args, '--dry-run'], {...dependencies, platform: scenario.platform, arch: scenario.arch, detectRosetta: () => {
+      assert.equal(scenario.probes, 1, 'An explicit target or nonportable/non-macOS plan must skip detection');
+      probes++;
+      return false;
+    }});
+    assert.equal(probes, scenario.probes);
+    const builds = state.output.filter(line => line.startsWith('npm run package:portable'));
+    assert.equal(builds.length, scenario.target ? 1 : 0);
+    if (scenario.target) assert.ok(builds[0].startsWith(`npm run package:portable -- --arch ${scenario.target}\n`));
+    assert.deepEqual(state.calls, []);
+    assert.deepEqual(state.npmCalls, []);
+  }
+});
+
+test('default Rosetta publishing verifies and stages both targets with one npm archive and one upload', async t => {
+  for (const bump of [false, true]) {
+    const {directory, current, initial, git, state, dependencies} = await publishFixture(t);
+    state.portablePlatform = 'darwin';
+    if (!bump) {
+      state.remoteTag = initial;
+      state.release = {assets: [], html_url: 'https://github.com/example/linebridge/releases'};
+    }
+    await main(['--kind', 'all', ...(bump ? ['--bump', 'patch'] : [])], {...dependencies, platform: 'darwin', arch: 'arm64', detectRosetta: () => true});
+    assert.deepEqual(state.npmCalls, [
+      ['run', 'check'], ['run', 'test'], ['run', 'test:smoke'],
+      ['run', 'package:portable', '--', '--arch', 'arm64'],
+      ['run', 'test:portable', '--', '--arch', 'arm64'],
+      ['run', 'package:portable', '--', '--arch', 'x64'],
+      ['run', 'test:portable', '--', '--arch', 'x64'],
+      ['run', 'package'], ['run', 'test:package-cli'],
+    ]);
+    const uploads = state.calls.filter(([exe, args]) => exe === 'gh' && args[0] === 'release');
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0][1][1], bump ? 'create' : 'upload');
+    const version = bump ? nextVersion(current, 'patch') : current;
+    const assets = uploads[0][1].filter(arg => arg.startsWith(join(directory, 'release', 'github', `v${version}`)));
+    assert.equal(assets.length, 9);
+    assert.equal(new Set(assets).size, 9);
+    for (const arch of ['arm64', 'x64']) {
+      assert.ok(assets.some(path => path.endsWith(`LineBridge-${version}-macos-${arch}.tar.gz`)));
+      const manifest = assets.find(path => path.endsWith(`portable-macos-${arch}-build-info.json`));
+      assert.equal(JSON.parse(await readFile(manifest, 'utf8')).architecture, arch);
+    }
+    assert.equal(assets.filter(path => path.endsWith('.tgz')).length, 1);
+    if (bump) {
+      assert.equal(git(['rev-parse', 'HEAD^']), initial);
+      assert.equal(git(['rev-parse', `v${version}`]), state.remoteTag);
+      assert.equal(state.calls.filter(([exe, args]) => exe === 'git' && args[0] === 'push').length, 1);
+    } else assert.equal(git(['rev-parse', 'HEAD']), initial);
+  }
+});
+
+test('Intel smoke failure in a default dual build prevents the release commit, tag, push and upload', async t => {
+  const {directory, current, initial, git, state, dependencies} = await publishFixture(t);
+  state.portablePlatform = 'darwin';
+  state.failAt = 'test:portable';
+  state.failAtArch = 'x64';
+  await assert.rejects(main(['--bump', 'patch'], {...dependencies, platform: 'darwin', arch: 'arm64', detectRosetta: () => true}), /synthetic build failure/);
+  assert.ok(state.npmCalls.some(args => args[1] === 'test:portable' && args[4] === 'arm64'));
+  assert.ok(state.npmCalls.some(args => args[1] === 'test:portable' && args[4] === 'x64'));
+  assert.equal((await versionPlan(undefined, directory)).current, nextVersion(current, 'patch'));
+  assert.equal(git(['rev-parse', 'HEAD']), initial);
+  assert.equal(git(['tag', '--list']), '');
+  assert.ok(!state.calls.some(([exe, args]) => exe === 'git' && ['commit', 'push'].includes(args[0])));
+  assert.ok(!state.calls.some(([exe, args]) => exe === 'gh' && args[0] === 'release'));
+});
 
 test('Intel macOS dry-run selects matching build, smoke and asset paths without side effects', async t => {
   const {state, dependencies} = await publishFixture(t);
