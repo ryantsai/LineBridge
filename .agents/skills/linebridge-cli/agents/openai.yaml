@@ -1,0 +1,4 @@
+interface:
+  display_name: "LineBridge CLI"
+  short_description: "Safely operate the LineBridge data CLI"
+  default_prompt: "Use $linebridge-cli to read or search my authorized LINE chats with the LineBridge CLI."
