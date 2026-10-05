@@ -24,8 +24,8 @@ gh release view --repo ryantsai/LineBridge --json tagName,publishedAt,isPrerelea
 
 | 平台 | 可攜式建置目標與系統需求 | 啟動器與憑證條件 |
 | --- | --- | --- |
-| Windows | x64；仍受支援的 Windows 10／11 或 Server 2016+。沒有原生 Windows ARM64 套件。 | `linebridge.cmd`；DPAPI 需同一位目前使用者的已載入 Windows profile，以及 Windows PowerShell。 |
-| macOS | Apple Silicon `arm64` 或 Intel `x64`；仍受支援的 macOS 13.5+。 | `linebridge`；Keychain 須可存取且已解鎖，需 `/usr/bin/security`；必要的 OS 許可提示由使用者確認。 |
+| Windows | x64；仍受支援的 Windows 10／11 或 Server 2016+；系統匣需要 **.NET Framework 4.8**。沒有原生 Windows ARM64 套件。 | `linebridge.cmd`；DPAPI 需同一位目前使用者的已載入 Windows profile，以及 Windows PowerShell。 |
+| macOS | v0.7.0 提供 Apple Silicon `arm64`；仍受支援的 macOS 13.5+。Intel `x64` 是建置目標，但 **v0.7.0 沒有 Intel Mac 預編譯下載**。 | `linebridge`；Keychain 須可存取且已解鎖，需 `/usr/bin/security`；必要的 OS 許可提示由使用者確認。 |
 
 macOS 用 `uname -s` 與 `uname -m` 辨識；`x86_64` 對應 `x64`，`arm64`／`aarch64` 對應 `arm64`。Windows PowerShell 可查 `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`。上述是目前建置需求；仍須核對最新發布的說明、實際套件與 `build-info.json`，**可建置不等於該平台已有最新版下載檔案**。缺少對應套件就回報，不下載舊版替代。
 
@@ -35,11 +35,13 @@ Windows 使用下方的隱藏 `Start-Process`，macOS 使用 `nohup`；兩者均
 
 ## 本機安裝與背景啟動
 
+**下載與首次開啟：**[v0.7.0 發布檔案](https://github.com/ryantsai/LineBridge/releases/tag/v0.7.0)提供 `LineBridge-0.7.0-windows-x64.zip` 與 `LineBridge-0.7.0-macos-arm64.tar.gz`，沒有 Intel Mac 套件；較新版本仍以實際資產清單為準。Windows 系統匣需要 [.NET Framework 4.8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48)，缺少時先由使用者安裝 Microsoft 官方元件（可能需要系統管理員權限與重新啟動）。Windows 程式未簽章，可能顯示 SmartScreen／未知發行者提示；Mac 程式只有 ad-hoc 簽章，未經 Developer ID 簽署或 Apple 公證，可能被 Gatekeeper 阻擋。先核對官方來源與 SHA-256，再由使用者處理必要的首次開啟提示；不要關閉系統安全保護，也不要宣稱可完全無人安裝。
+
 **Windows 與 macOS 可攜式套件包含輕量系統匣程式。**開啟 `LineBridge.exe`（Windows）、`LineBridge.app`（macOS），或執行 `linebridge tray`。程式會啟動需要認證的背景服務，或連接同一資料目錄下已驗證的既有服務，並以預設瀏覽器開啟實際管理網址。選單提供 **Open LineBridge**、**Quit tray (keep service running)**（只關閉系統匣，服務繼續執行）與 **Stop service and quit**（停止服務並結束）。請保留完整解壓縮目錄。僅支援 Windows 與 macOS，不再支援 Linux。單獨執行 `serve` 不會顯示系統匣圖示；不再使用 Tauri 視窗或獨立桌面安裝程式。從舊 Tauri 版遷移時，先結束舊程式，再以相同資料目錄啟動可攜式服務，保留資料與加密金鑰。
 
 埠衝突時安全地停止啟動，不會自動換埠。可對 `serve` 或 `tray` 指定 `--admin-port PORT --gateway-port PORT`，另保留 gateway + 1 給連接器健康檢查，並用 `status` 核對實際埠。連接既有服務的系統匣沿用其埠。更改閘道埠後，需更新或重新登錄綁定網址的 CLI profile 及通道設定。系統匣啟動錯誤記錄在資料目錄的 `service.stderr.log`。
 
-優先使用最新發布的**可攜式 CLI 套件**：下載、驗證對應 `SHA256SUMS`，再完整解壓縮至使用者可寫入的持久目錄。保留啟動器、`runtime`、`app`；不需另裝 Node／npm，也不需系統管理員權限。Windows 用 `Get-FileHash PATH -Algorithm SHA256`，macOS 用 `shasum -a 256 PATH` 比對。[平台與 OS 要求](PACKAGING.md#portable-cli-and-service-bundles)只代表可建置的平台，不保證最新發布包含每種套件。
+優先使用最新發布的**可攜式 CLI 套件**：下載、驗證對應 `SHA256SUMS`，再完整解壓縮至使用者可寫入的持久目錄。保留啟動器、`runtime`、`app`；不需另裝 Node／npm，必要系統元件已具備時，解壓縮與執行不需系統管理員權限。Windows 用 `Get-FileHash PATH -Algorithm SHA256`，macOS 用 `shasum -a 256 PATH` 比對。[平台與 OS 要求](PACKAGING.md#portable-cli-and-service-bundles)只代表可建置的平台，不保證最新發布包含每種套件。
 
 `serve` 本身在前景執行；背景模式需由作業系統啟動程序。以下範例以**已驗證的完整解壓縮目錄**取代 `PATH_TO_EXTRACTED_BUNDLE`。先確認沒有既有服務。已有自訂資料目錄或埠時，對 `serve`、`status`、`stop` 沿用相應選項。
 
@@ -69,6 +71,17 @@ nohup "$bundle/linebridge" serve --require-token \
 啟動是非同步操作；在有限期限內重查 `status`，確認 `status: running`、版本、資料目錄及實際埠，不能只以程序已建立當作成功。預設管理畫面為 `http://127.0.0.1:3210`，AI 閘道為 `http://127.0.0.1:3211`。不要使用 `--trust-local` 取消認證，也不要暴露管理畫面。背景程序不是系統服務，沒有自動重啟或開機啟動，登出／重開機後不保證繼續執行；需要持續運作或排程時，另依使用者指示設定。
 
 停止時使用同一個套件的 `linebridge.cmd stop`（Windows）或 `linebridge stop`（macOS，含完整路徑），再確認 `status: stopped`。已有可攜式服務時直接使用精靈提供的內建 CLI，無需再安裝。只有最新發布中的 npm `.tgz` 或原始碼方案需要 Node.js 24+；[替代安裝與 CLI](CLI.md)。
+
+## 升級、備份與回復
+
+1. 用舊啟動器執行 `status --data-dir DATA_DIR`，記錄實際版本、**絕對資料路徑**、管理埠、閘道埠、認證方式及既有啟動參數；資料指令使用的 profile 名稱也要保留。未指定資料目錄時先用 `status` 確認，舊安裝可能沿用不同預設路徑，不要猜測。保留舊版完整套件，將已驗證 SHA-256 的新版解壓至另一個目錄。
+2. 執行舊啟動器的 `stop --data-dir DATA_DIR`，於 30 秒期限內重查 `status --data-dir DATA_DIR`，直到 `stopped` 並確認原服務 PID 已結束；若系統匣仍開著也將其結束。只選 **Quit tray (keep service running)** 不會停止服務。無法確認停止時先排錯，不複製執行中的 SQLite 檔案。
+3. 將**整個已停止的資料目錄**複製至新的、受保護且位於來源目錄之外的備份目錄。至少核對 `bridge.sqlite` 與配套的 `vault-key.dpapi`（Windows）或 `vault-key.bin`（macOS）；若仍有 `bridge.sqlite-wal`／`bridge.sqlite-shm`，一併保留。核對來源與備份的檔案清單、大小及 SHA-256，不要只備份資料庫。Windows CLI profile 在 `%LOCALAPPDATA%/LineBridgeClient` 或 `LINE_BRIDGE_CLIENT_CONFIG`，須另備份其加密檔；macOS CLI profile 位於同一使用者的 Keychain，資料目錄副本不包含它。不要匯出明文秘密。下方連結提供 Windows／macOS 複製與驗證指令。
+4. 以新版 `tray --data-dir DATA_DIR --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT`，或原本需要認證的背景啟動方式，沿用相同 OS 使用者、資料路徑及埠。`--version` 應符合下載版本；在有限期限內確認 `status` 的實際服務版本、路徑、埠與認證，再以原有 profile 執行 `accounts`／`chats`，確認原有帳號、聊天室、封存與每個串流的健康狀態。雲端連線可能需重新啟動；Quick Tunnel 網址可能改變，須重驗遠端存取。
+5. 升級失敗時先停止新版並確認程序結束，將升級後資料目錄**改名保留**，在原路徑放回完整且已驗證的升級前備份，再以舊版完整套件及原參數啟動。不要把舊資料庫覆蓋進仍含新 WAL 的目錄，也不要讓舊程式直接讀取新版遷移後資料庫。回復會捨棄備份後的訊息、游標、設定及授權變更；若曾更改授權，先核對到期／撤銷狀態與現有 profile，再恢復 AI 存取。
+6. 這是**同一台電腦、同一 OS 使用者**的回復流程。Windows DPAPI 與 macOS Keychain 不保證搬到另一使用者／電腦後可用，跨 OS vault 也不能直接使用。內建 `backups/before-archive-*.sqlite` 只是特定舊版封存遷移前的資料庫備份，不會每次升級建立，也不含 vault 或 CLI profile，不能代替上述完整備份。
+
+[詳細備份／回復指令與檔案範圍](PACKAGING.md#upgrade-backup-and-rollback)。
 
 ## 即時服務檢查與已授權的復原
 

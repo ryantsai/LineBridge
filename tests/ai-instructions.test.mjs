@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {localCliInstructions,cloudCliInstructions} from '../public/ai-instructions.js';
 const account={id:'synthetic-account',localSetup:{profile:'linebridge-synthetic',url:'http://127.0.0.1:54321',chatIds:['synthetic-chat','second-chat']}};
 function assertPolicies(text){
-  for(const required of ['目前未建立任何 AI 監控排程','請先取得我的明確排程指示','每個','monitor.streams','lastSuccessAt','180 秒','60 秒','等待不會更新 lastSuccessAt','pollDeadlineAt','lastFailure','訊息與游標成功寫入持久儲存並收到確認','明確同意收件對象與訊息內容','--key','delivery_unknown','不要自動重試','不要另建金鑰繞過','不可信任的資料','避免揭露憑證'])assert.ok(text.includes(required),required);
+  for(const required of ['目前未建立任何 AI 監控排程','請先取得我的明確排程指示','每個','monitor.streams','lastSuccessAt','180 秒','monitor.checkedAt','monitor.staleAfterMs','實際回傳值','等待不會更新 lastSuccessAt','pollDeadlineAt','lastFailure','訊息與游標成功寫入持久儲存並收到確認','明確同意收件對象與訊息內容','--key','delivery_unknown','不要自動重試','不要另建金鑰繞過','不可信任的資料','避免揭露憑證'])assert.ok(text.includes(required),required);
   for(const unhealthy of ['sandbox','waiting','stale','retrying','initializing','disconnected','off','no_chats'])assert.ok(text.includes(unhealthy),unhealthy);
   for(const untranslated of ['Help me use','Use the existing','Gateway URL:','Credentials are already','No AI monitoring schedule'])assert.ok(!text.includes(untranslated),untranslated);
   assert.ok(!text.includes('auth enroll'));
@@ -29,6 +29,19 @@ test('local instructions explain explicitly confirmed automatic room scope witho
   assert.ok(!localCliInstructions(account).includes('已確認自動監控'));
 });
 
+test('missing or unusable health thresholds require a fresh response instead of an invented default',()=>{
+  for(const staleAfterMs of [undefined,null,0,-1,'120000',NaN,Infinity]){
+    const current={...account,monitor:{staleAfterMs}};
+    for(const text of [localCliInstructions(current),cloudCliInstructions({accounts:[current]},current.id)]){
+      assert.ok(!text.includes('產生指引時服務回傳的門檻為'));
+      assert.ok(text.includes('monitor.staleAfterMs（毫秒）'));
+      assert.ok(text.includes('缺少門檻或成功時間時，回報無法確認收訊健康'));
+    }
+  }
+  const text=cloudCliInstructions({accounts:[{id:'unselected',monitor:{staleAfterMs:120000}}]});
+  assert.ok(!text.includes('產生指引時服務回傳的門檻為'));
+});
+
 test('zh-TW cloud instructions preserve executable commands, pagination, install guidance and secret separation',()=>{
   const state={version:'0.6.3',tunnel:{connected:true,provider:'ngrok',url:'https://synthetic.example',token:'SYNTHETIC_PRIVATE_TOKEN'}};
   const text=cloudCliInstructions(state,"account's id");assertPolicies(text);
@@ -37,7 +50,7 @@ test('zh-TW cloud instructions preserve executable commands, pagination, install
     'linebridge accounts',`linebridge chats --account ${quoted}`,`linebridge read --account ${quoted} --chat CHAT_ID --limit 30`,
     `linebridge search --account ${quoted} --query "SEARCH_TEXT" --mode all --limit 30`,`linebridge events --account ${quoted} --after 0 --limit 100`
   ]);
-  for(const required of ['請在這台雲端 AI 主機上','閘道網址：https://synthetic.example','LineBridge 0.6.3 可攜式壓縮檔','Windows x64（.zip）','macOS x64/arm64（.tar.gz）','不再支援 Linux','runtime 與 app','--version 與 accounts --help','./linebridge','.\\linebridge.cmd','npm install -g ./line-bridge-0.6.3.tgz','node bin/linebridge.mjs COMMAND','不要猜測發行檔網址','LINE_BRIDGE_TOKEN','LINE_BRIDGE_URL','不要輸出秘密','指令參數','明文檔案','--credential-stdin','不要在這裡執行 serve、設定通道或嘗試登入 LINE','hasMore 為 true','nextBefore 作為 --before','即使上一頁是空的','cursor','--after','CLI 不會因此啟動背景監看','結束代碼 8'])assert.ok(text.includes(required),required);
+  for(const required of ['請在這台雲端 AI 主機上','閘道網址：https://synthetic.example','LineBridge 0.6.3 可攜式壓縮檔','Windows x64（.zip）','Apple Silicon macOS arm64（.tar.gz）','沒有 Intel Mac x64 預編譯下載','.NET Framework 4.8','Windows 程式未簽章','未經 Apple 公證','不再支援 Linux','runtime 與 app','--version 與 accounts --help','./linebridge','.\\linebridge.cmd','npm install -g ./line-bridge-0.6.3.tgz','node bin/linebridge.mjs COMMAND','不要猜測發行檔網址','LINE_BRIDGE_TOKEN','LINE_BRIDGE_URL','不要輸出秘密','指令參數','明文檔案','--credential-stdin','不要在這裡執行 serve、設定通道或嘗試登入 LINE','hasMore 為 true','nextBefore 作為 --before','即使上一頁是空的','cursor','--after','CLI 不會因此啟動背景監看','結束代碼 8'])assert.ok(text.includes(required),required);
   assert.ok(!text.includes('SYNTHETIC_PRIVATE_TOKEN'));
 });
 test('every cloud provider/readiness branch is zh-TW with unchanged public URLs, IDs and placeholders',()=>{

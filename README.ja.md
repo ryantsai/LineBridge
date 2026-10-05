@@ -24,8 +24,8 @@ GitHub CLI がない場合は[最新リリース API](https://api.github.com/rep
 
 | プラットフォーム | ポータブル版のビルド対象とシステム要件 | ランチャーと認証情報の条件 |
 | --- | --- | --- |
-| Windows | x64。サポート中の Windows 10／11 または Server 2016+。Windows ARM64 ネイティブ版はありません。 | `linebridge.cmd`。DPAPI には同じ現在のユーザーの読み込み済み Windows profile と Windows PowerShell が必要です。 |
-| macOS | Apple Silicon `arm64` または Intel `x64`。サポート中の macOS 13.5+。 | `linebridge`。アクセス可能でロック解除済みの Keychain と `/usr/bin/security` が必要です。必要な OS 許可画面はユーザーが操作します。 |
+| Windows | x64。サポート中の Windows 10／11 または Server 2016+。トレイには **.NET Framework 4.8** が必要です。Windows ARM64 ネイティブ版はありません。 | `linebridge.cmd`。DPAPI には同じ現在のユーザーの読み込み済み Windows profile と Windows PowerShell が必要です。 |
+| macOS | v0.7.0 は Apple Silicon `arm64` を提供。サポート中の macOS 13.5+。Intel `x64` はビルド対象ですが、**v0.7.0 の Intel Mac 向けビルド済みダウンロードはありません**。 | `linebridge`。アクセス可能でロック解除済みの Keychain と `/usr/bin/security` が必要です。必要な OS 許可画面はユーザーが操作します。 |
 
 macOS は `uname -s` と `uname -m` で確認します。`x86_64` は `x64`、`arm64`／`aarch64` は `arm64` に対応します。Windows PowerShell は `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture` で確認できます。これは現在のビルド要件です。最新リリースの説明、実際のファイル、`build-info.json` も確認してください。**ビルド可能な対象でも最新リリースのダウンロードがあるとは限りません。**対応ファイルがない場合は報告し、旧版に置き換えません。
 
@@ -35,11 +35,13 @@ Windows は下記の非表示 `Start-Process`、macOS は `nohup` を使いま�
 
 ## ローカルインストールとバックグラウンド起動
 
+**ダウンロードと初回起動：**[v0.7.0 の公開ファイル](https://github.com/ryantsai/LineBridge/releases/tag/v0.7.0)は `LineBridge-0.7.0-windows-x64.zip` と `LineBridge-0.7.0-macos-arm64.tar.gz` で、Intel Mac 版はありません。新しいバージョンは実際のファイル一覧を再確認してください。Windows トレイには [.NET Framework 4.8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48) が必要です。未導入ならユーザーに Microsoft 公式の前提コンポーネントを先に導入してもらいます（管理者権限や再起動が必要な場合があります）。Windows バイナリは未署名で、SmartScreen／不明な発行元の警告が出る場合があります。Mac アプリは ad-hoc 署名のみで、Developer ID 署名と Apple の公証がなく、Gatekeeper が起動を阻止する場合があります。公式配布元と SHA-256 を確認し、必要な初回起動の確認はユーザーが行います。システムの保護を無効にしたり、完全な無人インストールを約束したりしないでください。
+
 **Windows と macOS のポータブル版には軽量トレイランチャーが含まれます。**`LineBridge.exe`（Windows）、`LineBridge.app`（macOS）を開くか、`linebridge tray` を実行します。認証必須のバックグラウンドサービスを起動するか、同じデータディレクトリの検証済みサービスに接続し、実際の管理 URL を既定のブラウザーで開きます。メニューは **Open LineBridge**、**Quit tray (keep service running)**（トレイだけ終了）、**Stop service and quit**（サービスも停止）です。展開したフォルダーを一緒に保持してください。対応 OS は Windows と macOS のみで、Linux は非対応です。`serve` だけではトレイアイコンは表示されません。Tauri ウィンドウと独立したデスクトップインストーラーは廃止しました。旧 Tauri 版から移行する場合は旧アプリを終了し、データと暗号化キーを保持したまま同じデータディレクトリでポータブルサービスを起動します。
 
 ポート競合時は安全に起動を中止し、自動で変更しません。`serve` または `tray` に `--admin-port PORT --gateway-port PORT` を指定し、gateway + 1 もコネクターの健全性確認用に空け、`status` で実際のポートを確認します。既存サービスに接続するトレイはそのポートを使用します。ゲートウェイを変更すると、URL に紐づく CLI プロファイルの更新または再登録とトンネル設定の更新が必要です。トレイ起動時のエラーはデータディレクトリの `service.stderr.log` に記録されます。
 
-最新リリースの**ポータブル CLI パッケージ**を優先します。ダウンロードして対応する `SHA256SUMS` を検証し、ユーザーが書き込める永続ディレクトリに全ファイルを展開します。ランチャー、`runtime`、`app` を一緒に保持してください。Node／npm の追加インストールや管理者権限は不要です。Windows は `Get-FileHash PATH -Algorithm SHA256`、macOS は `shasum -a 256 PATH` で比較します。[プラットフォームと OS 要件](PACKAGING.md#portable-cli-and-service-bundles)はビルド可能な対象であり、最新リリースのファイル一覧を保証しません。
+最新リリースの**ポータブル CLI パッケージ**を優先します。ダウンロードして対応する `SHA256SUMS` を検証し、ユーザーが書き込める永続ディレクトリに全ファイルを展開します。ランチャー、`runtime`、`app` を一緒に保持してください。Node／npm の追加インストールは不要で、OS の前提コンポーネントが揃っていれば展開と実行に管理者権限は不要です。Windows は `Get-FileHash PATH -Algorithm SHA256`、macOS は `shasum -a 256 PATH` で比較します。[プラットフォームと OS 要件](PACKAGING.md#portable-cli-and-service-bundles)はビルド可能な対象であり、最新リリースのファイル一覧を保証しません。
 
 `serve` 自体はフォアグラウンドで動き、バックグラウンド動作には OS のプロセス起動機能が必要です。以下の `PATH_TO_EXTRACTED_BUNDLE` を**検証済みで全ファイルを展開したディレクトリ**に置き換えます。先に既存サービスがないか確認してください。カスタムデータディレクトリやポートがある場合は、`serve`、`status`、`stop` に同じオプションを使います。
 
@@ -69,6 +71,17 @@ nohup "$bundle/linebridge" serve --require-token \
 起動は非同期です。期限を設けて `status` を再確認し、`status: running`、バージョン、データディレクトリ、実際のポートを確認します。プロセスの作成だけでは成功としません。既定の管理画面は `http://127.0.0.1:3210`、AI ゲートウェイは `http://127.0.0.1:3211` です。`--trust-local` で認証を解除したり管理画面を公開したりしないでください。バックグラウンドプロセスはインストール済みシステムサービスではなく、自動再起動や起動時の自動実行はありません。ログアウト／再起動後の動作も保証されません。継続運用やスケジュールは別途ユーザーの指示に従って設定します。
 
 停止には同じパッケージの `linebridge.cmd stop`（Windows）または `linebridge stop`（macOS）を完全なパスで使い、`status: stopped` を確認します。既存のポータブルサービスが動作中なら、ウィザードが示す内蔵 CLI を使用し、追加インストールはしません。最新リリースの npm `.tgz` またはソース方式だけが Node.js 24+ を必要とします。[代替インストールと CLI](CLI.md)を参照してください。
+
+## 更新、バックアップとロールバック
+
+1. 旧ランチャーで `status --data-dir DATA_DIR` を実行し、バージョン、**絶対データパス**、管理／ゲートウェイポート、認証方式、元の起動引数と CLI profile 名を記録します。パスを指定していなかった場合は、旧版で異なる既定パスを使っている可能性があるため `status` で確認します。旧パッケージ全体を保持し、SHA-256 を確認した新版は別ディレクトリに展開します。
+2. 旧ランチャーの `stop --data-dir DATA_DIR` を実行し、30 秒以内に `status --data-dir DATA_DIR` を再確認して `stopped` と元のサービス PID の終了を確認し、残っているトレイも終了します。**Quit tray (keep service running)** だけではサービスは止まりません。停止を確認できない場合は調査を優先し、稼働中の SQLite ファイルをコピーしません。
+3. **停止済みのデータディレクトリ全体**を、コピー元の外にある新しい保護されたバックアップ先へコピーします。少なくとも `bridge.sqlite` と対応する `vault-key.dpapi`（Windows）または `vault-key.bin`（macOS）、残存する `bridge.sqlite-wal`／`bridge.sqlite-shm` を含め、ファイル一覧、サイズ、SHA-256 を照合します。Windows の暗号化 CLI profile は `%LOCALAPPDATA%/LineBridgeClient` または `LINE_BRIDGE_CLIENT_CONFIG` から別途バックアップします。Mac の CLI profile は同じユーザーの Keychain にあり、データディレクトリのコピーには含まれません。秘密を平文で書き出さないでください。下記の詳細手順に両 OS のコピー／検証コマンドがあります。
+4. 新版の `tray --data-dir DATA_DIR --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT` または従来の認証必須のバックグラウンド起動方式を使い、同じ OS ユーザー、データパス、ポートを維持します。`--version` と配布版を照合し、期限付きの `status` 確認で実際のサービスのバージョン、パス、ポート、認証を確認します。既存 profile で `accounts`／`chats` を実行し、アカウント・チャット・アーカイブと全受信ストリームの健全性を確認します。クラウドコネクターは再起動が必要な場合があり、Quick Tunnel の URL は変わり得るため、リモート接続も再確認します。
+5. 失敗した場合は新版サービスを停止し、プロセス終了を確認します。更新後のデータディレクトリを**名前変更して保持**し、検証済みの更新前バックアップ全体を元のパスへ戻して、旧パッケージ全体と元の引数で起動します。新しい WAL が残るディレクトリに旧 DB を上書きしたり、移行済み DB を旧プログラムで開いたりしません。バックアップ後のメッセージ、カーソル、設定、許可変更は失われます。許可を変更していた場合は、有効期限／失効と既存 profile を確認してから AI アクセスを復旧します。
+6. この手順は**同じコンピューターと OS ユーザー**への復元用です。Windows DPAPI と macOS Keychain は別のユーザー／コンピューターへの移行を保証せず、OS 間で vault を直接再利用できません。内蔵の `backups/before-archive-*.sqlite` は特定の旧アーカイブ移行前に作る DB のみのバックアップで、毎回の更新では作成されず、vault キーや CLI profile も含みません。完全なバックアップの代用にはなりません。
+
+[バックアップ／復元コマンドと対象ファイル](PACKAGING.md#upgrade-backup-and-rollback)を参照してください。
 
 ## 速やかなサービス確認と許可済みの復旧
 

@@ -6,6 +6,7 @@ import {Vault} from '../server/vault.mjs';
 import {Hub} from '../server/hub.mjs';
 import {DemoDriver} from '../server/drivers.mjs';
 import {LiveMonitor} from '../protocol/monitor.mjs';
+import {localCliInstructions,cloudCliInstructions} from '../public/ai-instructions.js';
 
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -19,10 +20,21 @@ test('refresh settings default to 60 seconds, persist, validate, and apply witho
   });t.after(()=>{hub.close();store.close();});
   assert.deepEqual(hub.refreshSettings(),{intervalSeconds:60,minSeconds:3,maxSeconds:3600});
   const a=await hub.addAccount({label:'Refresh sandbox',kind:'demo'});hub.designate(a.id,'demo-group',true);await hub.monitor(a.id,true);
+  function checkInstructions(expected){
+    const current={...hub.view(store.account(a.id)),localSetup:{profile:'synthetic',url:'http://127.0.0.1:3211',chatIds:['demo-group']}};
+    const unrelated={id:'another-account',monitor:{staleAfterMs:999000}};
+    for(const text of [localCliInstructions(current),cloudCliInstructions({accounts:[unrelated,current]},a.id)]){
+      assert.ok(text.includes(`門檻為 ${expected} ms（${expected/1000} 秒）`));
+      assert.ok(text.includes('執行時仍須重新讀取'));
+      assert.ok(!text.includes('999000 ms'));assert.ok(!text.includes('60 秒的新鮮度門檻'));
+    }
+  }
+  checkInstructions(120000);
   assert.equal(starts[0][2],60000);const revision=store.setting(`monitorRevision:${a.id}`);
   await hub.setRefreshSettings({intervalSeconds:120});
   assert.equal(store.setting('messageRefreshIntervalSeconds'),120);assert.deepEqual(intervals,[120000]);assert.equal(starts.length,1);
   assert.equal(hub.view(store.account(a.id)).monitor.staleAfterMs,180000);
+  checkInstructions(180000);
   assert.equal(store.setting(`monitorRevision:${a.id}`),revision);assert.equal(store.setting(`monitor:${a.id}`),true);
   for(const value of [0,2,3601,3.5,'60',null])await assert.rejects(hub.setRefreshSettings({intervalSeconds:value}));
   await assert.rejects(hub.setRefreshSettings({intervalSeconds:60,extra:true}));assert.equal(hub.refreshSettings().intervalSeconds,120);

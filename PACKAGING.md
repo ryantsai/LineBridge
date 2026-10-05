@@ -11,6 +11,8 @@ Extract the whole archive. Use **linebridge.cmd** on Windows or **./linebridge**
 | Windows x64 | ZIP | Supported Windows 10/11 or Server 2016+; .NET Framework 4.8 for tray |
 | macOS arm64 / x64 | tar.gz | Supported macOS 13.5+ |
 
+These are build targets. The [v0.7.0 release](https://github.com/ryantsai/LineBridge/releases/tag/v0.7.0) contains Windows x64 and Apple Silicon macOS arm64 bundles only; no prebuilt Intel Mac x64 download is available for that version. Check each release's actual assets before selecting a package.
+
 Open **LineBridge.exe** or **LineBridge.app**, or run **linebridge tray**. The tray verifies or starts the service, opens its actual admin URL in the default browser, and offers Open LineBridge, Quit tray (keep service running), and Stop service and quit. Repeated launches reuse the same service and one tray per data directory. The app must stay beside runtime and app; moving only the app breaks the bundle. A service started by the tray keeps running after the tray quits. Neither extraction nor the tray configures boot startup or automatic restart.
 
 The `serve` command alone does not create a tray icon. Use `tray` to show the icon for a new or existing service.
@@ -25,7 +27,7 @@ Build on the target OS/architecture with Node 26.5.0, npm dependencies, and tar.
 
 Run **npm run check**, **npm test**, **npm run test:smoke**, **npm run package:portable**, then **npm run test:portable**. Outputs are under release/portable/<platform>-<architecture> with SHA256SUMS.txt and build-info.json. The portable workflow builds Windows x64 and both Mac architectures. Tests extract into paths containing spaces/Unicode with Node/npm removed from PATH, verify service/CLI behavior, and on Windows/macOS exercise native tray/controller startup and shutdown without opening a browser. macOS compilation and tray execution require a Mac runner.
 
-Windows binaries are unsigned. The macOS tray app is ad-hoc signed, not Developer ID signed or notarized. Portable Node retains its upstream signature.
+Windows binaries are unsigned and can trigger SmartScreen/unknown-publisher prompts. The macOS tray app is ad-hoc signed, not Developer ID signed or notarized, and Gatekeeper may block its first launch. Verify the release checksum and have the user handle necessary OS prompts. See [Microsoft's .NET Framework 4.8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48) and [Apple's first-launch guidance](https://support.apple.com/en-us/102445). Portable Node retains its upstream signature.
 
 ## Publish local builds to GitHub Releases
 
@@ -54,7 +56,7 @@ sh scripts/release.sh publish --bump patch --dry-run
 sh scripts/release.sh publish --bump patch
 ```
 
-For separate steps, `bump` accepts `patch` (the default), `minor`, `major`, or an explicit higher version. It validates and synchronizes all seven application version files without making a commit. Review and commit those edits before `tag`. `tag` marks the current committed HEAD with `v<application version>`; it requires synchronized versions and a clean checkout, refuses a tag pointing to another commit, and reuses a matching tag for retries. `tag --push` requires a branch and exactly one `origin` push URL, then atomically pushes that branch and tag. It leaves the local tag in place if pushing fails; retry the same command after fixing the push failure.
+For separate steps, `bump` accepts `patch` (the default), `minor`, `major`, or an explicit higher version. It validates and synchronizes all four application version files without making a commit. Review and commit those edits before `tag`. `tag` marks the current committed HEAD with `v<application version>`; it requires synchronized versions and a clean checkout, refuses a tag pointing to another commit, and reuses a matching tag for retries. `tag --push` requires a branch and exactly one `origin` push URL, then atomically pushes that branch and tag. It leaves the local tag in place if pushing fails; retry the same command after fixing the push failure.
 
 ```sh
 npm run version:bump -- minor --dry-run
@@ -114,7 +116,103 @@ A new release is published with generated notes by default. For its first upload
 
 The native tray uses a private pipe to a Node controller, which starts the detached portable service or verifies an existing instance. Closing the tray or losing its controller pipe leaves the service running. Only Stop service and quit (or the CLI stop command) requests verified graceful shutdown. Separate SQLite leases prevent duplicate services and trays for one data directory. The dashboard and provider sign-in open in the default browser; the admin interface and provider callback stay on loopback.
 
-The tray and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA` or pass `--data-dir DIR` to reuse an existing installation's accounts. App updates do not replace data. Back up the database and vault key together before changing machines/users.
+The tray and CLI use the same data location and schema. Set `LINE_BRIDGE_DATA` or pass `--data-dir DIR` to reuse an existing installation's accounts. App updates do not replace data. Follow the backup steps below before upgrading. Copying a backup does not make OS-protected credentials portable to another machine/user.
+
+## Upgrade backup and rollback
+
+Use these steps on the same computer and OS user. Keep the complete old bundle until the new version and its LINE receivers have been verified. Extract the checksum-verified new bundle into a separate directory; do not overwrite files used by the running service.
+
+Before stopping, run the old bundle's `status --data-dir DATA_DIR` and privately record its version, absolute `dataDir`, `adminPort`, `gatewayPort`, authentication, profile names and known launch arguments/environment. If you have never specified a data directory, run `status` first. Windows normally uses `%LOCALAPPDATA%/LineBridgeData`, macOS `~/Library/Application Support/LineBridge`, but legacy/default detection can reuse another existing path. Do not put credentials in the notes. Shutdown removes `service.json`, so record custom ports now.
+
+### Stop and copy
+
+Run the **old** launcher's `stop --data-dir DATA_DIR`. Recheck `status --data-dir DATA_DIR` for up to 30 seconds until it reports `stopped`, and confirm the previously recorded service PID has exited before copying. Quit any remaining tray, including one attached to this data directory. The tray's **Stop service and quit** does both; **Quit tray (keep service running)** alone does not stop the service. If status is `unavailable` or shutdown cannot be confirmed, investigate before proceeding. Do not copy a live SQLite database with ordinary file-copy commands.
+
+The full data directory includes the following:
+
+| Item | Backup requirement |
+| --- | --- |
+| `bridge.sqlite` | Accounts, encrypted sessions/messages, grants, settings and monitor cursors. |
+| `vault-key.dpapi` (Windows) / `vault-key.bin` (macOS) | Required matching encryption master key; retain it with the database. Windows needs the original user's DPAPI context. The Mac file is the secret key itself, protected by filesystem permissions. |
+| `bridge.sqlite-wal`, `bridge.sqlite-shm`, if present | Copy with the database after confirmed shutdown; never mix files from different snapshots. |
+| Remaining files/subdirectories | Preserve them in the full copy, including existing migration backups and connector files. Runtime PID/lease files are not proof a service is running. |
+
+Replace `DATA_DIR` with the **verified absolute path**. The examples make a new sibling directory and never overwrite an earlier backup. Use a private local location; do not upload a data/key backup to an AI chat or public share.
+
+Windows PowerShell, after confirmed shutdown:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$lineBridgeData = (Resolve-Path -LiteralPath 'DATA_DIR').Path.TrimEnd('\')
+$lineBridgeBackup = "$lineBridgeData.pre-upgrade-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+if (Test-Path -LiteralPath $lineBridgeBackup) { throw 'Backup already exists' }
+Copy-Item -LiteralPath $lineBridgeData -Destination $lineBridgeBackup -Recurse -Force
+function Get-LineBridgeManifest([string]$directory) {
+  @(Get-ChildItem -LiteralPath $directory -File -Recurse -Force | ForEach-Object {
+    [pscustomobject]@{
+      Path = $_.FullName.Substring($directory.Length + 1)
+      Length = $_.Length
+      SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }
+  } | Sort-Object Path) | ConvertTo-Json -Compress
+}
+if ((Get-LineBridgeManifest $lineBridgeData) -cne (Get-LineBridgeManifest $lineBridgeBackup)) {
+  throw 'Backup verification failed; do not upgrade'
+}
+```
+
+macOS shell, after confirmed shutdown:
+
+```sh
+data="/ABSOLUTE/EXISTING_DATA_DIR"
+backup="${data}.pre-upgrade-$(date +%Y%m%d-%H%M%S)"
+test -d "$data" && test ! -e "$backup" || exit 1
+umask 077
+ditto "$data" "$backup" || exit 1
+diff -qr "$data" "$backup" || exit 1
+shasum -a 256 "$data/bridge.sqlite" "$backup/bridge.sqlite" \
+  "$data/vault-key.bin" "$backup/vault-key.bin"
+```
+
+`diff` checks the complete copied file contents; the corresponding database and key hashes should also match. Keep the directory private (0700) and the Mac key private (0600), including in backups.
+
+**CLI profiles are separate.** On Windows, also copy the encrypted profile directory `%LOCALAPPDATA%/LineBridgeClient`, or the existing `LINE_BRIDGE_CLIENT_CONFIG` override, into a separate new sibling backup using the same PowerShell copy/manifest procedure. Do this without running enrollment/forget commands concurrently. Restore under the same user and retain profile filenames. On macOS, CLI tokens live in the user's Keychain under service `org.linebridge.cli.v1`; copying the app data directory does not back them up. Keep the same unlocked Keychain and use the user's normal OS backup method if a separate credential backup is needed. Do not export plaintext tokens. An app upgrade normally requires no profile changes.
+
+Built-in `backups/before-archive-*.sqlite` snapshots are created only when the legacy archive migration markers are absent. They are database-only, omit the vault key and CLI profiles, and are not created before every upgrade. Cross-OS vaults are rejected, and copied DPAPI/Keychain material is not a supported cross-user or cross-machine migration procedure.
+
+### Start and verify the new bundle
+
+Use the new launcher's `--version`, then `tray --data-dir DATA_DIR --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT` with the recorded values, or the original authenticated background launch method. Keep the same user, data path and authentication; reserve gateway + 1 as before. Within 30 seconds, `status --data-dir DATA_DIR` must show the expected running version, data path, ports and authentication. Inspect `service.stderr.log` if it fails and stop after that bounded attempt.
+
+Run `accounts --profile PROFILE_NAME` and `chats --profile PROFILE_NAME --account ACCOUNT_ID` using the existing profile. Verify the original accounts, designated chats and archive access, then each receiver's health against its returned `monitor.checkedAt` and `monitor.staleAfterMs`. A running HTTP listener alone is not successful recovery. Cloud connectors are stopped with the old service and may require an explicit start after upgrade; a new Quick Tunnel URL requires updating the remote AI endpoint and rechecking authenticated access.
+
+### Roll back without overlaying a database
+
+Stop the new service and tray as above, verify shutdown, and retain its logs. Reconfirm the resolved absolute original data path and backup path, and that the new `failed` path does not exist. Rename the upgraded directory to a sibling, then restore the entire verified pre-upgrade directory to the original path. Do not delete either snapshot or copy just an old `bridge.sqlite` into newer WAL/SHM files.
+
+Windows PowerShell, using the verified `$lineBridgeData` and `$lineBridgeBackup` from above:
+
+```powershell
+$lineBridgeFailed = "$lineBridgeData.failed-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+if (Test-Path -LiteralPath $lineBridgeFailed) { throw 'Recovery target already exists' }
+Move-Item -LiteralPath $lineBridgeData -Destination $lineBridgeFailed
+Copy-Item -LiteralPath $lineBridgeBackup -Destination $lineBridgeData -Recurse -Force
+if ((Get-LineBridgeManifest $lineBridgeBackup) -cne (Get-LineBridgeManifest $lineBridgeData)) {
+  throw 'Restore verification failed; do not start'
+}
+```
+
+macOS shell, using the verified `data` and `backup` paths from above:
+
+```sh
+failed="${data}.failed-$(date +%Y%m%d-%H%M%S)"
+test -d "$backup" && test ! -e "$failed" || exit 1
+mv "$data" "$failed" || exit 1
+ditto "$backup" "$data" || exit 1
+diff -qr "$backup" "$data" || exit 1
+```
+
+Start the **complete old bundle** with the recorded launch settings and original path; repeat the status/account/receiver checks. Do not run old code against the upgraded database. Rollback restores the backup's messages, cursors, settings and grants, losing changes since that snapshot; upstream LINE history may not be available to recover missed messages. Reconcile any post-backup token expiry/revocation, grant changes or newly enrolled profiles before re-enabling AI access. If Windows profile files changed, retain their current directory before restoring the matching encrypted profile backup; unchanged profiles need no restore. If a Mac Keychain entry was removed or changed, the data backup cannot restore it—use the user's OS backup or explicitly authorized re-enrollment, without exposing secrets.
 
 ## CLI archive
 
