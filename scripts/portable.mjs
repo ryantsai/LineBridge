@@ -8,11 +8,34 @@ import {VERSION} from '../server/version.mjs';
 import {buildTray} from './build-tray.mjs';
 
 export const portableNode=JSON.parse(await readFile(new URL('../packaging/portable-node.json',import.meta.url),'utf8'));
+export function parsePortableOptions(args){
+  const options={};
+  for(let i=0;i<args.length;i++){
+    const [key,...parts]=args[i].split('=');
+    if(key!=='--arch')throw new Error(`Unknown option: ${args[i]}. Use --arch x64|arm64.`);
+    if(options.arch!==undefined)throw new Error('Specify --arch only once.');
+    const arch=parts.length?parts.join('='):args[++i];
+    if(!['x64','arm64'].includes(arch))throw new Error('Use --arch x64|arm64.');
+    options.arch=arch;
+  }
+  return options;
+}
 export function portablePlan(platform=process.platform,arch=process.arch){
   const runtime=portableNode.platforms[`${platform}-${arch}`];
   if(!runtime)throw new Error(`Unsupported portable host: ${platform}-${arch}. Use Windows x64 or macOS x64/arm64.`);
   const name=platform==='win32'?'windows':'macos';
   return {...runtime,platform,arch,slug:`${name}-${arch}`,nodeName:platform==='win32'?'node.exe':'node',launcher:platform==='win32'?'linebridge.cmd':'linebridge',extension:platform==='win32'?'zip':'tar.gz'};
+}
+
+export function verifyPortableRuntime(nodePath,plan,{run=execFileSync,...options}={}){
+  let actual;
+  try{
+    actual=JSON.parse(run(nodePath,['-p','JSON.stringify({version:process.versions.node,platform:process.platform,arch:process.arch})'],{...options,encoding:'utf8',windowsHide:true,timeout:15000}));
+  }catch{
+    throw new Error(`Bundled Node for ${plan.platform}-${plan.arch} could not execute. Use a host able to run the selected architecture.${plan.platform==='darwin'&&plan.arch==='x64'?' Intel binaries on Apple Silicon require an existing Rosetta installation.':''}`);
+  }
+  if(actual?.version!==portableNode.nodeVersion || actual?.platform!==plan.platform || actual?.arch!==plan.arch)throw new Error(`Bundled Node did not match the selected ${plan.platform}-${plan.arch} target and pinned version.`);
+  return actual;
 }
 
 export function launcher(platform){
@@ -31,8 +54,8 @@ async function verifiedDownload(path,url,expected){
   await mkdir(dirname(path),{recursive:true});await writeFile(path,bytes);
 }
 
-export async function buildPortable(){
-  const plan=portablePlan(),buildRoot=resolve(root,'runtime');
+export async function buildPortable({arch=process.arch}={}){
+  const plan=portablePlan(process.platform,arch),buildRoot=resolve(root,'runtime');
   await mkdir(buildRoot,{recursive:true});
   const stage=await mkdtemp(join(buildRoot,'portable-build-'));
   try{
@@ -48,11 +71,10 @@ export async function buildPortable(){
     const nodePath=join(runtime,plan.nodeName);await writeFile(nodePath,nodeBytes,{mode:0o755});
     if(plan.platform!=='win32')await chmod(nodePath,0o755);
     await copyFile(join(extracted,prefix,'LICENSE'),join(runtime,'node-LICENSE.txt'));
-    const actual=JSON.parse(execFileSync(nodePath,['-p','JSON.stringify({version:process.versions.node,platform:process.platform,arch:process.arch})'],{encoding:'utf8',windowsHide:true}));
-    if(actual.version!==portableNode.nodeVersion || actual.platform!==plan.platform || actual.arch!==plan.arch)throw new Error('Bundled Node failed the native version/platform check.');
+    const actual=verifyPortableRuntime(nodePath,plan);
     await writeFile(join(runtime,'node-source.json'),JSON.stringify({version:actual.version,platform:plan.platform,architecture:plan.arch,source,downloadSha256:plan.sha256,sha256:sha256(nodeBytes),checksumVerified:true,license:'node-LICENSE.txt'},null,2)+'\n');
     await bundleApp(join(bundle,'app'),['bin/linebridge.mjs','protocol/worker.mjs','server/tray.mjs']);
-    const tray=await buildTray(bundle);
+    const tray=await buildTray(bundle,plan.platform,plan.arch);
     await writeFile(join(bundle,plan.launcher),launcher(plan.platform),{mode:0o755});
     for(const file of ['LICENSE','README.md','README.en.md','README.ja.md','README.zh-TW.md','CLI.md','PACKAGING.md','CONNECTIONS.md','SEARCH.md','ALIASES.md','openapi.json'])await copyFile(join(root,file),join(bundle,file));
     const command=plan.platform==='win32'?'.\\linebridge.cmd':'./linebridge';
@@ -74,6 +96,6 @@ export async function buildPortable(){
   }
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  try{if(process.argv.length!==2)throw new Error('Build on the target OS/architecture; no cross-compilation flags are supported.');await buildPortable();}
+  try{await buildPortable(parsePortableOptions(process.argv.slice(2)));}
   catch(error){console.error(error.message);process.exitCode=1;}
 }

@@ -12,6 +12,8 @@ const help = `Publish local builds to GitHub Releases (never to the npm registry
 Usage: npm run publish:github -- [options]
   --kind native|portable|npm|all
                          Default: native (portable with tray on Windows/macOS)
+  --arch x64|arm64       Portable target architecture (default: this host's CPU)
+                         macOS only for cross-architecture builds; OS stays native
   --repo OWNER/REPO      Default: repository selected by gh for this checkout
   --bump patch|minor|major|VERSION
                          Sync versions, test/build, commit, tag and push to origin
@@ -36,13 +38,16 @@ export function parseOptions(args) {
     const [key, ...parts] = args[i].split('=');
     if (['--help', '--dry-run', '--draft', '--prerelease'].includes(key) && !parts.length) {
       options[key.slice(2)] = true;
-    } else if (['--kind', '--repo', '--notes-file', '--bump'].includes(key)) {
+    } else if (['--kind', '--repo', '--notes-file', '--bump', '--arch'].includes(key)) {
       const value = parts.length ? parts.join('=') : args[++i];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${key}.`);
+      if (key === '--arch' && options.arch !== undefined) throw new Error('Specify --arch only once.');
       options[key.slice(2)] = value;
     } else throw new Error(`Unknown option: ${args[i]}. Use --help.`);
   }
   if (!['native', 'portable', 'npm', 'all'].includes(options.kind)) throw new Error('Invalid --kind. Use native, portable, npm or all.');
+  if (options.arch !== undefined && !['x64', 'arm64'].includes(options.arch)) throw new Error('Invalid --arch. Use x64 or arm64.');
+  if (options.arch !== undefined && options.kind === 'npm') throw new Error('--arch requires a portable distribution; use --kind portable or all.');
   if (options.repo && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repo)) throw new Error('--repo must be OWNER/REPO.');
   if (options.bump !== undefined) validateBump(options.bump);
   return options;
@@ -57,7 +62,7 @@ export function releasePlan(kind, platform = process.platform, arch = process.ar
   return kinds.map(type => {
     if (type === 'npm') return {type, slug: 'npm', directory: 'npm', manifest: 'package-info.json', build: 'package', test: 'test:package-cli'};
     const plan = portablePlan(platform, arch);
-    return {type, slug: `portable-${plan.slug}`, directory: `portable/${plan.slug}`, manifest: 'build-info.json', build: 'package:portable', test: 'test:portable'};
+    return {type, platform: plan.platform, arch: plan.arch, slug: `portable-${plan.slug}`, directory: `portable/${plan.slug}`, manifest: 'build-info.json', build: 'package:portable', test: 'test:portable'};
   });
 }
 
@@ -72,6 +77,10 @@ export async function stageAssets(plan, version, releaseRoot = join(root, 'relea
     const filename = info.filename ?? info.file;
     if (info.version !== version) throw new Error(`Stale ${item.slug} build: expected ${version}, got ${info.version}.`);
     if (typeof filename !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(filename) || !filename.includes(version)) throw new Error(`Invalid artifact filename for ${item.slug}.`);
+    if (item.type === 'portable') {
+      const target = portablePlan(item.platform, item.arch);
+      if (info.platform !== item.platform || info.architecture !== item.arch || filename !== `LineBridge-${version}-${target.slug}.${target.extension}`) throw new Error(`Portable target mismatch for ${item.slug}: expected ${item.platform}/${item.arch}.`);
+    }
     const digest = sha256(await readFile(join(source, filename)));
     if (digest !== info.sha256) throw new Error(`SHA-256 mismatch for ${filename}.`);
     const sums = await readFile(join(source, 'SHA256SUMS.txt'), 'utf8');
@@ -150,16 +159,21 @@ export async function main(args = process.argv.slice(2), {
   run = (executable, args, inherit) => command(executable, args, inherit, directory),
   runNpm = npm,
   log = console.log,
+  platform = process.platform,
+  arch = process.arch,
 } = {}) {
   const options = parseOptions(args);
   if (options.help) { console.log(help); return; }
   if (options['notes-file']) options['notes-file'] = resolve(options['notes-file']);
   const versions = await versionPlan(options.bump, directory);
-  const tag = `v${versions.version}`, plan = releasePlan(options.kind);
+  const tag = `v${versions.version}`, plan = releasePlan(options.kind, platform, options.arch ?? arch);
   log(`GitHub release: ${options.repo ?? '(current repository)'} / ${tag}`);
   if (options.bump) log(`Version: ${versions.current} -> ${versions.version}\nUpdate: ${versions.files.map(file => file.path).join(', ')}`);
   log('npm run check\nnpm test\nnpm run test:smoke');
-  for (const item of plan) log(`npm run ${item.build}\nnpm run ${item.test}\n  Assets: release/${item.directory} (verified artifact + uniquely named checksum and metadata)`);
+  for (const item of plan) {
+    const suffix = item.type === 'portable' ? ` -- --arch ${item.arch}` : '';
+    log(`npm run ${item.build}${suffix}\nnpm run ${item.test}${suffix}\n  Assets: release/${item.directory} (verified artifact + uniquely named checksum and metadata)`);
+  }
   log(`Staging: release/github/${tag}/`);
   if (options.bump) log(`After verification: git add <version files>\ngit commit -m "Release ${tag}"\ngit tag ${tag}\ngit push --atomic origin HEAD refs/tags/${tag}`);
   if (options['dry-run']) return;
@@ -179,8 +193,9 @@ export async function main(args = process.argv.slice(2), {
   if (options.bump) await applyVersionPlan(versions, directory);
   for (const script of ['check', 'test', 'test:smoke']) await runNpm(['run', script], {cwd: directory, stdio: 'inherit'});
   for (const item of plan) {
-    await runNpm(['run', item.build], {cwd: directory, stdio: 'inherit'});
-    await runNpm(['run', item.test], {cwd: directory, stdio: 'inherit'});
+    const targetArgs = item.type === 'portable' ? ['--', '--arch', item.arch] : [];
+    await runNpm(['run', item.build, ...targetArgs], {cwd: directory, stdio: 'inherit'});
+    await runNpm(['run', item.test, ...targetArgs], {cwd: directory, stdio: 'inherit'});
   }
   const assets = await stageAssets(plan, versions.version, join(directory, 'release'));
   if (options.bump) {

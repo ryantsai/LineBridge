@@ -15,6 +15,9 @@ test('publish options and native platform selection', () => {
   assert.deepEqual(parseOptions(['--kind=portable', '--repo', 'owner/repo', '--dry-run']), {kind: 'portable', repo: 'owner/repo', 'dry-run': true});
   assert.equal(parseOptions(['--bump=patch']).bump, 'patch');
   assert.equal(parseOptions(['--bump', '0.7.0-rc.1']).bump, '0.7.0-rc.1');
+  assert.equal(parseOptions(['--arch=x64']).arch, 'x64');
+  assert.equal(parseOptions(['--arch', 'arm64']).arch, 'arm64');
+  for (const args of [['--arch'], ['--arch', '--dry-run'], ['--arch=amd64'], ['--arch=x64', '--arch=arm64'], ['--kind=npm', '--arch=x64']]) assert.throws(() => parseOptions(args));
   for (const args of [['--kind'], ['--kind', '--draft'], ['--kind=invalid'], ['--repo=x'], ['--clobber'], ['--draft=false'], ['--bump'], ['--bump', '--draft'], ['--bump=invalid']]) assert.throws(() => parseOptions(args));
   assert.deepEqual(releasePlan('native', 'win32', 'x64').map(p => p.build), ['package:portable']);
   assert.throws(() => releasePlan('native', 'linux', 'arm64'), /Unsupported/);
@@ -32,10 +35,10 @@ test('stage only current verified artifacts with distinct platform metadata name
     for (const item of plan) {
       const source = join(directory, item.directory);
       await mkdir(source, {recursive: true});
-      const filename = `LineBridge-0.6.0-${item.slug}.zip`, bytes = Buffer.from(item.slug), digest = sha256(bytes);
+      const filename = 'LineBridge-0.6.0-windows-x64.zip', bytes = Buffer.from(item.slug), digest = sha256(bytes);
       await writeFile(join(source, filename), bytes);
       await writeFile(join(source, 'old-private-file.zip'), 'must not upload');
-      await writeFile(join(source, item.manifest), JSON.stringify({version: '0.6.0', filename, sha256: digest}));
+      await writeFile(join(source, item.manifest), JSON.stringify({version: '0.6.0', platform: item.platform, architecture: item.arch, filename, sha256: digest}));
       await writeFile(join(source, 'SHA256SUMS.txt'), `${digest}  ${filename}\n`);
     }
     const assets = await stageAssets(plan, '0.6.0', directory);
@@ -46,6 +49,11 @@ test('stage only current verified artifacts with distinct platform metadata name
     await assert.rejects(stageAssets(plan, '0.7.0', directory), /Stale/);
     const source = join(directory, plan[0].directory), manifest = join(source, plan[0].manifest);
     const info = JSON.parse(await readFile(manifest, 'utf8'));
+    for (const wrongTarget of [{architecture: 'arm64'}, {platform: 'darwin'}, {filename: 'LineBridge-0.6.0-macos-x64.tar.gz'}]) {
+      await writeFile(manifest, JSON.stringify({...info, ...wrongTarget}));
+      await assert.rejects(stageAssets(plan, '0.6.0', directory), /Portable target mismatch/);
+    }
+    await writeFile(manifest, JSON.stringify(info));
     await writeFile(join(source, 'SHA256SUMS.txt'), 'invalid checksum entry');
     await assert.rejects(stageAssets(plan, '0.6.0', directory), /Checksum manifest mismatch/);
     await writeFile(join(source, info.filename), 'tampered');
@@ -91,7 +99,7 @@ async function publishFixture(t) {
   git(['commit', '-m', 'Initial fixture']);
   git(['remote', 'add', 'origin', 'https://github.com/example/linebridge.git']);
   const initial = git(['rev-parse', 'HEAD']);
-  const state = {calls: [], scripts: [], output: [], remoteTag: null, release: null};
+  const state = {calls: [], scripts: [], npmCalls: [], output: [], remoteTag: null, release: null};
   const notFound = () => { throw Object.assign(new Error('Not Found'), {stderr: 'gh: Not Found (HTTP 404)'}); };
   const run = (executable, args) => {
     state.calls.push([executable, args]);
@@ -122,6 +130,7 @@ async function publishFixture(t) {
   const runNpm = async args => {
     const script = args[1];
     state.scripts.push(script);
+    state.npmCalls.push(args);
     if (script === state.failAt) throw new Error('synthetic build failure');
     const version = (await versionPlan(undefined, directory)).current;
     if (script === 'package') {
@@ -131,10 +140,70 @@ async function publishFixture(t) {
       await writeFile(join(out, 'SHA256SUMS.txt'), `${digest}  ${filename}\n`);
       await writeFile(join(out, 'package-info.json'), JSON.stringify({version, filename, sha256: digest}));
     }
+    if (script === 'package:portable') {
+      assert.deepEqual(args.slice(2, 4), ['--', '--arch']);
+      const architecture = args[4], platform = state.portablePlatform ?? process.platform;
+      const slug = `${platform === 'darwin' ? 'macos' : 'windows'}-${architecture}`;
+      const filename = `LineBridge-${version}-${slug}.${platform === 'darwin' ? 'tar.gz' : 'zip'}`;
+      const out = join(directory, 'release', 'portable', slug), bytes = Buffer.from('synthetic portable package'), digest = sha256(bytes);
+      await mkdir(out, {recursive: true});
+      await writeFile(join(out, filename), bytes);
+      await writeFile(join(out, 'SHA256SUMS.txt'), `${digest}  ${filename}\n`);
+      await writeFile(join(out, 'build-info.json'), JSON.stringify({version, platform, architecture, filename, sha256: digest}));
+    }
     if (script === 'test:package-cli' && state.changeDuringBuild) await writeFile(join(directory, 'unrelated.txt'), 'concurrent edit');
   };
   return {directory, current, initial, git, state, dependencies: {directory, run, runNpm, log: message => state.output.push(message)}};
 }
+
+test('Intel macOS dry-run selects matching build, smoke and asset paths without side effects', async t => {
+  const {state, dependencies} = await publishFixture(t);
+  await main(['--arch', 'x64', '--dry-run'], {...dependencies, platform: 'darwin', arch: 'arm64'});
+  assert.deepEqual(state.calls, []);
+  assert.deepEqual(state.npmCalls, []);
+  const output = state.output.join('\n');
+  assert.ok(output.includes('npm run package:portable -- --arch x64'));
+  assert.ok(output.includes('npm run test:portable -- --arch x64'));
+  assert.ok(output.includes('release/portable/macos-x64'));
+  assert.ok(!output.includes('macos-arm64'));
+});
+
+test('selected Intel target reaches build and smoke before append; all does not pass CPU options to npm packaging', async t => {
+  const {initial, git, state, dependencies} = await publishFixture(t);
+  state.remoteTag = initial;
+  state.portablePlatform = 'darwin';
+  state.release = {assets: [], html_url: 'https://github.com/example/linebridge/releases'};
+  await main(['--arch', 'x64', '--kind', 'all'], {...dependencies, platform: 'darwin', arch: 'arm64'});
+  assert.deepEqual(state.npmCalls, [
+    ['run', 'check'], ['run', 'test'], ['run', 'test:smoke'],
+    ['run', 'package:portable', '--', '--arch', 'x64'],
+    ['run', 'test:portable', '--', '--arch', 'x64'],
+    ['run', 'package'], ['run', 'test:package-cli'],
+  ]);
+  const upload = state.calls.find(([exe, args]) => exe === 'gh' && args[0] === 'release');
+  assert.equal(upload[1][1], 'upload');
+  assert.ok(upload[1].some(arg => arg.endsWith('-macos-x64.tar.gz')));
+  assert.ok(!upload[1].some(arg => arg.includes('macos-arm64')));
+  assert.equal(git(['rev-parse', 'HEAD']), initial);
+});
+
+test('failed target execution smoke prevents any release upload', async t => {
+  const {initial, state, dependencies} = await publishFixture(t);
+  state.remoteTag = initial;
+  state.portablePlatform = 'darwin';
+  state.failAt = 'test:portable';
+  await assert.rejects(main(['--arch=x64'], {...dependencies, platform: 'darwin', arch: 'arm64'}), /synthetic build failure/);
+  assert.ok(state.npmCalls.some(args => args[1] === 'test:portable' && args[4] === 'x64'));
+  assert.ok(!state.calls.some(([exe, args]) => exe === 'gh' && args[0] === 'release'));
+});
+
+test('unsupported Windows target fails before builds, GitHub or version edits', async t => {
+  const {directory, current, state, dependencies} = await publishFixture(t);
+  await assert.rejects(main(['--arch=arm64', '--bump=patch'], {...dependencies, platform: 'win32', arch: 'x64'}), /Unsupported/);
+  assert.deepEqual(state.calls, []);
+  assert.deepEqual(state.npmCalls, []);
+  assert.equal((await versionPlan(undefined, directory)).current, current);
+});
 
 test('bump dry-run previews the new version without git, GitHub, builds or file writes', async t => {
   const fixture = await publishFixture(t);

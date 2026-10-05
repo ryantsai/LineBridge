@@ -21,7 +21,8 @@ Commands:
                       Tag clean, committed HEAD as v<application version>.
                       --push atomically pushes the branch and tag to origin.
                       Reuses an existing tag only when it points to HEAD.
-  publish [options]   Test, build and publish this host's native packages.
+  publish [options]   Test, build and publish packages on this host OS.
+                      Add --arch x64 on macOS to select an Intel portable build.
                       Add --bump patch to also bump, commit, tag and push.
                       Use publish --help for all publishing options.
 

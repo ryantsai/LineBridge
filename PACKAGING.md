@@ -11,7 +11,7 @@ Extract the whole archive. Use **linebridge.cmd** on Windows or **./linebridge**
 | Windows x64 | ZIP | Supported Windows 10/11 or Server 2016+; .NET Framework 4.8 for tray |
 | macOS arm64 / x64 | tar.gz | Supported macOS 13.5+ |
 
-These are build targets. The [v0.7.0 release](https://github.com/ryantsai/LineBridge/releases/tag/v0.7.0) contains Windows x64 and Apple Silicon macOS arm64 bundles only; no prebuilt Intel Mac x64 download is available for that version. Check each release's actual assets before selecting a package.
+These are build targets, not a guarantee that all architectures have been published. Select a compatible archive, checksum and build metadata from the [latest release's actual assets](https://github.com/ryantsai/LineBridge/releases/latest). Report a missing architecture instead of guessing its download URL or substituting an older release.
 
 Open **LineBridge.exe** or **LineBridge.app**, or run **linebridge tray**. The tray verifies or starts the service, opens its actual admin URL in the default browser, and offers Open LineBridge, Quit tray (keep service running), and Stop service and quit. Repeated launches reuse the same service and one tray per data directory. The app must stay beside runtime and app; moving only the app breaks the bundle. A service started by the tray keeps running after the tray quits. Neither extraction nor the tray configures boot startup or automatic restart.
 
@@ -23,9 +23,20 @@ Tunnel helpers are optional and downloaded separately through the dashboard; see
 
 ## Build and verify
 
-Build on the target OS/architecture with Node 26.5.0, npm dependencies, and tar. Windows also uses the OS .NET Framework C# compiler; macOS needs Xcode Command Line Tools (swiftc and codesign). No Rust or Tauri dependencies are needed. Node runtime downloads are pinned and checked using packaging/portable-node.json.
+Build locally on the target OS with Node 26.5.0, npm dependencies, and tar. Windows also uses the OS .NET Framework C# compiler; macOS needs Xcode Command Line Tools (swiftc and codesign). The default architecture is the build process's architecture; `--arch x64` selects the Intel target. No Rust or Tauri dependencies are needed. Node runtime downloads are pinned and checked using packaging/portable-node.json. Windows cannot build or validate a Mac bundle.
 
-Run **npm run check**, **npm test**, **npm run test:smoke**, **npm run package:portable**, then **npm run test:portable**. Outputs are under release/portable/<platform>-<architecture> with SHA256SUMS.txt and build-info.json. The portable workflow builds Windows x64 and both Mac architectures. Tests extract into paths containing spaces/Unicode with Node/npm removed from PATH, verify service/CLI behavior, and on Windows/macOS exercise native tray/controller startup and shutdown without opening a browser. macOS compilation and tray execution require a Mac runner.
+Run **npm run check**, **npm test**, **npm run test:smoke**, **npm run package:portable**, then **npm run test:portable**. Outputs are under release/portable/<platform>-<architecture> with SHA256SUMS.txt and build-info.json. Tests extract into paths containing spaces/Unicode with Node/npm removed from PATH, verify service/CLI behavior, and on Windows/macOS exercise native tray/controller startup and shutdown without opening a browser. These are local build commands; they do not require enabling or running GitHub Actions.
+
+### Intel Mac bundle
+
+Run the following on a Mac with the build prerequisites above:
+
+```sh
+npm run package:portable -- --arch x64
+npm run test:portable -- --arch x64
+```
+
+A native Intel Mac provides the strongest target-hardware validation. An Apple Silicon Mac can build and run the Intel bundle only with an existing Rosetta installation and Xcode Command Line Tools; report that result as Rosetta validation, not native Intel hardware testing. Do not install Rosetta automatically. Both routes must execute the packaged Intel Node runtime and Intel tray/controller smoke tests successfully; compilation or an architecture header alone is insufficient. Keep the generated `macos-x64` archive, checksum and build metadata together. Building does not publish an Intel download.
 
 Windows binaries are unsigned and can trigger SmartScreen/unknown-publisher prompts. The macOS tray app is ad-hoc signed, not Developer ID signed or notarized, and Gatekeeper may block its first launch. Verify the release checksum and have the user handle necessary OS prompts. See [Microsoft's .NET Framework 4.8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48) and [Apple's first-launch guidance](https://support.apple.com/en-us/102445). Portable Node retains its upstream signature.
 
@@ -68,7 +79,14 @@ npm run release -- publish --dry-run
 npm run release -- publish
 ```
 
-After the first platform publishes a version, check out the same pushed tag on each other native OS/architecture and run `publish` without `--bump` to append its packages. Windows/macOS publish portable packages by default. `publish --kind all` also includes the npm archive (upload it only once per version). Use `publish --help` for repository, draft, prerelease and release-notes options. Every command accepts `--dry-run` without writes, builds, pushes or GitHub requests; `tag` previews still run local read-only Git checks.
+After the first platform publishes a version, check out the same pushed tag on each other supported build host and run `publish` without `--bump` to append its packages. To add Intel Mac assets from a Mac with the Intel execution prerequisites above, preview and then publish that same tag:
+
+```sh
+sh scripts/release.sh publish --arch x64 --dry-run
+sh scripts/release.sh publish --arch x64
+```
+
+Do not bump the version when appending another architecture. Windows/macOS publish portable packages by default. `publish --kind all` selects distribution types (portable plus npm), not every CPU architecture; `--arch` selects the portable target. Upload the npm archive only once per version. Use `publish --help` for repository, draft, prerelease and release-notes options. Every command accepts `--dry-run` without writes, builds, pushes or GitHub requests; `tag` previews still run local read-only Git checks.
 
 ### Publisher setup and recovery
 
@@ -97,7 +115,7 @@ npm run publish:github
 
 Use the version from `package.json` in place of `0.6.1`. If the tag already exists, check out its commit instead of recreating it. Publishing requires a clean checkout whose HEAD matches the tag on GitHub. The repository defaults to the one selected by `gh` for this checkout; use `--repo OWNER/REPO` to select it explicitly.
 
-`publish:github` builds and uploads the native portable bundle on Windows/macOS. Run it on each native OS/architecture to add that platform to the same release. To publish only one distribution:
+`publish:github` builds and uploads the selected portable architecture on Windows/macOS. Run it on the corresponding OS with working target execution support to add that architecture to the same release; Mac x64 follows the Intel/Rosetta validation requirements above. To publish only one distribution:
 
 ```sh
 npm run publish:portable

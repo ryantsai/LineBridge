@@ -21,7 +21,7 @@ export function cloudCliInstructions(state,accountId){
 閘道網址：${url}
 ${ready?'請使用這個連線網址，並確認這台主機能連線到閘道。':'雲端連線尚未設定。執行指令前，請先向我確認這台主機能連線的閘道網址；不要用雲端主機的 localhost 連線到我的電腦。'}
 ${t?.provider==='tailscale'?'這台主機必須先加入同一個 Tailscale tailnet，才能連線到閘道。\n':''}${t?.provider==='cloudflare'?'此閘道另需由我的秘密管理工具提供 CF_ACCESS_CLIENT_ID 與 CF_ACCESS_CLIENT_SECRET。\n':''}
-1. 若尚未安裝 CLI，請向我索取適合這台主機且該版本實際已發布的 LineBridge ${version} 可攜式壓縮檔。v0.7.0 提供 Windows x64（.zip）與 Apple Silicon macOS arm64（.tar.gz），沒有 Intel Mac x64 預編譯下載；其他版本須重新核對發布檔案。不再支援 Linux。Windows 系統匣需要 .NET Framework 4.8；Windows 程式未簽章，Mac 程式未經 Apple 公證，首次開啟可能需要使用者處理 OS 提示。請完整解壓縮，並將 runtime 與 app 資料夾保留在一起。可攜式啟動程式已包含 Node，不必另裝 Node/npm。使用啟動程式執行 --version 與 accounts --help。macOS 使用 ./linebridge，Windows 使用 .\\linebridge.cmd，也可使用啟動程式的絕對路徑。除非所在資料夾已加入 PATH，否則請將以下範例中的 linebridge 換成啟動程式的路徑。
+1. 若尚未安裝 CLI，請向我索取適合這台主機且該版本實際已發布的 LineBridge ${version} 可攜式壓縮檔。請核對該版本的實際發布檔案：Windows x64 使用對應 .zip；Apple Silicon macOS arm64 與 Intel macOS x64 使用各自的 .tar.gz。沒有相容套件時先回報，不用其他架構或舊版代替。不再支援 Linux。Windows 系統匣需要 .NET Framework 4.8；Windows 程式未簽章，Mac 程式未經 Apple 公證，首次開啟可能需要使用者處理 OS 提示。請完整解壓縮，並將 runtime 與 app 資料夾保留在一起。可攜式啟動程式已包含 Node，不必另裝 Node/npm。使用啟動程式執行 --version 與 accounts --help。macOS 使用 ./linebridge，Windows 使用 .\\linebridge.cmd，也可使用啟動程式的絕對路徑。除非所在資料夾已加入 PATH，否則請將以下範例中的 linebridge 換成啟動程式的路徑。
    若我提供的是 npm 壓縮檔，則需要 Node.js 24+，並執行 npm install -g ./line-bridge-${version}.tgz。若使用原始碼，請先安裝相依套件，再使用 node bin/linebridge.mjs COMMAND。不要猜測發行檔網址或下載無關套件。
 2. 請透過主機的秘密管理工具注入 LINE_BRIDGE_TOKEN（限指定範圍且具讀取權限的 API 金鑰），並將 LINE_BRIDGE_URL 設為上述閘道網址。不要輸出秘密、將秘密放入指令參數，或存成明文檔案。無桌面環境的主機可使用環境變數憑證或 --credential-stdin，不需要桌面鑰匙圈。不要在這裡執行 serve、設定通道或嘗試登入 LINE。
 3. 確認存取權限並列出指定聊天室：

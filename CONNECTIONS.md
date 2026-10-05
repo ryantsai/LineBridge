@@ -4,9 +4,15 @@ LineBridge runs on your computer and reaches LINE here. An AI controlling this c
 
 For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
 
-Only gateway port 3211 is forwarded. The administrator interface stays on loopback port 3210. Keep the background service running: closing the browser or choosing **Quit tray (keep service running)** leaves monitoring and owned connectors running. **Stop service and quit** or `linebridge stop --data-dir DIR` stops the verified service, monitoring and its owned connectors; confirm `status: stopped` using the same data directory. The cloud connection's **停止** button stops only that connector. Quick Tunnel, Cloudflare Tunnel + Access, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
+Forward only the actual gateway port reported by `status` (default 3211). The administrator interface stays on loopback (default port 3210); never forward it. Keep the background service running: closing the browser or choosing **Quit tray (keep service running)** leaves monitoring and owned connectors running. **Stop service and quit** or `linebridge stop --data-dir DIR` stops the verified service, monitoring and its owned connectors; confirm `status: stopped` using the same data directory. The cloud connection's **停止** button stops only that connector. Quick Tunnel, Cloudflare Tunnel + Access, ngrok, Tailscale Funnel and installed-client Tailscale Serve are supported.
 
 An unsupported provider saved by an older installation falls back to local access. Choose a supported provider in the dashboard to restore remote access; saved Cloudflare named-tunnel settings remain available.
+
+## MCP client setup
+
+LineBridge exposes stateless Streamable HTTP MCP at the gateway's `/mcp` endpoint, using JSON responses. It does not provide a stdio MCP launcher or automatically register itself in an AI client. Configure a compatible HTTP MCP client with that endpoint and a scoped Bearer token supplied through its private credential settings; include Cloudflare Access credentials when required. A client that accepts only a local stdio command cannot directly use this endpoint.
+
+An AI with terminal access on the same Windows/Mac computer can use the existing protected CLI profile without MCP registration or a tunnel. A cloud-only agent needs a reachable HTTPS gateway and separately authorized credentials; the local wizard profile cannot be used through a tunnel. Linux hosts can use HTTP/MCP clients, but the supported LineBridge CLI and service run only on Windows/macOS. Creating a tunnel or granting remote access requires the user's authorization and is not implied by local installation.
 
 ## Test from the cloud VM
 
@@ -30,7 +36,7 @@ Existing routes on the selected port are never overwritten. An exact matching ex
 
 ## Quick Tunnel
 
-Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. The bundled cloudflared obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it and append `/mcp` or `/api/v1` in the AI client, alongside its Bearer token. Stop closes the owned connector and clears the URL; restarting obtains another URL. Public DNS may need time to propagate. The optional CLI requires cloudflared on PATH or `LINE_BRIDGE_CLOUDFLARED`.
+Install the official cloudflared separately and make it available on PATH before starting LineBridge, or set its absolute path with `LINE_BRIDGE_CLOUDFLARED`; it is not included in the portable bundle. Select **Cloudflare Quick Tunnel · 免帳號**, then **啟動連線**. The connector obtains a temporary `https://….trycloudflare.com` URL without an account or domain. Copy it and append `/mcp` or `/api/v1` in the AI client, alongside its Bearer token. Stop closes the owned connector and clears the URL; restarting obtains another URL. Public DNS may need time to propagate.
 
 The URL is Internet-reachable; authentication comes from the LineBridge token, without Cloudflare Access. Quick Tunnel is temporary, has no uptime guarantee, limits concurrency and does not support SSE. LineBridge uses JSON MCP responses. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
