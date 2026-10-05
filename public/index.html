@@ -1,98 +1,314 @@
 <!doctype html>
 <html lang="zh-TW">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LineBridge｜LINE 帳號橋接器</title><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/fonts/noto-sans-tc.css"><link rel="stylesheet" href="/styles.css"><script src="/app.js" type="module"></script></head>
-<body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0d10">
+<title>開始 · LineBridge</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/fonts/noto-sans-tc.css">
+<link rel="stylesheet" href="/styles.css">
+<script src="/app.js" type="module"></script>
+</head>
+<body data-page="setup">
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="LineBridge 首頁"><img src="/icon.svg" alt="" width="48" height="48"><span>LineBridge</span></a>
-    <nav aria-label="主要導覽">
-      <button class="nav active" data-tab="setup" aria-current="page"><span class="icon icon-play-circle" aria-hidden="true"></span><span class="nav-text">開始設定</span></button>
-      <button class="nav" data-tab="monitoring"><span class="icon icon-chats-circle" aria-hidden="true"></span><span class="nav-text">訊息監控</span></button>
-      <button class="nav" data-tab="archive"><span class="icon icon-magnifying-glass" aria-hidden="true"></span><span class="nav-text">封存搜尋</span></button>
-      <button class="nav" data-tab="accounts"><span class="icon icon-users" aria-hidden="true"></span><span class="nav-text">帳號與聊天室</span></button>
-      <div class="nav-divider"></div><div class="nav-caption">設定</div>
-      <button class="nav" data-tab="access"><span class="icon icon-key" aria-hidden="true"></span><span class="nav-text">API 金鑰與 AI 存取</span></button>
-      <button class="nav" data-tab="tunnel"><span class="icon icon-arrows-left-right" aria-hidden="true"></span><span class="nav-text">雲端連線與通道</span></button>
-      <button class="nav" data-tab="activity"><span class="icon icon-clock-counter-clockwise" aria-hidden="true"></span><span class="nav-text">活動紀錄</span></button>
+    <a class="brand" href="/" aria-label="LineBridge 首頁"><img src="/icon.svg" alt="" width="28" height="28"><span>LineBridge</span></a>
+    <nav class="nav-list" aria-label="主要導覽">
+      <span class="nav-indicator gone" aria-hidden="true"></span>
+      <button class="nav active" data-tab="setup" data-icon="play" aria-current="page"><span class="nav-label">開始</span></button>
+      <button class="nav" data-tab="monitoring" data-icon="pulse"><span class="nav-label">監控</span></button>
+      <button class="nav" data-tab="archive" data-icon="search"><span class="nav-label">搜尋</span></button>
+      <button class="nav" data-tab="accounts" data-icon="chats"><span class="nav-label">聊天室</span></button>
+      <span class="nav-sep" aria-hidden="true"></span>
+      <button class="nav" data-tab="access" data-icon="key"><span class="nav-label">AI 存取</span></button>
+      <button class="nav" data-tab="tunnel" data-icon="cloud"><span class="nav-label">雲端連線</span></button>
+      <button class="nav" data-tab="activity" data-icon="history"><span class="nav-label">紀錄</span></button>
     </nav>
-    <div class="sidebar-footer"><span class="status-dot" id="local-status-dot"></span><span id="local-status-text">本機服務運作中</span></div>
+    <div class="sidebar-foot">
+      <span class="status" id="local-status" role="status"><span class="status-dot"></span><span id="local-status-text">連線中</span></span>
+      <button class="icon-btn" id="refresh" data-icon="refresh" aria-label="重新整理" title="重新整理"></button>
+    </div>
   </aside>
+
   <main>
-    <header><div><div class="breadcrumb">工作區 <span>/</span> <span id="breadcrumb-page">開始設定</span></div><h1 id="page-title">開始設定</h1><p id="page-description">連接帳號、選擇聊天室，並確認 AI 讀取與傳送權限。</p></div><button class="button icon-button" id="refresh" aria-label="重新整理" title="重新整理"><span class="icon icon-arrows-clockwise" aria-hidden="true"></span></button></header>
-    <div id="service-error" class="notice danger" hidden></div>
-    <section id="setup" class="page active" aria-label="設定精靈">
-      <ol class="wizard-steps" aria-label="設定進度"><li class="current" aria-current="step"><span>1</span><strong>連接帳號</strong></li><li><span>2</span><strong>選擇聊天室</strong></li><li><span>3</span><strong>啟用讀取 + 傳送</strong></li></ol>
+    <div id="service-error" class="banner" role="alert" hidden></div>
+
+    <section id="setup" class="page active" aria-labelledby="setup-title">
+      <h1 class="sr-only" id="setup-title">開始</h1>
+      <ol class="stepper" aria-label="設定進度">
+        <li class="current" aria-current="step"><span class="step-dot">1</span><span class="step-label">帳號</span><i class="step-bar"></i></li>
+        <li><span class="step-dot">2</span><span class="step-label">聊天室</span><i class="step-bar"></i></li>
+        <li><span class="step-dot">3</span><span class="step-label">授權</span></li>
+      </ol>
       <div class="wizard-card" id="wizard-content"></div>
-      <p class="wizard-footnote">確認帳號、聊天室與讀取 + 傳送權限後才會啟用。遠端與手動設定可從左側選單管理。</p>
     </section>
+
     <section id="monitoring" class="page">
-      <section class="metrics" aria-label="服務狀態"><div class="metric"><span>已連線帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail">正在檢查服務…</small></div><div class="metric"><span>AI 存取</span><strong class="text-status" id="metric-tokens">—</strong><small id="metric-access-detail">有效的 AI 權杖</small></div><div class="metric"><span>AI 連線</span><strong class="text-status" id="metric-tunnel">—</strong><small id="metric-tunnel-detail">同一台主機 · 直接連線</small></div><div class="metric"><span>AI 閘道</span><div class="gateway-value"><strong id="metric-gateway" class="text-status">—</strong><button id="pause" class="button tiny">暫停</button></div><small>MCP 工具 + HTTP API</small></div></section>
-      <div class="section-heading"><div><h2>新訊息監聽</h2><p id="refresh-summary">追蹤指定聊天室的新訊息，自動更新間隔為 60 秒。</p></div><select id="monitor-account" aria-label="監控帳號"></select></div>
-      <form id="refresh-settings-form" class="panel refresh-settings"><label for="refresh-interval">自動更新間隔（秒）<input id="refresh-interval" name="intervalSeconds" type="number" min="3" max="3600" step="1" value="60" required aria-describedby="refresh-settings-help"></label><button class="button" id="save-refresh-settings" type="submit">儲存間隔</button><p id="refresh-settings-help">所有帳號共用，範圍 3–3600 秒。套用至本機介面更新與 LINE 每次成功輪詢後的等待時間。立即重新整理不受此間隔限制。</p><p id="refresh-settings-status" role="status" aria-live="polite"></p></form>
-      <div class="panel monitor-panel"><div class="monitor-bar"><div><strong id="monitor-account-name">選擇帳號</strong><p id="monitor-detail">選擇已連線的帳號以開始監聽。</p></div><button class="button" id="toggle-monitor" disabled>開始監聽</button></div><div id="monitor-streams" class="monitor-streams"></div><div id="monitor-feed" class="monitor-feed"><div class="empty"><span class="empty-icon"><span class="icon icon-chats-circle" aria-hidden="true"></span></span><h3>訊息會顯示在這裡</h3><p>啟用監聽後，新訊息會儲存到本機的加密收件匣。</p></div></div></div>
-      <p class="footnote">所有成功接收的監控訊息都會加密儲存於 SQLite，不會因訊息數量自動刪除。可在「封存搜尋」依全文查找；離線缺口取決於 LINE 能否補送。</p>
+      <header class="page-head">
+        <h1>監控</h1>
+        <div class="page-actions">
+          <label class="sr-only" for="monitor-account">帳號</label>
+          <select id="monitor-account" class="compact"></select>
+          <button class="switch-field" id="toggle-monitor" role="switch" aria-checked="false" disabled><span class="switch" aria-hidden="true"></span>監聽</button>
+        </div>
+      </header>
+      <div class="stats">
+        <div class="stat"><span class="stat-label" data-icon="users">帳號</span><strong id="metric-accounts">—</strong><small id="metric-account-detail"></small></div>
+        <div class="stat"><span class="stat-label" data-icon="key">AI 存取</span><strong id="metric-tokens">—</strong><small id="metric-access-detail"></small></div>
+        <div class="stat"><span class="stat-label" data-icon="cloud">雲端連線</span><strong id="metric-tunnel">—</strong><small id="metric-tunnel-detail"></small></div>
+        <div class="stat"><span class="stat-label" data-icon="bolt">AI 閘道</span><span class="stat-row"><strong id="metric-gateway">—</strong><button class="switch" id="pause" role="switch" aria-checked="true" aria-label="AI 閘道"></button></span><small>MCP + HTTP API</small></div>
+      </div>
+      <div class="panel feed-panel">
+        <div class="feed-head">
+          <p class="feed-detail" id="monitor-detail"></p>
+          <div class="streams" id="monitor-streams"></div>
+          <form class="interval" id="refresh-settings-form">
+            <label for="refresh-interval">每</label>
+            <input id="refresh-interval" name="intervalSeconds" type="number" min="3" max="3600" step="1" value="60" required>
+            <span>秒更新</span>
+            <button class="btn sm" id="save-refresh-settings" type="submit">儲存</button>
+            <span class="sr-only" id="refresh-settings-status" role="status" aria-live="polite"></span>
+          </form>
+        </div>
+        <div class="feed" id="monitor-feed"></div>
+      </div>
     </section>
+
     <section id="archive" class="page">
-      <div class="section-heading"><div><h2>搜尋你的訊息封存</h2><p>搜尋任意語言與混合文字，查找已儲存的訊息。</p></div><span class="badge" id="archive-count">正在讀取封存…</span></div>
-      <form id="archive-form" class="panel archive-form">
-        <div class="archive-query"><label class="sr-only" for="archive-query">搜尋文字</label><input id="archive-query" name="query" type="search" maxlength="200" required placeholder="輸入關鍵字或片語，例如：下週會議、meeting、مرحبا…"><button class="button primary" id="archive-submit" type="submit">搜尋封存</button></div>
-        <div class="archive-filters"><label>比對方式<select name="mode"><option value="all">所有關鍵字</option><option value="phrase">完整片語</option></select></label><label>帳號<select name="accountId"><option value="">所有帳號</option></select></label><label>聊天室<select name="chatId" disabled><option value="">所有聊天室</option></select></label></div>
-      </form>
-      <p id="archive-status" class="archive-status" role="status" aria-live="polite">輸入文字，搜尋已監控並儲存的訊息。單一字元、片語與 emoji 皆可搜尋。</p>
-      <div id="archive-results" class="archive-results"></div><button id="archive-more" class="button" hidden>載入較早的訊息</button>
-      <p class="footnote">搜尋不會連線至 LINE 或發送已讀回條。封存與索引均不儲存訊息明文；AI 只能搜尋擁有讀取權限的指定聊天室。移除帳號時會刪除該帳號的封存。</p>
-    </section>
-    <section id="accounts" class="page">
-      <div class="section-heading"><div><h2>帳號工作區</h2><p>搜尋、瀏覽與手動讀取聊天室，也可勾選允許 AI 存取及監聽的聊天室。</p></div><button class="button primary" id="add-account"><span class="icon icon-plus" aria-hidden="true"></span>新增帳號</button></div>
-      <div class="workspace">
-        <div class="panel account-pane"><div class="pane-label">帳號 <span id="account-count">0</span></div><div id="account-list"></div><button class="sample-button" id="try-demo"><span class="icon icon-plus" aria-hidden="true"></span>試用沙盒帳號</button></div>
-        <div class="panel chat-pane" id="chat-pane"><div class="empty"><div class="empty-icon"><span class="icon icon-users" aria-hidden="true"></span></div><h3>連接第一個帳號</h3><p>新增 LINE 帳號並掃描 QR Code，<br>或使用模擬沙盒探索介面。</p><div class="empty-note">只有你授權的 AI 用戶端可以存取指定聊天室。</div></div></div>
-      </div>
-      <div class="footnote">登入憑證與監聽訊息加密儲存在這台電腦。OpenChat 支援依帳號與 LINE 回應而定。</div>
-    </section>
-    <section id="access" class="page">
-      <div class="section-heading"><div><h2>API 金鑰與 AI 存取</h2><p>建立可撤銷、有期限的 API 金鑰（Bearer 權杖），授權雲端 AI。</p></div><span class="badge" id="local-access-mode">閘道要求權杖</span></div>
-      <div class="panel" id="local-access-panel" hidden><div class="pane-label">本機開發模式 · 帳號權限</div><p class="muted" id="local-access-description">只有指定聊天室可供 AI 存取。讀取與傳送可分別調整。</p><div id="local-access-list"></div></div>
-      <div class="panel connection-card"><div><div class="eyebrow">連接你的雲端 AI</div><h3>MCP 網址與存取權杖</h3><p id="access-connection-description">提供通道的 HTTPS 網址與 Bearer 權杖給 AI。也可使用 HTTP API 與 OpenAPI。</p></div><div class="endpoint"><span>MCP · Streamable HTTP</span><code id="mcp-url">啟動通道後取得網址</code><span>HTTP API · OpenAPI 結構</span><code id="api-url">啟動通道後取得網址</code></div></div>
-      <div class="panel ai-instructions-panel" id="access-ai-instructions"></div>
-      <div class="panel provider-advanced"><h3>AI 用戶端權杖</h3><p class="muted">每個用戶端可分別授權讀取、全文搜尋與傳送。請提供 Authorization: Bearer 權杖；Cloudflare Access 另需服務憑證。</p><button class="button" id="new-token">＋ 建立 AI 權杖</button><div id="token-list"></div></div>
-    </section>
-    <section id="tunnel" class="page">
-      <div class="section-heading"><div><h2>雲端連線與通道</h2><p>讓雲端 AI 透過 HTTPS 連接這台電腦上的 LINE 閘道。</p></div><span class="badge" id="tunnel-badge">尚未啟動</span></div>
-      <div class="tunnel-grid">
-        <form class="panel form-panel" id="tunnel-form">
-          <h3>連接你的 AI</h3>
-          <label>連線提供者<select name="provider"><option value="local">同一台主機 · 直接連線</option><option value="cloudflare_quick">Cloudflare Quick Tunnel · 免帳號</option><option value="cloudflare">Cloudflare Tunnel + Access · 固定網址</option><option value="ngrok">ngrok · HTTPS 公開網址</option><option value="tailscale_funnel">Tailscale Funnel · HTTPS 公開網址</option><option value="tailscale">Tailscale Serve · 私人 tailnet</option></select></label>
-          <div id="local-connection-info" class="provider-intro" hidden><span class="provider-icon icon icon-plug" aria-hidden="true"></span><h3>先使用本機連線</h3><p>本機 AI 可透過 localhost 與 Bearer 權杖存取。雲端 AI 請選擇通道提供者，再提供通道網址。</p><div class="notice">管理介面只在這台電腦開放。監聽與全文搜尋在通道停止時仍可使用。</div></div>
-          <div id="quick-tunnel-info" class="provider-intro" hidden><span class="provider-icon icon icon-link" aria-hidden="true"></span><h3>一鍵取得暫時網址</h3><p>不需帳號或網域。按下「啟動連線」，即可取得 HTTPS 網址，供已授權的 AI 用戶端使用。</p><div class="notice">網址可從網際網路連接；讀取及傳送仍需要 LineBridge AI 權杖。每次啟動網址都會改變，停止或關閉程式後失效。</div><p class="muted">適合短期測試。MCP 使用 JSON 回應；Quick Tunnel 不支援 SSE，也不保證持續可用。</p></div>
-          <div id="cloudflare-oauth" class="provider-intro">
-            <div class="provider-heading"><h3>Cloudflare 帳號</h3><span class="provider-tag">PKCE</span></div><p id="cf-oauth-status"></p>
-            <div class="button-row"><button type="button" class="button" id="cf-login">連接 Cloudflare</button><button type="button" class="button" id="cf-disconnect" hidden>撤銷 OAuth 連線</button></div>
-            <a id="cf-login-link" class="provider-login-link" target="_blank" rel="noopener noreferrer" hidden>在瀏覽器繼續 Cloudflare 授權 ↗</a>
-            <div id="cf-setup" class="provider-setup" hidden>
-              <div class="provider-heading"><h4>建立固定網址</h4><button type="button" class="text-button" id="cf-load-resources">載入帳戶與網域</button></div>
-              <label>Cloudflare 帳戶<select id="cf-account" aria-label="Cloudflare 帳戶"></select></label><label>網域<select id="cf-zone" aria-label="Cloudflare 網域"></select></label><label>新的完整主機名稱<input id="cf-hostname" autocomplete="off" placeholder="line.example.com"></label>
-              <p class="muted">建立專用 Tunnel、DNS、Access 與 30 天服務權杖。使用未被占用的新主機名稱；可以稍後再設定。</p><button type="button" class="button" id="cf-provision" disabled>建立受保護連線</button>
-            </div>
-            <div id="cf-setup-summary" class="notice" hidden></div><button type="button" class="button" id="cf-show-service" hidden>顯示 AI 連線憑證</button>
-            <details class="provider-advanced"><summary>OAuth 應用程式設定</summary><p>使用 Authorization Code、None (PKCE) 與以下回呼網址。自己的帳戶可使用私人 OAuth 應用程式。</p><label>Client ID<input id="cf-client-id" autocomplete="off" placeholder="Cloudflare OAuth client ID"></label><label>回呼網址<code id="cf-callback" class="wrap-code"></code></label><button type="button" class="button" id="cf-save-client">儲存 OAuth 應用程式</button><a href="https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/" target="_blank" rel="noopener noreferrer">建立應用程式指南 ↗</a></details>
+      <header class="page-head"><h1>搜尋</h1><span class="badge" id="archive-count"></span></header>
+      <form class="search" id="archive-form">
+        <div class="search-field">
+          <span class="search-icon" data-icon="search"></span>
+          <label class="sr-only" for="archive-query">搜尋文字</label>
+          <input id="archive-query" name="query" type="search" maxlength="200" required autocomplete="off" placeholder="搜尋訊息、片語或 emoji">
+          <button class="btn primary" id="archive-submit" type="submit">搜尋</button>
+        </div>
+        <div class="search-filters">
+          <div class="segmented" role="radiogroup" aria-label="比對方式">
+            <label><input type="radio" name="mode" value="all" checked><span>所有關鍵字</span></label>
+            <label><input type="radio" name="mode" value="phrase"><span>完整片語</span></label>
           </div>
-          <div id="ngrok-info" class="provider-intro" hidden><div class="provider-heading"><h3>使用你的 ngrok 帳號</h3><span class="provider-tag">HTTPS</span></div><p id="ngrok-state"></p><button type="button" class="button" id="install-ngrok">準備 ngrok 連接器</button><label>ngrok Authtoken<input name="ngrokAuthtoken" type="password" autocomplete="off" placeholder="加密儲存在本機；明文不會出現在狀態中"></label><button type="button" class="button" id="save-ngrok-token">儲存 Authtoken</button><button type="button" class="text-button" id="forget-ngrok-token">移除已儲存 Authtoken</button><label>ngrok 網域（選填）<input name="ngrokDomain" placeholder="example.ngrok-free.app" autocomplete="off"></label><p class="muted">留空使用帳號預設網址。AI 請附加 ngrok-skip-browser-warning 標頭；連接器已停用請求內容檢視。</p><a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">取得 ngrok Authtoken ↗</a></div>
-          <div id="tailscale-connect" class="provider-intro" hidden><div class="provider-heading"><h3>使用這台電腦的 Tailscale</h3><span class="provider-tag" id="tailscale-scope">PRIVATE</span></div><p id="tailscale-state"></p><p id="tailscale-intro">使用已安裝的用戶端與既有帳號。</p><label>HTTPS 連接埠<select name="httpsPort"><option value="443">443</option><option value="8443">8443</option><option value="10000">10000</option></select></label><button type="button" class="button" id="connect-tailscale">連接 Tailscale</button><a id="tailscale-login-link" class="provider-login-link" target="_blank" rel="noopener noreferrer" hidden>在瀏覽器繼續 Tailscale 授權 ↗</a><p class="muted">Funnel 提供公開 HTTPS；Serve 需加入相同 tailnet。既有路由不會被覆寫，只停止本次建立的路由。</p></div>
-          <details id="cloudflare-fields" class="provider-advanced"><summary>手動設定既有 Cloudflare Tunnel</summary><label>閘道主機名稱<input name="hostname" placeholder="line.example.com" autocomplete="off"></label><label>Access 團隊網域<input name="teamDomain" placeholder="your-team.cloudflareaccess.com" autocomplete="off"></label><label>Access 應用程式 AUD<input name="audience" placeholder="應用程式的 audience tag" autocomplete="off"></label><label id="connector-label">Tunnel 連接器權杖<input name="connectorToken" type="password" autocomplete="off" placeholder="加密儲存，填空可使用既有權杖"></label></details>
-          <div class="divider"></div><div class="button-row"><button class="button primary" type="button" id="start-tunnel">啟動連線</button><button class="button" type="button" id="stop-tunnel">停止</button><button class="button" type="submit">儲存設定</button></div><p class="muted" id="tunnel-health"></p>
-        </form>
-        <div class="connection-side"><div class="panel connection-output"><div class="eyebrow">AI 連線網址</div><h3>把網址交給你的 AI</h3><code id="connection-url" class="wrap-code">啟動後會顯示連線網址</code><button class="button" id="copy-connection-url" disabled>複製網址</button><p>HTTP API 使用 <code>/api/v1</code>，MCP 使用 <code>/mcp</code>。</p><button type="button" class="button" id="copy-probe" disabled>複製雲端 AI 測試指令</button><p id="connection-probe-help" class="muted">在雲端 VM 測試這個網址，確認健康檢查、權杖與 MCP。此電腦的連線成功不代表 VM 可連線。</p><div class="notice" id="connection-auth">提供通道網址與 Bearer 權杖，授權 AI 讀取、全文搜尋或傳送指定聊天室訊息。</div></div><div class="panel connection-output"><div class="eyebrow">選擇適合的連線</div><dl class="provider-comparison"><dt>Quick Tunnel</dt><dd>免註冊，暫時 HTTPS 網址。</dd><dt>Cloudflare + Access</dt><dd>固定網址與服務驗證。</dd><dt>ngrok</dt><dd>使用你的 Authtoken，取得公開 HTTPS。</dd><dt>Tailscale Funnel</dt><dd>公開 HTTPS，AI 不需加入 tailnet。</dd><dt>Tailscale Serve</dt><dd>私人網路；AI 需加入同一 tailnet。</dd></dl><p class="muted">通道只轉送 AI 閘道。管理介面維持獨立的本機連接埠。</p></div></div>
+          <label class="sr-only" for="archive-account">帳號</label>
+          <select id="archive-account" class="compact" name="accountId"><option value="">所有帳號</option></select>
+          <label class="sr-only" for="archive-chat">聊天室</label>
+          <select id="archive-chat" class="compact" name="chatId" disabled><option value="">所有聊天室</option></select>
+        </div>
+      </form>
+      <p class="search-status" id="archive-status" role="status" aria-live="polite"></p>
+      <div class="results" id="archive-results">
+        <div class="empty"><span class="empty-icon" data-icon="search"></span><h3>搜尋已封存的訊息</h3><p>支援任何語言、片語與 emoji，不會連線至 LINE。</p></div>
+      </div>
+      <button class="btn more" id="archive-more" hidden>載入更早的訊息</button>
+    </section>
+
+    <section id="accounts" class="page">
+      <header class="page-head"><h1>聊天室</h1><div class="page-actions"><button class="btn" id="add-account" data-icon="plus">新增帳號</button></div></header>
+      <div class="workspace">
+        <aside class="panel account-pane" aria-label="帳號">
+          <div class="pane-label">帳號<span class="count" id="account-count">0</span></div>
+          <div class="account-list" id="account-list"></div>
+          <button class="pane-foot" id="try-demo" data-icon="flask">試用沙盒</button>
+        </aside>
+        <div class="panel chat-pane" id="chat-pane">
+          <div class="empty"><span class="empty-icon" data-icon="chats"></span><h3>連接第一個帳號</h3><p>掃描 QR Code 連接 LINE，或先用沙盒體驗。</p></div>
+        </div>
       </div>
     </section>
-    <section id="activity" class="page"><div class="section-heading"><div><h2>閘道活動紀錄</h2><p>顯示讀取、傳送、帳號異動與權杖事件，紀錄不含訊息內容。</p></div><span class="badge">最近 80 筆</span></div><div class="panel table-panel"><table><thead><tr><th>時間</th><th>操作</th><th>帳號／聊天室</th><th>執行者</th><th>結果</th></tr></thead><tbody id="audit-list"></tbody></table></div></section>
-    <footer><span>LineBridge</span><span id="vault-detail">加密的本機 SQLite 儲存</span></footer>
+
+    <section id="access" class="page">
+      <header class="page-head"><h1>AI 存取</h1><span class="badge" id="local-access-mode"></span><div class="page-actions"><button class="btn primary" id="new-token" data-icon="plus">新增權杖</button></div></header>
+      <div class="panel section" id="local-access-panel" hidden>
+        <div class="section-head"><h2>本機 AI 權限</h2></div>
+        <p class="muted" id="local-access-description">只開放已勾選的聊天室；讀取與傳送分開設定。</p>
+        <div id="local-access-list"></div>
+      </div>
+      <div class="access-grid">
+        <div class="panel section">
+          <div class="section-head"><h2>端點</h2></div>
+          <p class="muted" id="access-connection-description"></p>
+          <div class="endpoint"><span class="endpoint-label">MCP</span><code id="mcp-url">—</code><button class="icon-btn" type="button" data-copy="#mcp-url" data-icon="copy" aria-label="複製 MCP 網址" title="複製"></button></div>
+          <div class="endpoint"><span class="endpoint-label">OpenAPI</span><code id="api-url">—</code><button class="icon-btn" type="button" data-copy="#api-url" data-icon="copy" aria-label="複製 OpenAPI 網址" title="複製"></button></div>
+        </div>
+        <div class="panel section" id="access-ai-instructions"></div>
+      </div>
+      <div class="panel section">
+        <div class="section-head"><h2>權杖</h2></div>
+        <div id="token-list"></div>
+      </div>
+    </section>
+
+    <section id="tunnel" class="page">
+      <header class="page-head"><h1>雲端連線</h1><span class="badge" id="tunnel-badge"></span></header>
+      <div class="tunnel-layout">
+        <form class="panel section" id="tunnel-form">
+          <fieldset class="providers">
+            <legend class="sr-only">連線方式</legend>
+            <label class="provider"><input type="radio" name="provider" value="local"><span class="provider-icon" data-icon="laptop"></span><strong>本機</strong><small>僅限這台電腦</small></label>
+            <label class="provider"><input type="radio" name="provider" value="cloudflare_quick"><span class="provider-icon" data-icon="bolt"></span><strong>Quick Tunnel</strong><small>免帳號 · 暫時網址</small></label>
+            <label class="provider"><input type="radio" name="provider" value="cloudflare"><span class="provider-icon" data-icon="shield"></span><strong>Cloudflare</strong><small>固定網址 + Access</small></label>
+            <label class="provider"><input type="radio" name="provider" value="ngrok"><span class="provider-icon" data-icon="globe"></span><strong>ngrok</strong><small>公開 HTTPS</small></label>
+            <label class="provider"><input type="radio" name="provider" value="tailscale_funnel"><span class="provider-icon" data-icon="globe"></span><strong>Tailscale Funnel</strong><small>公開 HTTPS</small></label>
+            <label class="provider"><input type="radio" name="provider" value="tailscale"><span class="provider-icon" data-icon="lock"></span><strong>Tailscale Serve</strong><small>私人 tailnet</small></label>
+          </fieldset>
+
+          <div class="provider-panel" id="local-connection-info" hidden>
+            <p>本機 AI 直接透過 localhost 連線。雲端 AI 請選擇其他方式。</p>
+          </div>
+
+          <div class="provider-panel" id="quick-tunnel-info" hidden>
+            <p>不需帳號，啟動即可取得暫時的 HTTPS 網址。</p>
+            <p class="note" data-icon="info">網址可公開連線，但讀取與傳送仍需 AI 權杖；每次啟動都會換新網址。不支援 SSE，適合短期測試。</p>
+          </div>
+
+          <div class="provider-panel" id="cloudflare-oauth">
+            <div class="panel-head"><h3>Cloudflare 帳號</h3><span class="tag">PKCE</span></div>
+            <p class="muted" id="cf-oauth-status"></p>
+            <div class="btn-row"><button type="button" class="btn" id="cf-login">連接 Cloudflare</button><button type="button" class="btn ghost" id="cf-disconnect" hidden>撤銷授權</button></div>
+            <a id="cf-login-link" class="login-link" target="_blank" rel="noopener noreferrer" hidden>在瀏覽器繼續授權 ↗</a>
+            <div class="provider-setup" id="cf-setup" hidden>
+              <div class="panel-head"><h4>建立固定網址</h4><button type="button" class="link-btn" id="cf-load-resources">重新載入</button></div>
+              <div class="field-grid">
+                <label class="field"><span>帳戶</span><select id="cf-account"></select></label>
+                <label class="field"><span>網域</span><select id="cf-zone"></select></label>
+              </div>
+              <label class="field"><span>新的主機名稱</span><input id="cf-hostname" autocomplete="off" placeholder="line.example.com"></label>
+              <p class="muted">將建立專用 Tunnel、DNS、Access 與 30 天服務權杖。</p>
+              <button type="button" class="btn" id="cf-provision" disabled>建立受保護連線</button>
+            </div>
+            <div class="note" id="cf-setup-summary" hidden></div>
+            <button type="button" class="btn" id="cf-show-service" data-icon="key" hidden>顯示服務憑證</button>
+            <details class="disclosure">
+              <summary>OAuth 應用程式</summary>
+              <p class="muted">使用 Authorization Code + PKCE 與以下回呼網址。</p>
+              <label class="field"><span>Client ID</span><input id="cf-client-id" autocomplete="off" placeholder="Cloudflare OAuth client ID"></label>
+              <div class="field"><span>回呼網址</span><code id="cf-callback" class="code-box"></code></div>
+              <div class="btn-row"><button type="button" class="btn" id="cf-save-client">儲存</button><a class="link-btn" href="https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/" target="_blank" rel="noopener noreferrer">建立指南 ↗</a></div>
+            </details>
+          </div>
+
+          <div class="provider-panel" id="ngrok-info" hidden>
+            <div class="panel-head"><h3>ngrok</h3><span class="tag">HTTPS</span></div>
+            <p class="muted" id="ngrok-state"></p>
+            <button type="button" class="btn" id="install-ngrok">安裝連接器</button>
+            <label class="field"><span>Authtoken</span><input name="ngrokAuthtoken" type="password" autocomplete="off" placeholder="加密保存在本機"></label>
+            <div class="btn-row"><button type="button" class="btn" id="save-ngrok-token">儲存</button><button type="button" class="btn ghost" id="forget-ngrok-token">移除</button><a class="link-btn" href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">取得 Authtoken ↗</a></div>
+            <label class="field"><span>網域（選填）</span><input name="ngrokDomain" placeholder="example.ngrok-free.app" autocomplete="off"></label>
+            <p class="muted">AI 請求需附加 ngrok-skip-browser-warning 標頭。</p>
+          </div>
+
+          <div class="provider-panel" id="tailscale-connect" hidden>
+            <div class="panel-head"><h3>Tailscale</h3><span class="tag" id="tailscale-scope">PRIVATE</span></div>
+            <p class="muted" id="tailscale-state"></p>
+            <p id="tailscale-intro"></p>
+            <div class="field-row">
+              <label class="field"><span>HTTPS 連接埠</span><select name="httpsPort"><option value="443">443</option><option value="8443">8443</option><option value="10000">10000</option></select></label>
+              <button type="button" class="btn" id="connect-tailscale">連接 Tailscale</button>
+            </div>
+            <a id="tailscale-login-link" class="login-link" target="_blank" rel="noopener noreferrer" hidden>在瀏覽器繼續授權 ↗</a>
+            <p class="muted">不會覆寫既有路由，只停止本次建立的路由。</p>
+          </div>
+
+          <details class="disclosure" id="cloudflare-fields">
+            <summary>手動設定既有 Tunnel</summary>
+            <label class="field"><span>閘道主機名稱</span><input name="hostname" placeholder="line.example.com" autocomplete="off"></label>
+            <label class="field"><span>Access 團隊網域</span><input name="teamDomain" placeholder="your-team.cloudflareaccess.com" autocomplete="off"></label>
+            <label class="field"><span>Access AUD</span><input name="audience" placeholder="應用程式的 audience tag" autocomplete="off"></label>
+            <label class="field"><span>連接器權杖</span><input name="connectorToken" type="password" autocomplete="off" placeholder="留空則使用已保存的權杖"></label>
+          </details>
+
+          <div class="form-actions">
+            <button class="btn primary" type="button" id="start-tunnel" data-icon="play">啟動</button>
+            <button class="btn" type="button" id="stop-tunnel">停止</button>
+            <button class="btn ghost" type="submit">儲存設定</button>
+          </div>
+          <p class="muted form-status" id="tunnel-health"></p>
+        </form>
+
+        <aside class="panel section connection-output">
+          <div class="conn-visual" id="conn-visual" aria-hidden="true">
+            <span class="conn-node" data-icon="laptop"></span>
+            <span class="conn-line"><i></i><i></i><i></i></span>
+            <span class="conn-node remote" data-icon="cloud"></span>
+          </div>
+          <span class="eyebrow">AI 連線網址</span>
+          <code id="connection-url" class="code-box">啟動後顯示</code>
+          <div class="btn-row">
+            <button class="btn" type="button" id="copy-connection-url" data-icon="copy" disabled>複製網址</button>
+            <button class="btn" type="button" id="copy-probe" data-icon="terminal" disabled>複製測試指令</button>
+          </div>
+          <p class="muted" id="connection-probe-help">測試指令可在雲端主機確認健康檢查、權杖與 MCP。</p>
+          <p class="note" id="connection-auth"></p>
+          <p class="muted">API <code>/api/v1</code> · MCP <code>/mcp</code></p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="activity" class="page">
+      <header class="page-head"><h1>紀錄</h1><span class="badge">最近 80 筆</span></header>
+      <div class="panel table-panel">
+        <table class="log">
+          <thead><tr><th>時間</th><th>操作</th><th>帳號</th><th>來源</th><th>結果</th></tr></thead>
+          <tbody id="audit-list"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
-  <dialog id="account-dialog"><form id="account-form"><div class="dialog-heading"><h2>新增帳號</h2><button type="button" data-close="account-dialog" aria-label="關閉">×</button></div><label>帳號名稱<input name="label" required maxlength="80" placeholder="工作帳號" autofocus></label><label>帳號類型<select name="kind"><option value="line">LINE 帳號</option><option value="demo">模擬沙盒</option></select></label><label>用戶端裝置<select name="device"><option value="IOSIPAD">iPad 次要裝置</option><option value="DESKTOPWIN">Windows 桌面裝置</option><option value="ANDROIDSECONDARY">Android 次要裝置</option></select></label><div class="notice">使用非官方 LINE 用戶端。新登入可能取代相同裝置類型的既有工作階段。QR Code 與手機確認均在本機進行。</div><button class="button primary full" type="submit">新增帳號</button></form></dialog>
-  <dialog id="login-dialog"><div class="dialog-heading"><h2>連接 LINE 帳號</h2><button type="button" id="close-login" aria-label="關閉">×</button></div><div id="login-content" class="login-content"></div><p class="muted">用手機 LINE 掃描，並完成手機上的確認。QR Code 與 PIN 只會顯示在本機管理介面。</p><button class="button full" id="cancel-login">取消登入</button></dialog>
-  <dialog id="token-dialog"><form id="token-form"><div class="dialog-heading"><h2>建立 AI 存取權杖</h2><button type="button" data-close="token-dialog" aria-label="關閉">×</button></div><label>用戶端名稱<input name="name" required maxlength="80" placeholder="雲端助理"></label><label>有效期間<select name="days"><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option><option value="1">1 天</option></select></label><div class="pane-label">帳號權限</div><div id="grant-list"></div><p class="muted">讀取與傳送分別授權，只開放已指定的聊天室。傳送權限允許此用戶端送出訊息。</p><button class="button primary full" type="submit">建立權杖</button></form></dialog>
-  <dialog id="secret-dialog"><div class="dialog-heading"><h2>你的存取權杖</h2><button type="button" data-close="secret-dialog" aria-label="關閉">×</button></div><p>請立即複製。資料庫只儲存雜湊，之後無法再次顯示。</p><textarea id="new-secret" rows="3" readonly aria-label="新存取權杖"></textarea><button id="copy-secret" class="button primary full">複製權杖</button></dialog>
-  <dialog id="chat-dialog"><form id="chat-form"><div class="dialog-heading"><h2>新增已知聊天室</h2><button type="button" data-close="chat-dialog" aria-label="關閉">×</button></div><label>聊天室名稱<input name="name" required maxlength="150"></label><label>聊天室 ID<input name="id" required maxlength="150" placeholder="完整的 u/c/r/m LINE 識別碼"></label><label>類型<select name="kind"><option value="group">群組</option><option value="direct">一對一</option><option value="openchat">OpenChat</option></select></label><p class="muted">新增 ID 不會加入聊天室，這個帳號必須已經有權限。</p><button class="button primary full">新增聊天室</button></form></dialog>
-  <dialog id="provider-secret-dialog"><div class="dialog-heading"><h2>Cloudflare AI 連線憑證</h2><button type="button" id="close-provider-secret" aria-label="關閉">×</button></div><p>只交給你信任的 AI 用戶端。除了服務憑證，仍需建立有帳號權限的 LineBridge AI 權杖。</p><textarea id="provider-secret" rows="8" readonly aria-label="Cloudflare 服務憑證"></textarea></dialog>
-  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="account-dialog" aria-labelledby="account-dialog-title">
+    <form id="account-form">
+      <div class="dialog-head"><h2 id="account-dialog-title">新增帳號</h2><button type="button" class="icon-btn" data-close="account-dialog" data-icon="x" aria-label="關閉"></button></div>
+      <label class="field"><span>名稱</span><input name="label" required maxlength="80" placeholder="工作帳號" autofocus></label>
+      <div class="field"><span>類型</span><div class="segmented wide" role="radiogroup" aria-label="帳號類型"><label><input type="radio" name="kind" value="line" checked><span>LINE</span></label><label><input type="radio" name="kind" value="demo"><span>沙盒</span></label></div></div>
+      <label class="field device-field"><span>裝置類型</span><select name="device"><option value="IOSIPAD">iPad 次要裝置</option><option value="DESKTOPWIN">Windows 桌面裝置</option><option value="ANDROIDSECONDARY">Android 次要裝置</option></select></label>
+      <p class="note warn device-field" data-icon="alert">非官方用戶端；新登入可能取代同類型裝置的既有工作階段。</p>
+      <button class="btn primary full" type="submit">新增</button>
+    </form>
+  </dialog>
+
+  <dialog id="login-dialog" aria-labelledby="login-dialog-title">
+    <div class="dialog-head"><h2 id="login-dialog-title">掃描 QR Code</h2><button type="button" class="icon-btn" id="close-login" data-icon="x" aria-label="關閉"></button></div>
+    <div id="login-content" class="login-content"></div>
+    <p class="dialog-note">用手機 LINE 掃描並完成確認，QR Code 只顯示在這台電腦。</p>
+    <button class="btn full" id="cancel-login">取消</button>
+  </dialog>
+
+  <dialog id="token-dialog" aria-labelledby="token-dialog-title">
+    <form id="token-form">
+      <div class="dialog-head"><h2 id="token-dialog-title">新增 AI 權杖</h2><button type="button" class="icon-btn" data-close="token-dialog" data-icon="x" aria-label="關閉"></button></div>
+      <label class="field"><span>名稱</span><input name="name" required maxlength="80" placeholder="雲端助理"></label>
+      <div class="field"><span>有效期間</span><div class="segmented wide" role="radiogroup" aria-label="有效期間"><label><input type="radio" name="days" value="1"><span>1 天</span></label><label><input type="radio" name="days" value="7" checked><span>7 天</span></label><label><input type="radio" name="days" value="30"><span>30 天</span></label><label><input type="radio" name="days" value="90"><span>90 天</span></label></div></div>
+      <div class="field"><span>帳號權限</span><div class="grant-list" id="grant-list"></div></div>
+      <p class="dialog-note">只能存取已開放給 AI 的聊天室。</p>
+      <button class="btn primary full" type="submit">建立權杖</button>
+    </form>
+  </dialog>
+
+  <dialog id="secret-dialog" aria-labelledby="secret-dialog-title">
+    <div class="dialog-head"><h2 id="secret-dialog-title">權杖已建立</h2><button type="button" class="icon-btn" data-close="secret-dialog" data-icon="x" aria-label="關閉"></button></div>
+    <p class="note warn" data-icon="alert">只會顯示這一次，請立即複製。</p>
+    <textarea id="new-secret" class="secret" rows="3" readonly aria-label="新存取權杖"></textarea>
+    <button class="btn primary full" id="copy-secret" data-icon="copy">複製權杖</button>
+  </dialog>
+
+  <dialog id="chat-dialog" aria-labelledby="chat-dialog-title">
+    <form id="chat-form">
+      <div class="dialog-head"><h2 id="chat-dialog-title">新增聊天室</h2><button type="button" class="icon-btn" data-close="chat-dialog" data-icon="x" aria-label="關閉"></button></div>
+      <label class="field"><span>名稱</span><input name="name" required maxlength="150"></label>
+      <label class="field"><span>聊天室 ID</span><input name="id" required maxlength="150" placeholder="完整的 LINE ID（u / c / r / m 開頭）"></label>
+      <label class="field"><span>類型</span><select name="kind"><option value="group">群組</option><option value="direct">一對一</option><option value="openchat">OpenChat</option></select></label>
+      <p class="dialog-note">只會記錄 ID，帳號須已在此聊天室中。</p>
+      <button class="btn primary full">新增</button>
+    </form>
+  </dialog>
+
+  <dialog id="provider-secret-dialog" aria-labelledby="provider-secret-title">
+    <div class="dialog-head"><h2 id="provider-secret-title">Cloudflare 服務憑證</h2><button type="button" class="icon-btn" id="close-provider-secret" data-icon="x" aria-label="關閉"></button></div>
+    <p class="note warn" data-icon="alert">只交給信任的 AI；另需 LineBridge AI 權杖。</p>
+    <textarea id="provider-secret" class="secret" rows="7" readonly aria-label="Cloudflare 服務憑證"></textarea>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" popover="manual"></div>
 </body>
 </html>

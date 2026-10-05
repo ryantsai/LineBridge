@@ -1,3 +1,6 @@
+import {icon} from './icons.js';
+import {confirmButton} from './ui.js';
+
 // Only public connection details belong in the copyable prompt. Credentials are
 // supplied separately through the agent host's secret storage.
 export function cloudCliInstructions(state,accountId){
@@ -19,7 +22,7 @@ ${t?.provider==='tailscale'?'這台主機必須先加入同一個 Tailscale tail
    linebridge accounts
    linebridge chats --account ${account}
    請檢查每個帳號的 status、monitor.enabled、monitor.health 與 monitor.streams。每個串流都會提供 lastAttemptAt、lastSuccessAt 與 health。成功的空輪詢也會更新 lastSuccessAt；沒有新訊息不代表失敗。必須逐一檢查所有串流，不能只看最新的時間戳記。monitor.checkedAt 是伺服器時間，staleAfterMs 是資料新鮮度門檻（60 秒）。retrying、stale、waiting、initializing、disconnected、off、no_chats 與 sandbox 都不能視為健康的即時 LINE 收訊狀態。Talk 長輪詢最長可等待 180 秒，但等待不會更新 lastSuccessAt，也不會延長新鮮度門檻。pollDeadlineAt 是請求期限，lastFailure 提供已去除敏感資訊的診斷資料。重試尚未完成時仍不健康，直到訊息與游標成功寫入持久儲存並收到確認。接收器重新啟動後，時間戳記會重設。若尚無成功紀錄或紀錄已過期，請如實回報；不能只因 HTTP 有回應就認定收訊正常。
-   使用前請確認回傳的帳號與聊天室 ID；若顯示 ACCOUNT_ID 佔位文字，請換成實際 ID。若缺少存取權限或尚未指定聊天室，請我在本機 LineBridge 的「API 金鑰與 AI 存取」或「帳號與聊天室」更新設定。
+   使用前請確認回傳的帳號與聊天室 ID；若顯示 ACCOUNT_ID 佔位文字，請換成實際 ID。若缺少存取權限或尚未指定聊天室，請我在本機 LineBridge 的「AI 存取」或「聊天室」頁面更新設定。
 4. 請只依我的需求使用下列範例，並替換 CHAT_ID 與 SEARCH_TEXT：
    linebridge read --account ${account} --chat CHAT_ID --limit 30
    linebridge search --account ${account} --query "SEARCH_TEXT" --mode all --limit 30
@@ -31,7 +34,7 @@ ${t?.provider==='tailscale'?'這台主機必須先加入同一個 Tailscale tail
 }
 
 export function aiInstructionsCard(id){
-  return `<div class="ai-instructions"><h3>交給雲端 AI 的 CLI 指令</h3><p>複製後貼到雲端 AI agent。指令包含安裝、連線、聊天室與訊息搜尋用法；API 金鑰請透過 AI 主機的秘密管理工具另行提供。</p><p class="muted" data-ai-status></p><label class="sr-only" for="${id}">雲端 AI CLI 指令</label><textarea id="${id}" data-ai-prompt rows="9" readonly spellcheck="false"></textarea><button type="button" class="button" data-ai-copy>複製 AI CLI 指令</button><span class="ai-copy-status" data-ai-copied role="status" aria-live="polite"></span></div>`;
+  return `<div class="ai-instructions"><div class="section-head"><h2>雲端 AI 指令</h2><button type="button" class="btn sm" data-ai-copy>${icon('copy')}複製</button></div><p class="muted" data-ai-status></p><details class="preview"><summary>預覽</summary><label class="sr-only" for="${id}">雲端 AI CLI 指令</label><textarea id="${id}" data-ai-prompt rows="9" readonly spellcheck="false"></textarea></details><span class="sr-only" data-ai-copied role="status" aria-live="polite"></span></div>`;
 }
 
 export function renderAiInstructions(root,state,accountId,action){
@@ -39,12 +42,13 @@ export function renderAiInstructions(root,state,accountId,action){
     const textarea=card.querySelector('[data-ai-prompt]'),prompt=cloudCliInstructions(state,accountId);
     if(textarea.value!==prompt){textarea.value=prompt;card.querySelector('[data-ai-copied]').textContent='';}
     card.querySelector('[data-ai-status]').textContent=state?.tunnel?.connected&&state.tunnel.provider!=='local'
-      ?'已帶入目前的連線網址。請確認 API 金鑰與指定聊天室已準備完成。'
-      :'可以先複製指令。需要遠端存取時，再從左側「雲端連線與通道」及「API 金鑰與 AI 存取」設定網址與金鑰。';
-    card.querySelector('[data-ai-copy]').onclick=()=>action(async()=>{
+      ?'貼給雲端 AI agent，已帶入目前的連線網址；金鑰請另以秘密管理工具提供。'
+      :'貼給雲端 AI agent 安裝並連線 CLI；網址與金鑰可稍後在「雲端連線」與此頁設定。';
+    const button=card.querySelector('[data-ai-copy]');
+    button.onclick=()=>action(async()=>{
       try{await navigator.clipboard.writeText(textarea.value);}
-      catch{textarea.focus();textarea.select();if(!document.execCommand('copy'))throw new Error('請選取並手動複製 AI CLI 指令。');}
-      card.querySelector('[data-ai-copied]').textContent='已複製';
+      catch{card.querySelector('details').open=true;textarea.focus();textarea.select();if(!document.execCommand('copy'))throw new Error('請選取並手動複製 AI CLI 指令。');}
+      card.querySelector('[data-ai-copied]').textContent='已複製';confirmButton(button);
     });
   });
 }

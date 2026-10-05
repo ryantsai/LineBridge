@@ -1,6 +1,6 @@
 # Cloud connections
 
-LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The portable bundle includes Node and a Windows/macOS tray launcher. Tunnel helpers are optional separate installations available through the dashboard. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **API 金鑰與 AI 存取**; read grants include archive search, while send grants are independent.
+LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The portable bundle includes Node and a Windows/macOS tray launcher. Tunnel helpers are optional separate installations available through the dashboard. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **AI 存取**; read grants include archive search, while send grants are independent.
 
 For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
 

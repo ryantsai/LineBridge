@@ -22,7 +22,7 @@ Optional `accountId` restricts to an account; `chatId` requires `accountId`. `li
 
 Results are ordered by descending archive sequence. While `hasMore` is true, repeat the same query and filters with `before: nextBefore`. **Continue even when a page contains zero results**: a bounded candidate page can contain only substring false positives, which are checked against decrypted text before results are returned. Search requires the account's `read` grant and current chat designation. Expiry, revocation and global pause apply on every request. A send-only token cannot search an account. Search does not query LINE or send read receipts, and remains available while the account is disconnected or monitoring is stopped.
 
-The local human dashboard has a separate **封存搜尋** page with account/chat filters and pagination. Its administrator session may inspect retained messages from a chat that has since been deselected; AI clients cannot.
+The local human dashboard has a separate **搜尋** page with account/chat filters and pagination. Its administrator session may inspect retained messages from a chat that has since been deselected; AI clients cannot.
 
 ## Encryption and migration
 

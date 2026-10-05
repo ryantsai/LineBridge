@@ -76,8 +76,8 @@ test('automatic discovery updates chat controls in place without clearing the re
   const f=fixture();
   await f.context.refresh();
   assert.match(f.node('#chat-list').innerHTML,/New room/);
-  assert.deepEqual(f.node('#chat-filter').options.map(option=>option.textContent),['全部聊天室 (2)','群組 (1)','一對一 (0)','OpenChat (1)']);
-  assert.equal(f.node('.chat-tools .badge').textContent,'2 個開放給 AI');
+  assert.deepEqual(f.node('#chat-filter').options.map(option=>option.textContent),['全部 (2)','群組 (1)','一對一 (0)','OpenChat (1)']);
+  assert.equal(f.node('.chat-tools .badge').textContent,'AI · 2');
   assert.equal(f.context.chatListRefreshPending,false);
   assertReaderUnchanged(f);
   await f.context.refresh();

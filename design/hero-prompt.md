@@ -4,7 +4,7 @@ Mode: Built-in `image_gen` default mode; new image generated using the UI mockup
 
 Reference: `design/wizard-reference.png` (central illustration only).
 
-Selected asset: `public/assets/bridge-welcome.png` — 1536 × 1024 PNG with genuine RGBA transparency. The generated alpha was preserved when copying the asset. Visually inspected after saving; alpha sampling confirmed transparent and partially transparent pixels.
+Selected asset: `design/bridge-welcome.png` (archived; the dashboard now draws an animated inline SVG) — 1536 × 1024 PNG with genuine RGBA transparency. The generated alpha was preserved when copying the asset. Visually inspected after saving; alpha sampling confirmed transparent and partially transparent pixels.
 
 Final prompt:
 

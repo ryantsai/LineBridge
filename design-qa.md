@@ -2,13 +2,15 @@
 
 Date: 2026-10-01, Asia/Taipei.
 
+This report records an earlier design pass; the current dashboard has since been redesigned.
+
 final result: passed
 
 The requested Apple-inspired redesign is applied to the browser interface. The opening page is a five-step setup wizard. Monitoring and detailed settings have their own pages. No P0, P1 or P2 finding remains in the checked flows. Version 0.3 retains this interface in the headless npm service; desktop packaging was retired.
 
 ## Target and comparison method
 
-The approved visual target is [design/wizard-reference.png](design/wizard-reference.png), generated with the built-in image generation tool. Its exact prompt is [design/wizard-prompt.md](design/wizard-prompt.md). The transparent production illustration is [public/assets/bridge-welcome.png](public/assets/bridge-welcome.png); its prompt and generation mode are recorded in [design/hero-prompt.md](design/hero-prompt.md).
+The approved visual target is [design/wizard-reference.png](design/wizard-reference.png), generated with the built-in image generation tool. Its exact prompt is [design/wizard-prompt.md](design/wizard-prompt.md). The transparent production illustration is [design/bridge-welcome.png](design/bridge-welcome.png); its prompt and generation mode are recorded in [design/hero-prompt.md](design/hero-prompt.md).
 
 Desktop comparisons used a 1536 × 1024 CSS viewport and the same welcome state, with no login dialog, selected personal account, or user draft. The target and final implementation both have 1536 × 1024 pixels. The first screenshot's 1521 × 1014 pixels were normalized to the target size for that pass; later final captures required no normalization. Every comparison contains the reference and implementation in one image. The full frame and a focused typography/benefits/actions region were both inspected after fixes.
 

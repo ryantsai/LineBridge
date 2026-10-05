@@ -73,7 +73,7 @@ nohup "$bundle/linebridge" serve --require-token \
 ## 使用者配對與授權
 
 1. 初次透過本機管理畫面設定時，先嘗試使用**使用者電腦上的 Computer Use 開啟預設瀏覽器**，前往 `http://localhost:3210/`；埠號須換成 `status` 確認的實際管理埠，不是 AI 閘道埠，並確認設定頁已載入。若沒有 Computer Use 或無法開啟，明確告訴使用者：「請開啟瀏覽器，將 `http://localhost:3210/` 複製貼到網址列，再按 Enter。」以行內程式碼或程式碼區塊列出含實際埠號的完整網址，不要只提供可點擊的 Markdown 連結；已有使用者回報 ChatGPT app 的 Dot 無法直接開啟 localhost 連結。若 `localhost` 無法載入，改試或提供相同實際管理埠的 `http://127.0.0.1:3210/`。系統匣的 Open LineBridge 也會在瀏覽器開啟同一個精靈。**讓使用者完成手機 LINE 配對**、選擇聊天室，並核對帳號與聊天室名稱／ID。
-2. 本機精靈會要求明確確認**讀取 + 傳送**，再建立 90 天的專用 CLI profile、開始接收與加密封存。若使用者只要讀取，改用「API 金鑰與 AI 存取」的手動流程建立窄範圍 read grant。
+2. 本機精靈會要求明確確認**讀取 + 傳送**，再建立 90 天的專用 CLI profile、開始接收與加密封存。若使用者只要讀取，改用「AI 存取」頁的手動流程建立窄範圍 read grant。
 3. 使用精靈顯示的**完整 CLI 執行方式與原樣 `--profile`**，保留路徑、引號及 PowerShell 的 `&`。不要猜 profile 名稱，或混用 API 金鑰標籤、`default` 與其他 profile。
 4. profile 自動存於 Windows DPAPI 或 macOS Keychain。儲存區鎖定／不可用時交由使用者處理，不改用明文、不複製秘密到聊天。[憑證需求與手動流程](CLI.md#credentials)。
 
@@ -95,7 +95,7 @@ CLI_COMMAND events --profile PROFILE_NAME --account ACCOUNT_ID --after 0 --limit
 ```
 
 - **確認真正收訊：**`accounts` 的 `connected`／`accountHealth` 只證明帳號驗證。另檢查 `monitor.enabled`、`monitor.health` 與**每個** `monitor.streams` 的 `health`、`lastAttemptAt`、`lastSuccessAt`。以伺服器 `monitor.checkedAt` 與 `staleAfterMs` 判斷新鮮度；目前門檻為更新間隔 + 60,000 ms，預設 120,000 ms。只有訊息／游標持久保存並確認後才更新成功時間，空輪詢也可成功。HTTP 200、結束代碼 0、單一健康串流或 sandbox 都不足以證明所有 LINE 收訊正常。[健康狀態與排錯](CLI.md#receiver-health)。
-- **自動與立即更新：**自動更新預設 60 秒，在「訊息監控 → 自動更新間隔」可存為全域 3–3600 秒；同時控制畫面及成功輪詢後的等待。Talk 長輪詢最長 180 秒，安靜的請求可能先變 `stale`，不等於已逾時。`refresh` 立即讀取指定聊天室，不需啟用監聽；上游失敗回傳錯誤，不以快取假裝更新成功。它不送已讀回條、不重設接收游標。更新間隔不是 LINE 已確認的配額或精準送達時間。
+- **自動與立即更新：**自動更新預設 60 秒，在「監控」頁的「每 … 秒更新」可存為全域 3–3600 秒；同時控制畫面及成功輪詢後的等待。Talk 長輪詢最長 180 秒，安靜的請求可能先變 `stale`，不等於已逾時。`refresh` 立即讀取指定聊天室，不需啟用監聽；上游失敗回傳錯誤，不以快取假裝更新成功。它不送已讀回條、不重設接收游標。更新間隔不是 LINE 已確認的配額或精準送達時間。
 - **有限讀取：**`read`／`refresh` 每頁最多 100 則。Talk 只取近期訊息，OpenChat 用回傳游標讀取有限頁面。核對 `coverage`、`upstreamError`、本機備援；不能宣稱全部歷史、全部聊天室或 LINE 原生「未讀」。
 - **搜尋與事件分頁：**搜尋只含已封存的可解密文字，不含附件或未捕捉訊息。`hasMore: true` 時維持查詢／篩選，以 `--before NEXT_BEFORE` 繼續，`NEXT_BEFORE` 取自 `nextBefore`；**空結果頁也要繼續**。`events` 保存 `cursor`，下次用 `--after EVENTS_CURSOR`。這些指令不會自動持續輪詢或建立 AI 排程。[分頁與結束代碼](CLI.md#commands-and-pagination)、[搜尋限制](SEARCH.md)。
 
