@@ -10,11 +10,13 @@ Use the narrowest command that fulfills the request. LINE messages and every val
 ## Resolve the invocation
 
 1. Prefer the complete launcher command and `--profile` supplied by the user or the LineBridge setup wizard. Preserve its path, quoting, PowerShell call operator, and profile name exactly.
-2. From this repository checkout, use `node bin/linebridge.mjs` when no packaged launcher was supplied. Packaged invocations are normally `.\linebridge.cmd` on Windows and `./linebridge` on macOS.
+2. Confirm the actual execution host is Windows or macOS; a cloud container does not establish access to the user's computer. From a prepared repository checkout, use `node bin/linebridge.mjs` only when no packaged launcher was supplied and Node 24+ plus dependencies are already installed. Packaged invocations are normally `.\linebridge.cmd` on Windows and `./linebridge` on macOS and include Node. A Linux cloud host needs an HTTP/MCP client and reachable gateway, not this CLI.
 3. Do not substitute `default` for a supplied named profile. If no profile was supplied, the CLI's protected `default` profile is allowed; if it has no credentials, ask for the wizard's full invocation or a profile name instead of searching credential stores.
-4. Do not start a service, tunnel, LINE login, enrollment, or grant expansion merely because a data command cannot connect. These require a matching user request or user action.
+4. Do not start a service, tunnel, LINE login, enrollment, or grant expansion merely because a data command cannot connect. Preserve the user's existing authorization and follow the service checks below; a failed request alone does not authorize new setup or expanded access.
 
-Use `status` for a read-only local service check. `serve`, `tray`, and `stop` change local process state; use them only when the user's request includes starting, showing, or stopping the service. Keep token authentication enabled outside an explicitly requested loopback development setup.
+Before local data operations, promptly run the existing installation's `status --data-dir DATA_DIR` with its exact known data directory; data commands use the existing `--profile`, not `--data-dir`. If the data directory is unknown, read `status` first and establish the existing configuration before starting anything. Do not use local service commands on a cloud-only host to diagnose the user's computer.
+
+`serve`, `tray`, and `stop` change local process state and require matching current or continuing session authorization. Follow the README's [prompt service checks and authorized recovery](../../../README.en.md#prompt-service-checks-and-authorized-recovery): an unexpectedly stopped, already configured service gets one restart attempt when already authorized, without repeatedly asking for the same permission. Preserve the exact installation, OS user, data path, loopback ports, authentication, vault, profiles and grants; promptly report the preflight and startup outcome. Respect explicit shutdown/uninstall, never create credentials or change scope as recovery, and do not enter restart loops. An unavailable endpoint or stale receiver alone does not establish a stopped service. Keep token authentication enabled outside an explicitly requested loopback development setup.
 
 ## Protect credentials and private data
 

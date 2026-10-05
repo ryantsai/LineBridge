@@ -4,12 +4,13 @@ import {mkdir,mkdtemp,readFile,writeFile,readdir,copyFile} from 'node:fs/promise
 import {join,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
-import {portablePlan} from '../scripts/portable.mjs';
-import {root,sha256,verifyChecksum} from '../scripts/packaging.mjs';
+import {portablePlan,parsePortableOptions,verifyPortableRuntime} from '../scripts/portable.mjs';
+import {root,sha256,verifyChecksum,verifyExecutable} from '../scripts/packaging.mjs';
 import {VERSION} from '../server/version.mjs';
 import {removeClientFixture} from './client-test-utils.mjs';
 
-const plan=portablePlan(),fixture=await mkdtemp(join(tmpdir(),'linebridge-portable-'));
+const options=parsePortableOptions(process.argv.slice(2));
+const plan=portablePlan(process.platform,options.arch??process.arch),fixture=await mkdtemp(join(tmpdir(),'linebridge-portable-'));
 const extracted=join(fixture,'extracted 空間 !'),cwd=join(fixture,'caller folder'),emptyPath=join(fixture,'empty-path'),data=join(fixture,'synthetic data');
 const env={...process.env};
 for(const key of Object.keys(env))if(/^(path|node_options|node_path|line_bridge_.*|cf_access_.*)$/i.test(key))delete env[key];
@@ -77,17 +78,26 @@ try{
   await mkdir(extracted);await mkdir(cwd);await mkdir(emptyPath);
   const out=join(root,'release/portable',plan.slug),info=JSON.parse(await readFile(join(out,'build-info.json'),'utf8'));
   assert.equal(info.filename,basename(info.filename));assert.equal(info.directory,basename(info.directory));
+  assert.equal(info.version,VERSION);assert.equal(info.platform,plan.platform);assert.equal(info.architecture,plan.arch);
+  assert.equal(info.directory,`LineBridge-${VERSION}-${plan.slug}`);assert.equal(info.filename,`${info.directory}.${plan.extension}`);
+  assert.equal(info.launcher,plan.launcher);
   const archive=join(out,info.filename);verifyChecksum(await readFile(archive),info.sha256,info.filename);
   await copyFile(archive,join(extracted,'bundle.archive'));
   execFileSync('tar',['-xf','bundle.archive'],{cwd:extracted,windowsHide:true,stdio:'pipe'});
   const bundle=join(extracted,info.directory);bin=join(bundle,plan.launcher);
+  const bundleInfo=JSON.parse(await readFile(join(bundle,'bundle-info.json'),'utf8'));
+  for(const key of ['version','platform','architecture','directory','launcher','tray','nodeVersion'])assert.equal(bundleInfo[key],info[key]);
   const node=join(bundle,'runtime',plan.nodeName),nodeInfo=JSON.parse(await readFile(join(bundle,'runtime/node-source.json'),'utf8'));
-  assert.equal(sha256(await readFile(node)),nodeInfo.sha256);
+  const nodeBytes=await readFile(node);verifyExecutable(nodeBytes,plan);
+  assert.equal(sha256(nodeBytes),nodeInfo.sha256);
   assert.equal(nodeInfo.downloadSha256,plan.sha256);
+  assert.equal(nodeInfo.version,info.nodeVersion);assert.equal(nodeInfo.platform,plan.platform);assert.equal(nodeInfo.architecture,plan.arch);
   assert.deepEqual((await readdir(join(bundle,'runtime'))).sort(),[plan.nodeName,'node-LICENSE.txt','node-source.json'].sort());
   // This executable and all subsequent commands have an empty executable PATH.
-  const actual=JSON.parse(execFileSync(node,['-p','JSON.stringify({version:process.versions.node,platform:process.platform,arch:process.arch})'],{cwd,env,encoding:'utf8',windowsHide:true}));
-  assert.equal(actual.version,info.nodeVersion);assert.equal(actual.platform,process.platform);assert.equal(actual.arch,process.arch);
+  const actual=verifyPortableRuntime(node,plan,{cwd,env});
+  assert.equal(actual.version,info.nodeVersion);
+  verifyExecutable(await readFile(join(bundle,plan.platform==='win32'?'LineBridge.exe':'LineBridge.app/Contents/MacOS/LineBridge')),plan);
+  if(plan.platform==='darwin')execFileSync('/usr/bin/codesign',['--verify','--strict',join(bundle,'LineBridge.app')],{cwd,env,stdio:'pipe',timeout:15000});
   const version=await run(['--version']);assert.equal(version.code,0);assert.equal(version.stdout.trim(),VERSION);
   assert.ok((await json(['accounts','--help'])).commands.includes('send'));
   const invalid=await run(['send','--text','synthetic']);assert.equal(invalid.code,2);assert.equal(JSON.parse(invalid.stdout).error,'invalid_input');

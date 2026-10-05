@@ -32,7 +32,7 @@ test('standalone bump previews without writes, then leaves synchronized edits wi
 
 test('publish forwards options and dependency context to the existing publisher', async t => {
   const {directory} = await versionFixture(t);
-  const args = ['--bump', 'patch', '--kind', 'portable', '--notes-file', 'notes with spaces.md', '--dry-run'];
+  const args = ['--bump', 'patch', '--kind', 'portable', '--arch', 'x64', '--notes-file', 'notes with spaces.md', '--dry-run'];
   const run = () => assert.fail('No commands expected');
   let calls = 0;
   await main(['publish', ...args], {directory, run, log: () => {}, runPublish: async (received, dependencies) => {

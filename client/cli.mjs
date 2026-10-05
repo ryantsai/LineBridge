@@ -16,7 +16,7 @@ const commandOptions = {
   auth:['token-stdin']
 };
 const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
-export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS/Linux)
+export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS)
 
   linebridge version [--profile NAME | --url GATEWAY]
   linebridge accounts
