@@ -33,6 +33,14 @@ macOS は `uname -s` と `uname -m` で確認します。`x86_64` は `x64`、`a
 
 - **Dot と Mac：**[OpenAI の Dot 文書](https://learn.chatgpt.com/docs/dots/computers-and-apps)は接続済みコンピューターでローカル Work／Codex タスクを作成する機能を説明し、[Computer Use 文書](https://learn.chatgpt.com/docs/computer-use)は macOS／Windows 対応を明記しています。これらは Mac のローカル運用を裏付けますが、アカウント／セッションの機能提供と実際のターミナル権限を確認してください。ユーザーの ChatGPT デスクトップアプリで Dot → Computers → Your computer → Allow access を開き、確認します。アプリを起動・ログイン状態に保ち、ホストをオンラインにします。Dot の許可は Codex Remote／Work Sync とは別で、提供状況はプラン、ワークスペース、段階的な展開に依存します。Mac の GUI 操作には、求められた場合に画面収録とアクセシビリティの許可も必要です。[ローカルアクセス設定](https://learn.chatgpt.com/docs/enterprise/cloud-local-access)を参照してください。
 
+### Dot で LineBridge を使う
+
+LineBridge は、ユーザーが接続した対応 Windows／Mac コンピューターにインストールして実行します。Dot がローカル CLI を呼ぶ前に、そのコンピューターが現在接続・許可され、タスクがそこでターミナルを使えることを確認してください。Dot のクラウド側の `localhost` は別のコンピューターです。既存のローカル起動方法と保護されたプロファイルを使います。Dot のローカルアクセスには ChatGPT アプリの起動・ログイン状態が必要ですが、LineBridge のインストール自体はコンピューターを接続したり Dot に継続的なリモートアクセスを与えたりしません。
+
+LINE の継続受信には、そのコンピューターの**電源が入り、スリープせず、オンラインであること**と、**LineBridge サービスの稼働、LINE の接続、指定チャットの監視有効化**が必要です。実行中の Dot タスクがなくても、LineBridge は受信を続けられます。管理画面のブラウザーを閉じたり **Quit tray (keep service running)** を選んだりしてもサービスと受信は続き、**Stop service and quit** では停止します。Dot がクラウドで利用可能でも、スリープ中・オフライン・停止中のローカル LineBridge は受信を続けられません。
+
+受信・保存と AI の作業は別です。Dot は**ユーザーの要求に応じて**読み取り・要約・操作を行い、定期実行はユーザーが明示的にスケジュールした場合だけ設定します。インストールやチャット監視で定期的な AI 要約・操作が自動作成されることはありません。送信には、下記の宛先と正確な内容の承認が引き続き必要です。LineBridge は非公式のブリッジであり、ChatGPT に組み込まれた公式 LINE コネクターではありません。クラウドだけの Agent には、別途到達可能な HTTPS ゲートウェイと許可された認証情報が必要です。[リモート接続](CONNECTIONS.md)を参照してください。ローカル設定だけでは、このリモートアクセスは自動作成されません。
+
 Windows は下記の非表示 `Start-Process`、macOS は `nohup` を使います。どちらもバックグラウンドプロセスで、自動再起動／起動時実行を備えるシステムサービスではありません。すべてのプラットフォームで LINE のスマートフォンペアリングと権限確認はユーザーが行います。
 
 ## ローカルインストールとバックグラウンド起動
