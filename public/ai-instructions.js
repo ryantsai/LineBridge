@@ -54,7 +54,7 @@ export function localCliInstructions(account,cli){
   const windows=cli?.platform==='win32',quote=value=>windows?`'${String(value).replace(/'/g,"''")}'`:`'${String(value).replace(/'/g,"'\\''")}'`;
   const command=cli?.node&&cli?.script?`${windows?'& ':''}${quote(cli.node)} ${quote(cli.script)}`:'linebridge';
   return `請在這台電腦上，使用現有的 LineBridge CLI 與受保護設定檔 ${setup.profile}。
-閘道：${setup.url}。帳號：${account.id}。已確認的聊天室：${setup.chatIds.join(', ')}。
+閘道：${setup.url}。帳號：${account.id}。已確認的聊天室：${setup.chatIds.join(', ')}。${setup.autoMonitorNewChats?'\n已確認自動監控之後新發現的一對一、群組與 OpenChat；這些聊天室會加入讀取 + 傳送授權。請使用 chats 查詢最新授權範圍。':''}
 憑證已存入作業系統的受保護儲存區。不要輸出、複製、覆寫或重新登錄這些憑證。每個資料指令都必須帶上 --profile ${setup.profile}；這個設定檔與管理介面的金鑰標籤及其他 CLI 設定檔不同，請勿混用。
 CLI 執行方式（${windows?'PowerShell':'POSIX shell'}）：${command}
 請先執行 ${command} accounts --profile ${setup.profile}，再執行 ${command} chats --profile ${setup.profile} --account ${account.id}。所有資料指令都請使用這個執行方式。桌面程式已包含 CLI 與 Node，不要另行安裝或啟動其他服務，也不要自行設定通道或重新登入 LINE。

@@ -76,7 +76,9 @@ Stop with that bundle's `linebridge.cmd stop` on Windows or `linebridge stop` on
 3. Use the wizard's **complete CLI invocation and exact `--profile`**, preserving paths, quotes, and PowerShell `&`. Do not guess the profile or confuse it with API-key labels, `default`, or other profiles.
 4. The profile is automatically stored in Windows DPAPI, macOS Keychain, or Linux Secret Service. Let the user resolve unavailable/locked storage; do not switch to plaintext or copy secrets into chat. See [credential requirements and manual setup](CLI.md#credentials).
 
-The dedicated profile is limited to the same local gateway and confirmed chats. Additional designations do not expand its grant. Disable and have the user reconfirm to change scope or renew; disabling revokes access immediately. `auth forget` removes only the local profile, not the server token. LINE pairing, permission confirmation, and necessary OS authorization prompts cannot be fully unattended. Keep the computer on, connected, and the service running.
+The wizard's room list supports search by name, type, or ID and retains selections while filtering. Opting into **automatically monitoring newly discovered chats** adds future direct chats, groups, and OpenChats to the local profile's read + send scope and archives new messages. Discovery follows the configured refresh interval while monitoring is on. Existing unchecked rooms stay excluded; stopping monitoring, disconnecting, or revoking/expiring the grant prevents automatic enrollment.
+
+The dedicated profile is limited to the same local gateway and confirmed chats, including explicitly opted-in future chats. Manual designations do not expand its grant. Disable and have the user reconfirm to change the manual scope, automatic monitoring option, or renew; disabling revokes access immediately. `auth forget` removes only the local profile, not the server token. LINE pairing, permission confirmation, and necessary OS authorization prompts cannot be fully unattended. Keep the computer on, connected, and the service running.
 
 ## Data commands and reception verification
 

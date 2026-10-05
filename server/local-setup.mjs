@@ -4,7 +4,7 @@ import {CredentialStore} from '../client/credentials.mjs';
 import {digest} from './hub.mjs';
 import {fail} from './errors.mjs';
 
-const input=z.object({chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000),read:z.literal(true),send:z.literal(true),confirmed:z.literal(true)}).strict();
+const input=z.object({chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000),read:z.literal(true),send:z.literal(true),confirmed:z.literal(true),autoMonitorNewChats:z.boolean().default(false)}).strict();
 const key=id=>`localSetup:${id}`;
 const selection=chats=>JSON.stringify(chats.map(c=>[c.id,c.kind,!!c.enabled]).sort((a,b)=>a[0].localeCompare(b[0])));
 const same=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
@@ -37,35 +37,36 @@ export class LocalSetup {
     return value.url===record.url&&!!token&&digest(value.token)===token.hash&&!value.cfAccessClientId;
   }
   async status(id){
-    const record=this.record(id);
-    if(!record)return {phase:'not_enabled',ready:false,permissions:{read:true,send:true},protection:this.credentials.protection};
+    let record=this.record(id);
+    if(!record)return {phase:'not_enabled',ready:false,autoMonitorNewChats:false,permissions:{read:true,send:true},protection:this.credentials.protection};
     let token=this.hub.store.token(record.tokenId);const account=this.hub.store.account(id);
     let credentialStatus='unchecked';
     if(record.phase==='enabled'&&token&&!token.revoked){
       try{credentialStatus=await this.owns(record)?'protected':'profile_conflict';}catch{credentialStatus='unavailable';}
     }
+    const current=this.record(id);if(current?.tokenId===record.tokenId)record=current;
     token=this.hub.store.token(record.tokenId);
-    const monitor=account?this.hub.view(account,record.chatIds).monitor:null,current=this.record(id);
+    const monitor=account?this.hub.view(account,record.chatIds).monitor:null;
     const allSelected=same(this.hub.store.chats(id).filter(c=>c.enabled).map(c=>c.id),record.chatIds);
     const grantActive=record.phase==='enabled'&&current?.phase==='enabled'&&current.tokenId===record.tokenId&&!!token&&!token.revoked&&Date.parse(token.expires_at)>Date.now();
     const endpointMatches=record.url===this.url;
     const ready=grantActive&&credentialStatus==='protected'&&endpointMatches&&this.hub.store.setting('aiEnabled',true)&&allSelected&&monitor?.health==='healthy';
-    return {phase:record.phase,ready,grantActive,profile:record.profile,url:record.url,permissions:{read:true,send:true},chatIds:record.chatIds,
+    return {phase:record.phase,ready,grantActive,profile:record.profile,url:record.url,permissions:{read:true,send:true},chatIds:record.chatIds,autoMonitorNewChats:record.autoMonitorNewChats===true,
       expiresAt:token?.expires_at??null,protection:this.credentials.protection,credentialStatus,monitor,selectionChanged:!allSelected,
       health:ready?'ready':!grantActive?'disabled':credentialStatus!=='protected'?credentialStatus:!endpointMatches?'endpoint_changed':!allSelected?'selection_changed':!this.hub.store.setting('aiEnabled',true)?'paused':account?.kind==='demo'?'sandbox':monitor?.health??'disconnected'};
   }
   enable(id,value){
     const data=input.parse(value),pending=this.busy.get(id);
-    if(pending){if(pending.chatIds&&same(pending.chatIds,data.chatIds))return pending.promise;fail(409,'setup_busy','Setup is in progress. Wait before changing the selection.');}
+    if(pending){if(pending.chatIds&&same(pending.chatIds,data.chatIds)&&pending.autoMonitorNewChats===data.autoMonitorNewChats)return pending.promise;fail(409,'setup_busy','Setup is in progress. Wait before changing the selection.');}
     const promise=this.enroll(id,data,this.generations.get(id)??0).finally(()=>{if(this.busy.get(id)?.promise===promise)this.busy.delete(id);});
-    this.busy.set(id,{chatIds:data.chatIds,promise});return promise;
+    this.busy.set(id,{chatIds:data.chatIds,autoMonitorNewChats:data.autoMonitorNewChats,promise});return promise;
   }
   checkAttempt(id,generation){if((this.generations.get(id)??0)!==generation)fail(409,'setup_cancelled','Setup was cancelled. Its grant is revoked.');}
   async enroll(id,data,generation){
     this.validate(id,data);
     let existing=this.record(id);
     if(existing?.phase==='enabled'){
-      if(!same(existing.chatIds,data.chatIds))fail(409,'setup_scope_conflict','Disable the current setup before confirming a different chat scope.');
+      if(!same(existing.chatIds,data.chatIds)||(existing.autoMonitorNewChats===true)!==data.autoMonitorNewChats)fail(409,'setup_scope_conflict','Disable the current setup before confirming a different chat scope or automatic monitoring policy.');
       const state=await this.status(id);
       this.checkAttempt(id,generation);
       if(!state.grantActive||state.credentialStatus!=='protected'||existing.url!==this.url)fail(409,'setup_needs_reset','Disable this setup, then explicitly enable it again. Existing profiles will not be overwritten.');
@@ -82,7 +83,7 @@ export class LocalSetup {
     this.hub.store.transaction(()=>{
       minted=this.hub.createToken({name:`Local AI · ${this.hub.record(id).label}`.slice(0,80),days:90,grants:[{accountId:id,read:true,send:true,chatIds:data.chatIds,localOnly:true}]});
       this.hub.store.revoke(minted.id);
-      record={phase:'enrolling',profile,url:this.url,tokenId:minted.id,revocationRevision:this.hub.store.setting(`tokenRevocation:${minted.id}`,0),chatIds:data.chatIds,previousChats:before.filter(c=>c.enabled).map(c=>c.id),previousMonitor:this.hub.store.setting(`monitor:${id}`,false),previousMonitorRevision:this.hub.store.setting(`monitorRevision:${id}`,0)};
+      record={phase:'enrolling',profile,url:this.url,tokenId:minted.id,revocationRevision:this.hub.store.setting(`tokenRevocation:${minted.id}`,0),chatIds:data.chatIds,autoMonitorNewChats:data.autoMonitorNewChats,previousChats:before.filter(c=>c.enabled).map(c=>c.id),previousMonitor:this.hub.store.setting(`monitor:${id}`,false),previousMonitorRevision:this.hub.store.setting(`monitorRevision:${id}`,0)};
       this.save(id,record);
     });
     let storageAttempted=false;
@@ -105,6 +106,7 @@ export class LocalSetup {
         record={...record,phase:'enabled'};delete record.previousChats;delete record.previousMonitor;this.save(id,record);
         this.hub.store.audit('local-admin','local-setup.enable',id,null,'ok');
       });
+      this.hub.scheduleDiscovery(id,true);
     }catch(error){
       const monitorOwned=this.hub.store.transaction(()=>{this.hub.store.revoke(record.tokenId);const owned=this.restore(id,record);this.save(id,{...record,phase:'cleanup_required'});return owned;});
       // Stop/reconfigure a partially started receiver before reporting rollback.
@@ -146,6 +148,7 @@ export class LocalSetup {
     const record=this.record(id);if(!record)return this.status(id);
     // Revoke synchronously, including during an in-flight keystore/worker call.
     this.hub.store.transaction(()=>{this.hub.store.revoke(record.tokenId);this.save(id,{...record,phase:'cleanup_required'});this.hub.store.audit('local-admin','local-setup.revoke',id,null,'ok');});
+    this.hub.cancelDiscovery(this.hub.runtime.get(id));
     const promise=(async()=>{
       await pending?.promise.catch(()=>{});
       const current=this.record(id);

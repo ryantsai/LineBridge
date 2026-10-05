@@ -31,6 +31,7 @@ export class Hub {
     const {intervalSeconds}=z.object({intervalSeconds:z.number().int().min(MIN_REFRESH_INTERVAL_SECONDS).max(MAX_REFRESH_INTERVAL_SECONDS)}).strict().parse(data);
     this.store.setSetting('messageRefreshIntervalSeconds',intervalSeconds);
     await Promise.all([...this.runtime.values()].filter(r=>r.status==='connected').map(r=>r.driver?.setRefreshInterval?.(intervalSeconds*1000)));
+    for(const [id,r] of this.runtime)if(r.status==='connected')this.scheduleDiscovery(id);
     this.store.audit('local-admin','refresh.update',null,null,'ok');
     return this.refreshSettings();
   }
@@ -149,6 +150,7 @@ export class Hub {
     const revision=previousRevision+1;this.store.setSetting(`monitorRevision:${id}`,revision);
     const r=this.runtime.get(id);if(r)r.monitorStreams=enabled&&account.kind==='demo'?{demo:{channel:'demo',status:'running'}}:{};
     this.store.setSetting(`monitor:${id}`,enabled);
+    this.cancelDiscovery(r);
     // Apply the preference immediately (capture obeys it), but serialize worker
     // controls so a delayed start cannot run after a newer stop. Skip controls
     // superseded before dispatch, and never let old failures rewrite a choice.
@@ -159,10 +161,32 @@ export class Hub {
     try{await job;}
     catch(error){if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
     finally{if(this.monitorQueues.get(id)===job)this.monitorQueues.delete(id);}
+    if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.scheduleDiscovery(id,true);
     this.store.audit('local-admin','monitor.toggle',id,null,enabled?'enabled':'disabled');
     return monitorStatus(this.store,id,r?.monitorStreams,r?.status??'disconnected');
   }
   async updateMonitor(id){if(this.store.setting(`monitor:${id}`,false)&&this.runtime.get(id)?.driver?.ready)await this.runtime.get(id).driver.updateMonitor?.(this.store.chats(id).filter(c=>c.enabled));}
+  automaticSetup(id){
+    if(!this.store.setting(`monitor:${id}`,false))return null;
+    const record=this.store.setting(`localSetup:${id}`,null);
+    if(record?.phase!=='enabled'||record.autoMonitorNewChats!==true)return null;
+    const token=this.store.token(record.tokenId);
+    return token&&!token.revoked&&Date.parse(token.expires_at)>Date.now()?{record,token}:null;
+  }
+  cancelDiscovery(r){if(r){clearTimeout(r.discoveryTimer);r.discoveryTimer=null;}}
+  scheduleDiscovery(id,immediate=false){
+    const r=this.runtime.get(id);this.cancelDiscovery(r);
+    const current=()=>!this.stopping&&this.runtime.get(id)===r&&r?.status==='connected'&&r.driver?.ready&&!!this.automaticSetup(id);
+    if(!current()||r.discoveryJob)return;
+    r.discoveryTimer=setTimeout(()=>{
+      r.discoveryTimer=null;if(!current())return;
+      const job=this.discover(id,r).catch(()=>{
+        if(current())this.store.setSetting(`discovery:${id}`,{at:new Date().toISOString(),warnings:['Automatic chat discovery failed; it will retry at the next refresh.'],stages:{automatic:{status:'failed',errorCode:'discovery_failed'}}});
+      }).finally(()=>{if(r.discoveryJob===job){r.discoveryJob=null;if(this.runtime.get(id)===r)this.scheduleDiscovery(id);}});
+      r.discoveryJob=job;
+    },immediate?0:refreshIntervalSeconds(this.store)*1000);
+    r.discoveryTimer.unref();
+  }
   events(actor,id,after=0,limit=100){
     this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor),scope=active.grants?.find(g=>g.accountId===id)?.chatIds;
     if(!Number.isSafeInteger(after)||after<0||!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_cursor','Use a nonnegative sequence and limit between 1 and 100.');
@@ -188,13 +212,32 @@ export class Hub {
     prior.tail=result.catch(()=>{});
     try{return await result;}finally{prior.count--;if(!prior.count && this.queues.get(id)===prior)this.queues.delete(id);}
   }
-  async discover(id) {
+  async discover(id,automaticRuntime) {
     this.record(id);
     return this.serialized(id,async()=>{
+      if(automaticRuntime&&(this.runtime.get(id)!==automaticRuntime||this.stopping||!this.automaticSetup(id)))return null;
+      const runtime=this.runtime.get(id);
       const result=await this.driver(id).discover();
-      for(const chat of result.chats) this.store.putChat(id,chat);
+      if(automaticRuntime&&(this.runtime.get(id)!==automaticRuntime||this.stopping||!this.automaticSetup(id)))return null;
+      if(this.runtime.get(id)!==runtime||runtime?.status!=='connected')fail(409,'account_disconnected','The account connection changed during discovery.');
       const discovery={at:new Date().toISOString(),warnings:result.warnings,stages:result.stages ?? {}};
-      this.store.setSetting(`discovery:${id}`,discovery);
+      const added=[];
+      this.store.transaction(()=>{
+        const setup=this.automaticSetup(id);
+        for(const chat of result.chats){
+          const fresh=!this.store.chat(id,chat.id);this.store.putChat(id,chat);
+          if(fresh&&setup){this.store.designate(id,chat.id,true);added.push(chat.id);this.store.audit('local-admin','chat.auto-monitor',id,chat.id,'enabled');}
+        }
+        if(added.length){
+          // Expand only the managed grant that explicitly opted into future rooms.
+          // Existing unchecked rooms and other clients' fixed scopes stay excluded.
+          const chatIds=[...new Set([...setup.record.chatIds,...added])];
+          this.store.setTokenGrants(setup.token.id,setup.token.grants.map(g=>g.accountId===id?{...g,chatIds}:g));
+          this.store.setSetting(`localSetup:${id}`,{...setup.record,chatIds});
+        }
+        this.store.setSetting(`discovery:${id}`,discovery);
+      });
+      if(added.length||automaticRuntime)await this.updateMonitor(id);
       this.store.audit('local-admin','chats.discover',id,null,result.warnings.length?'partial':'ok');
       return {chats:this.store.chats(id),...discovery};
     });
@@ -275,6 +318,7 @@ export class Hub {
   tokens() {return this.store.tokens().map(({hash,...safe})=>safe);}
   cancelHealth(r) {
     if(!r)return;
+    this.cancelDiscovery(r);
     clearTimeout(r.healthTimer);r.healthTimer=null;r.healthController?.abort();
     if(r.accountHealth)r.accountHealth.nextRetryAt=null;
   }
@@ -303,7 +347,7 @@ export class Hub {
         const failures=Math.min(Number.MAX_SAFE_INTEGER,(r.accountHealth?.consecutiveFailures??0)+1),auth=diagnostic.kind==='auth',retryInMs=auth?null:accountRetryDelay(failures);
         r.accountHealth={...r.accountHealth,status:auth?'auth_invalid':'retrying',consecutiveFailures:failures,nextRetryAt:auth?null:new Date(Date.now()+retryInMs).toISOString(),lastFailure:{at:now,...diagnostic,elapsedMs:Date.now()-startedAt,retryInMs}};
         r.error=auth?'login_required':'health_check_failed';
-        if(auth){r.status='error';this.store.connect(id,false);r.driver.stop();}
+        if(auth){r.status='error';this.cancelDiscovery(r);this.store.connect(id,false);r.driver.stop();}
         else {r.healthTimer=setTimeout(()=>{r.healthTimer=null;void this.probeAccount(id,r);},retryInMs);r.healthTimer.unref();}
       }finally{
         clearTimeout(timer);controller.signal.removeEventListener('abort',cancelled);
