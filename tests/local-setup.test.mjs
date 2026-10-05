@@ -51,12 +51,103 @@ test('new designations never broaden listing, reads, events, search or sends; un
   for(let i=0;i<2;i++)await assert.rejects(f.hub.send(a,f.id,'demo-group','synthetic unknown','scope-unknown-001'),{code:'delivery_unknown'});assert.equal(calls,1);
 });
 
+test('only an opted-in setup monitors newly discovered rooms and expands its own local scope',async t=>{
+  for(const autoMonitorNewChats of [false,true]){
+    const f=await fixture(t),updates=[],driver=f.hub.driver(f.id);
+    driver.updateMonitor=async chats=>updates.push(chats.map(c=>c.id).sort());
+    await f.setup.enable(f.id,{...confirm(),autoMonitorNewChats});
+    const a=await actor(f),fixed=f.hub.createToken({name:'Fixed scope',grants:[{accountId:f.id,read:true,send:true,chatIds:['demo-group']}]}),fixedActor=f.hub.authenticate(fixed.token);
+    driver.rooms.push({id:'new-group',name:'New group',kind:'group'},{id:'new-room',name:'New OpenChat',kind:'openchat'},{id:'new-person',name:'New contact',kind:'direct'});
+    await f.hub.discover(f.id);
+    assert.equal(f.store.chat(f.id,'demo-openchat').enabled,0,'An existing unchecked room stays excluded');
+    const status=await f.setup.status(f.id);assert.equal(status.autoMonitorNewChats,autoMonitorNewChats);assert.equal(status.selectionChanged,false);
+    assert.deepEqual(f.hub.chats(fixedActor,f.id).map(c=>c.id),['demo-group'],'Another client retains its fixed grant');
+    if(!autoMonitorNewChats){
+      assert.equal(f.store.chat(f.id,'new-room').enabled,0);assert.deepEqual(status.chatIds,['demo-group']);assert.equal(updates.length,0);assert.equal(f.hub.runtime.get(f.id).discoveryTimer??null,null);
+      continue;
+    }
+    assert.deepEqual(updates.at(-1),['demo-group','new-group','new-person','new-room']);
+    assert.deepEqual([...status.chatIds].sort(),updates.at(-1));assert.deepEqual(f.store.token(f.setup.record(f.id).tokenId).grants[0].chatIds.sort(),updates.at(-1));
+    const incoming={id:'auto-incoming',senderId:'person',text:'synthetic future-room message'};
+    assert.ok(f.hub.capture(f.id,'new-room',incoming));assert.equal(f.hub.events(a,f.id).events.length,1);assert.equal(f.hub.search(a,{query:'future-room'}).results.length,1);
+    assert.equal((await f.hub.read(a,f.id,'new-room')).messages[0].id,incoming.id);
+    assert.equal((await f.hub.send(a,f.id,'new-room','synthetic reply','auto-send-001')).delivery,'sandbox_only');
+    await assert.rejects(f.hub.read(fixedActor,f.id,'new-room'),{code:'scope_denied'});
+    f.hub.designate(f.id,'new-room',false);await f.hub.discover(f.id);
+    assert.equal(f.store.chat(f.id,'new-room').enabled,0,'Rediscovery preserves a later manual exclusion');
+    assert.equal(f.store.audits().filter(row=>row.action==='chat.auto-monitor').length,3,'Each new room is enrolled once');
+  }
+});
+
+test('automatic discovery follows the refresh interval, resumes on reconnect and retries receiver updates',async t=>{
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-10-05T00:00:00Z')});
+  const f=await fixture(t),flush=()=>new Promise(resolve=>setImmediate(resolve)),driver=f.hub.driver(f.id);let polls=0,updates=0;
+  const discover=driver.discover.bind(driver);driver.discover=async()=>{polls++;return discover();};
+  driver.updateMonitor=async()=>{if(++updates===1)throw new Error('synthetic update failure');};
+  await f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true});
+  driver.rooms.push({id:'future-room',name:'Future room',kind:'openchat'});
+  t.mock.timers.tick(0);await flush();assert.equal(polls,1);assert.equal(updates,1);assert.equal(f.store.chat(f.id,'future-room').enabled,1);
+  assert.match(f.store.setting(`discovery:${f.id}`).warnings[0],/retry/);
+  t.mock.timers.tick(59999);await flush();assert.equal(polls,1);
+  t.mock.timers.tick(1);await flush();assert.equal(polls,2);assert.equal(updates,2,'A failed update is reconciled on the next discovery');
+  await f.hub.setRefreshSettings({intervalSeconds:3});t.mock.timers.tick(2999);await flush();assert.equal(polls,2);
+  t.mock.timers.tick(1);await flush();assert.equal(polls,3);
+  await f.hub.monitor(f.id,false);t.mock.timers.tick(60000);await flush();assert.equal(polls,3);
+  await f.hub.monitor(f.id,true);t.mock.timers.tick(0);await flush();assert.equal(polls,4);
+  f.hub.disconnect(f.id);assert.equal(f.hub.runtime.get(f.id).discoveryTimer??null,null);
+  await f.hub.connect(f.id);const reconnected=f.hub.driver(f.id);reconnected.rooms.push({id:'offline-room',name:'Joined while offline',kind:'openchat'});
+  t.mock.timers.tick(0);await flush();assert.equal(f.store.chat(f.id,'offline-room').enabled,1);assert.equal((await f.setup.status(f.id)).selectionChanged,false);
+  await f.setup.revoke(f.id);reconnected.rooms.push({id:'revoked-room',name:'After revocation',kind:'openchat'});
+  t.mock.timers.tick(60000);await flush();assert.equal(f.store.chat(f.id,'revoked-room'),undefined);
+});
+
+test('late automatic discovery cannot enroll a room after stop, revocation, expiry or disconnect',async t=>{
+  for(const event of ['stop','revoke','expire','token-revoke','disconnect']){
+    const f=await fixture(t),driver=f.hub.driver(f.id);await f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true});
+    let release,entered;const started=new Promise(resolve=>{entered=resolve;});
+    driver.discover=()=>{entered();return new Promise(resolve=>{release=resolve;});};
+    const discovery=f.hub.discover(f.id,f.hub.runtime.get(f.id));await started;
+    if(event==='stop')await f.hub.monitor(f.id,false);
+    if(event==='revoke')await f.setup.revoke(f.id);
+    if(event==='expire')f.store.db.prepare('UPDATE tokens SET expires_at=? WHERE id=?').run(new Date(Date.now()-1000).toISOString(),f.setup.record(f.id).tokenId);
+    if(event==='token-revoke')f.store.revoke(f.setup.record(f.id).tokenId);
+    if(event==='disconnect')f.hub.disconnect(f.id);
+    release({chats:[{id:'late-room',name:'Late room',kind:'openchat'}],warnings:[]});await discovery;
+    assert.equal(f.store.chat(f.id,'late-room'),undefined);assert.deepEqual(f.setup.record(f.id).chatIds,['demo-group']);
+  }
+});
+
+test('automatic monitoring policy changes require a new confirmation, including concurrent enrollment',async t=>{
+  const f=await fixture(t);await f.setup.enable(f.id,confirm());
+  await assert.rejects(f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true}),{code:'setup_scope_conflict'});
+  await f.setup.revoke(f.id);
+  let release,entered;const started=new Promise(resolve=>{entered=resolve;}),blocked=new Promise(resolve=>{release=resolve;}),create=f.credentials.create.bind(f.credentials);
+  f.credentials.create=async(...args)=>{entered();await blocked;return create(...args);};
+  const enabling=f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true});await started;
+  assert.throws(()=>f.setup.enable(f.id,confirm()),{code:'setup_busy'});release();assert.equal((await enabling).autoMonitorNewChats,true);
+  assert.throws(()=>f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:'true'}));
+});
+
+test('an opted-in scope survives service restart and status includes additions made during a protected-store read',async t=>{
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-10-05T00:00:00Z')});
+  const f=await fixture(t);await f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true});f.hub.close();
+  const hub=new Hub(f.store,f.hub.vault,()=>new DemoDriver()),setup=new LocalSetup(hub,{credentials:f.credentials,gatewayPort:54321});
+  t.after(()=>hub.close());await hub.initialize();
+  hub.driver(f.id).rooms.push({id:'restart-room',name:'New after restart',kind:'openchat'});
+  t.mock.timers.tick(0);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.store.chat(f.id,'restart-room').enabled,1);assert.equal((await setup.status(f.id)).autoMonitorNewChats,true);
+  const get=f.credentials.get.bind(f.credentials);
+  f.credentials.get=async profile=>{const value=await get(profile);hub.driver(f.id).rooms.push({id:'status-room',name:'Added during status',kind:'group'});await hub.discover(f.id);return value;};
+  const state=await setup.status(f.id);assert.ok(state.chatIds.includes('status-room'));assert.equal(state.selectionChanged,false);
+});
+
 test('protected storage failure and a write-then-failure roll back grants and keep original selection',async t=>{
   for(const written of [false,true]){
     const f=await fixture(t);f.hub.designate(f.id,'demo-openchat',true);
     const create=f.credentials.create.bind(f.credentials);f.credentials.create=async(...args)=>{if(written)await create(...args);unavailable();};
-    await assert.rejects(f.setup.enable(f.id,confirm()),{code:'credential_store_unavailable'});
+    await assert.rejects(f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true}),{code:'credential_store_unavailable'});
     assert.equal(activeToken(f).revoked,1);assert.equal(f.credentials.items.size,0);assert.deepEqual(f.store.chats(f.id).filter(c=>c.enabled).map(c=>c.id),['demo-openchat']);assert.equal(f.store.setting(`monitor:${f.id}`,false),false);
+    assert.equal(f.hub.runtime.get(f.id).discoveryTimer??null,null);
   }
 });
 

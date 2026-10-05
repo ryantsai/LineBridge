@@ -22,6 +22,13 @@ test('zh-TW local instructions preserve platform quoting, scope, protected crede
     for(const required of ['請在這台電腦上','受保護設定檔 linebridge-synthetic','閘道：http://127.0.0.1:54321','帳號：synthetic-account','已確認的聊天室：synthetic-chat, second-chat','不要輸出、複製、覆寫或重新登錄這些憑證','每個資料指令都必須帶上 --profile linebridge-synthetic','不要另行安裝或啟動其他服務','不要自行設定通道或重新登入 LINE','權限只適用於已確認的聊天室'])assert.ok(text.includes(required),required);
   }
 });
+test('local instructions explain explicitly confirmed automatic room scope without relaxing send consent',()=>{
+  const automatic=localCliInstructions({...account,localSetup:{...account.localSetup,autoMonitorNewChats:true}});
+  assert.ok(automatic.includes('已確認自動監控之後新發現的一對一、群組與 OpenChat'));
+  assert.ok(automatic.includes('請使用 chats 查詢最新授權範圍'));assertPolicies(automatic);
+  assert.ok(!localCliInstructions(account).includes('已確認自動監控'));
+});
+
 test('zh-TW cloud instructions preserve executable commands, pagination, install guidance and secret separation',()=>{
   const state={version:'0.6.3',tunnel:{connected:true,provider:'ngrok',url:'https://synthetic.example',token:'SYNTHETIC_PRIVATE_TOKEN'}};
   const text=cloudCliInstructions(state,"account's id");assertPolicies(text);

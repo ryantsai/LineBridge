@@ -1,6 +1,7 @@
 import {normalizeMessage,squareMessages} from '../server/drivers.mjs';
 import timers from 'node:timers/promises';
 import {TALK_POLL_TIMEOUT_MS,DEFAULT_REFRESH_INTERVAL_SECONDS} from '../server/monitor-policy.mjs';
+import {squarePageDiagnostic} from './pagination-diagnostics.mjs';
 
 export function talkChatId(message,ownMid){
   return message.to===ownMid ? String(message.from ?? '') : String(message.to ?? '');
@@ -14,6 +15,9 @@ export function nextTalkCursor(previous,response){
   return result;
 }
 const pause=(ms,signal)=>timers.setTimeout(ms,undefined,{signal}).catch(error=>{if(!signal.aborted)throw error;});
+export const SQUARE_BASELINE_PAGE_DELAY_MS=250;
+export const SQUARE_BASELINE_MAX_PAGES=20;
+export const SQUARE_BASELINE_BURST_MS=5000;
 const errorNames=new Set(['Error','TimeoutError','AbortError','TypeError','RequestError','ClientClosed']);
 const networkCodes=new Set(['ECONNRESET','ECONNREFUSED','ETIMEDOUT','ENOTFOUND','EAI_AGAIN','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','UND_ERR_SOCKET']);
 const protocolCodes=new Set(['NOT_AUTHORIZED_DEVICE','AUTHENTICATION_FAILED','NOT_AUTHORIZED','FORBIDDEN','NOT_FOUND','INTERNAL_ERROR','INVALID_PARAMETER','MUST_REFRESH_V3_TOKEN','EXCESSIVE_ACCESS','NOT_IMPLEMENTED','UNKNOWN']);
@@ -31,7 +35,7 @@ export function pollDiagnostic(error,stage,elapsedMs,pollTimeoutMs,retryInMs){
 // Bounded polling avoids the library's unhandled push-loop failures. There are
 // no read receipts or send calls in this listener. Cursors advance after durable ACK.
 export class LiveMonitor {
-  constructor(driver,event,capture,{refreshIntervalMs=DEFAULT_REFRESH_INTERVAL_SECONDS*1000}={}){this.driver=driver;this.event=event;this.capture=capture;this.active=true;this.abort=new AbortController();this.intervalChanged=new AbortController();this.refreshIntervalMs=refreshIntervalMs;this.allowed=new Map();this.rooms=new Map();this.pollStates=new Map();this.talkTask=this.talkLoop();}
+  constructor(driver,event,capture,{refreshIntervalMs=DEFAULT_REFRESH_INTERVAL_SECONDS*1000,diagnostics=false}={}){this.driver=driver;this.event=event;this.capture=capture;this.diagnostics=diagnostics;this.active=true;this.abort=new AbortController();this.intervalChanged=new AbortController();this.refreshIntervalMs=refreshIntervalMs;this.allowed=new Map();this.rooms=new Map();this.pollStates=new Map();this.talkTask=this.talkLoop();}
   setRefreshInterval(ms){this.refreshIntervalMs=ms;this.intervalChanged.abort();this.intervalChanged=new AbortController();}
   async waitForNextPoll(signal){
     const since=Date.now();
@@ -56,8 +60,15 @@ export class LiveMonitor {
       ready:success?status==='running':previous?.ready??false,
       pollTimeoutMs:details.pollTimeoutMs??previous?.pollTimeoutMs??null,
       pollDeadlineAt:status==='polling'&&details.pollTimeoutMs?new Date(Date.parse(now)+details.pollTimeoutMs).toISOString():null,
-      lastFailure:details.diagnostic?{at:now,...details.diagnostic}:previous?.lastFailure??null};
+      lastFailure:details.diagnostic?{at:now,...details.diagnostic}:previous?.lastFailure??null,
+      ...(this.diagnostics&&(details.pagination??previous?.pagination)?{pagination:details.pagination??previous.pagination}:{})};
     this.pollStates.set(channel,state);this.event('monitor_status',state);
+  }
+  pageDiagnostic(channel,pagination){
+    if(!this.active||!this.diagnostics)return;
+    const previous=this.pollStates.get(channel);if(!previous)return;
+    // Update response metadata without moving attempt/success times or deadlines.
+    const state={...previous,pagination};this.pollStates.set(channel,state);this.event('monitor_status',state);
   }
   async talkLoop(){
     let cursor,retries=0;
@@ -90,15 +101,19 @@ export class LiveMonitor {
     }
   }
   async squareLoop(chatId,room){
-    let cursor,initialized=false,baseline=true,retries=0;
+    let cursor,initialized=false,baseline=true,retries=0,page=0,burstPages=0,burstStartedAt=0;
     const signal=AbortSignal.any([this.abort.signal,room.abort.signal]);
     while(this.active&&room.active){
       let stage='initialize',startedAt=Date.now(),timeoutMs=this.driver.client.config?.timeout??30000;
       try{
         if(!initialized){const saved=room.fresh?undefined:await this.driver.storage.get(`monitor.square:${chatId}`);cursor=typeof saved==='string'?saved:saved?.syncToken;baseline=!cursor || (typeof saved==='object' && saved.ready!==true);initialized=true;}
-        stage='poll';startedAt=Date.now();this.status(chatId,'polling',undefined,false,{pollTimeoutMs:timeoutMs});
+        if(burstPages&&Date.now()-burstStartedAt>=SQUARE_BASELINE_BURST_MS){burstPages=0;await this.waitForNextPoll(signal);if(!this.active||!room.active)break;}
+        stage='poll';startedAt=Date.now();if(!burstPages)burstStartedAt=startedAt;
+        this.status(chatId,'polling',undefined,false,{pollTimeoutMs:timeoutMs});
         const response=await this.request(signal,()=>this.driver.client.square.fetchSquareChatEvents({squareChatMid:chatId,limit:100,direction:'FORWARD',...(cursor?{syncToken:cursor}:{})}));
         if(!this.active||!room.active)break;
+        const pagination=this.diagnostics?squarePageDiagnostic({response,cursor,baseline,page:++page,startedAt,continuationTokenSent:false}):undefined;
+        if(pagination)this.pageDiagnostic(chatId,pagination);
         // Drain the initial event snapshot in bounded pages without exposing it.
         // Persist readiness too: a restart during baseline must not import history.
         if(!baseline&&this.allowed.has(chatId)){
@@ -107,12 +122,22 @@ export class LiveMonitor {
           stage='capture';for(const message of messages)if(this.active&&room.active&&this.allowed.has(chatId))await this.capture(chatId,message);
         }
         if(!this.active||!room.active)break;
+        // Preserve the existing empty-page boundary, also used by LineJS SquareChat.listen.
+        // Its opaque continuation token can remain present at that boundary.
         const nextBaseline=baseline&&!!response.events?.length;
         if(!response.syncToken)throw new Error('cursor_unavailable');
+        const advanced=cursor!==response.syncToken;
         stage='checkpoint';await this.driver.storage.set(`monitor.square:${chatId}`,{syncToken:response.syncToken,ready:!nextBaseline});cursor=response.syncToken;baseline=nextBaseline;
         if(!this.active||!room.active)break;
-        this.status(chatId,baseline?'initializing':'running',undefined,true);retries=0;await this.waitForNextPoll(signal);
-      }catch(error){if(!this.active||!room.active)break;const retryInMs=Math.min(30000,2000*2**Math.min(retries++,4));this.status(chatId,'retrying','monitor_poll_failed',false,{diagnostic:pollDiagnostic(error,stage,Date.now()-startedAt,timeoutMs,retryInMs)});await pause(retryInMs,signal);}
+        this.status(chatId,baseline?'initializing':'running',undefined,true,{...(pagination?{pagination:{...pagination,checkpointSucceeded:true,baselineAfter:baseline,elapsedMs:Date.now()-startedAt}}:{})});retries=0;
+        // Initial history can contain thousands of control events. Waiting a full
+        // live interval per page can prevent catching up in an active OpenChat.
+        // Continue only after durable progress, with per-burst page/time bounds.
+        // Preserve the conservative empty-page boundary and never capture history.
+        burstPages++;
+        if(baseline&&advanced&&burstPages<SQUARE_BASELINE_MAX_PAGES&&Date.now()-burstStartedAt<SQUARE_BASELINE_BURST_MS){await pause(SQUARE_BASELINE_PAGE_DELAY_MS,signal);}
+        else{burstPages=0;await this.waitForNextPoll(signal);}
+      }catch(error){if(!this.active||!room.active)break;burstPages=0;const retryInMs=Math.min(30000,2000*2**Math.min(retries++,4));this.status(chatId,'retrying','monitor_poll_failed',false,{diagnostic:pollDiagnostic(error,stage,Date.now()-startedAt,timeoutMs,retryInMs)});await pause(retryInMs,signal);}
     }
   }
 }
