@@ -26,6 +26,16 @@ export class LocalSetup {
   get url(){return `http://127.0.0.1:${this.gatewayPort}`;}
   record(id){return this.hub.store.setting(key(id),null);}
   save(id,record){this.hub.store.setSetting(key(id),record);}
+  discover(){
+    // Public setup metadata only: never enumerate or unlock credential stores.
+    return this.hub.store.accounts().flatMap(account=>{
+      const record=this.record(account.id);
+      if(record?.phase!=='enabled'||record.url!==this.url)return [];
+      const token=this.hub.store.token(record.tokenId);
+      if(!token||token.revoked||!(Date.parse(token.expires_at)>Date.now())||!token.grants.some(g=>g.accountId===account.id&&g.localOnly&&g.read))return [];
+      return [{profile:record.profile,url:record.url,accountId:account.id,accountLabel:account.label,expiresAt:token.expires_at}];
+    });
+  }
   usable(){if(this.hub.stopping)fail(503,'service_stopping','The service is stopping.');if(!this.hub.store.setting('aiEnabled',true))fail(409,'gateway_paused','Resume AI access before enabling setup.');}
   validate(id,data){
     this.hub.record(id);this.hub.driver(id);this.usable();
@@ -62,6 +72,22 @@ export class LocalSetup {
     this.busy.set(id,{chatIds:data.chatIds,autoMonitorNewChats:data.autoMonitorNewChats,promise});return promise;
   }
   checkAttempt(id,generation){if((this.generations.get(id)??0)!==generation)fail(409,'setup_cancelled','Setup was cancelled. Its grant is revoked.');}
+  updateSettings(id,value){
+    const data=z.object({autoMonitorNewChats:z.boolean()}).strict().parse(value);
+    this.hub.record(id);
+    if(this.hub.stopping)fail(503,'service_stopping','The service is stopping.');
+    if(this.busy.has(id))fail(409,'setup_busy','Setup is in progress. Wait before changing automatic monitoring.');
+    const record=this.record(id),token=record&&this.hub.store.token(record.tokenId);
+    if(record?.phase!=='enabled'||!token||token.revoked||Date.parse(token.expires_at)<=Date.now())fail(409,'setup_needs_reset','Enable local AI setup before changing automatic monitoring.');
+    // A policy change affects future discoveries only. Keep the credential,
+    // existing selections and other clients' grants intact.
+    this.hub.store.transaction(()=>{
+      this.save(id,{...record,...data});
+      this.hub.store.audit('local-admin','local-setup.update',id,null,data.autoMonitorNewChats?'enabled':'disabled');
+    });
+    this.hub.scheduleDiscovery(id,true);
+    return this.status(id);
+  }
   async enroll(id,data,generation){
     this.validate(id,data);
     let existing=this.record(id);

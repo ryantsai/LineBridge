@@ -1,6 +1,5 @@
 import {fileURLToPath} from 'node:url';
 import {dirname,join,resolve} from 'node:path';
-import {homedir} from 'node:os';
 import {mkdir,readFile,writeFile,rm,stat,chmod} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {DatabaseSync,backup} from 'node:sqlite';
@@ -11,21 +10,10 @@ import {Hub} from './hub.mjs';
 import {Tunnels} from './tunnels.mjs';
 import {createApps} from './app.mjs';
 import {HubError} from './errors.mjs';
+import {defaultDataDirectory,metadata,validPort} from './service-location.mjs';
+export {defaultDataDirectory,metadata,validPort} from './service-location.mjs';
 
 export const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-export function defaultDataDirectory(){
-  if(!['win32','darwin'].includes(process.platform))throw new Error('LineBridge supports Windows and macOS only.');
-  if(process.env.LINE_BRIDGE_DATA)return resolve(process.env.LINE_BRIDGE_DATA);
-  const base=process.platform==='win32'?process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'):join(homedir(),'Library','Application Support');
-  const current=join(base,process.platform==='win32'?'LineBridgeData':'LineBridge');
-  // Keep fresh Windows data separate from NSIS's application directory, while
-  // reusing legacy vaults in place rather than moving account credentials.
-  if(existsSync(join(current,'bridge.sqlite')))return current;
-  for(const legacy of [join(base,'LineBridge'),join(base,'com.ryantsai.linebridge')])if(existsSync(join(legacy,'bridge.sqlite')))return legacy;
-  return current;
-}
-export const validPort=p=>Number.isInteger(p)&&p>1024&&p<65536;
-export async function metadata(data){try{return JSON.parse(await readFile(join(data,'service.json'),'utf8'));}catch{return null;}}
 function alive(pid){if(!Number.isInteger(pid)||pid<1)return false;try{process.kill(pid,0);return true;}catch(error){return error.code==='EPERM';}}
 async function lease(data){
   // An OS-released SQLite lock survives neither crashes nor stale PID files.

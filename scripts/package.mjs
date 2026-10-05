@@ -7,7 +7,7 @@ export function validateArchive(files){
   const paths=files.map(f=>typeof f==='string'?f:f.path);
   const allowed=p=>/^(bin\/linebridge\.mjs|client\/[a-z-]+\.mjs|server\/[a-z-]+\.mjs|protocol\/[a-z-]+\.mjs|protocol\/third-party-notices\.txt|public\/.+|examples\/[a-z-]+\.mjs|package\.json|openapi\.json|LICENSE|README(?:\.(?:zh-TW|en|ja))?\.md|PACKAGING\.md|CONNECTIONS\.md|ALIASES\.md|SEARCH\.md|CLI\.md)$/.test(p);
   for(const p of paths)if(!allowed(p)||p.includes('..')||/\.(sqlite(?:-wal|-shm)?|dpapi|bin|exe|dmg|rs|tgz)$/.test(p))throw new Error(`Refusing to package unexpected file: ${p}`);
-  for(const required of ['bin/linebridge.mjs','client/cli.mjs','client/credentials.mjs','client/request.mjs','client/errors.mjs','CLI.md','LICENSE','server/main.mjs','server/store.mjs','protocol/worker.mjs','public/index.html','package.json'])if(!paths.includes(required))throw new Error(`Missing package file: ${required}`);
+  for(const required of ['bin/linebridge.mjs','client/cli.mjs','client/discovery.mjs','client/credentials.mjs','client/request.mjs','client/errors.mjs','CLI.md','LICENSE','server/main.mjs','server/service-location.mjs','server/store.mjs','protocol/worker.mjs','public/index.html','package.json'])if(!paths.includes(required))throw new Error(`Missing package file: ${required}`);
   return paths;
 }
 export async function buildPackage(){

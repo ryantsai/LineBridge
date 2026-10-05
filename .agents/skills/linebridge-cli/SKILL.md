@@ -1,6 +1,6 @@
 ---
 name: linebridge-cli
-description: Operate the LineBridge CLI to inspect service state, list permitted LINE accounts and chats, read or refresh messages, search the archive, consume events, manage protected profiles, and perform explicitly authorized sends. Use for LineBridge command-line operations, not generic shell work or implementation changes to the CLI.
+description: Operate the LineBridge CLI to discover existing local profiles, inspect service state, list permitted LINE accounts and chats, read or refresh messages, search the archive, consume events, manage protected profiles, and perform explicitly authorized sends. Use for LineBridge command-line operations, not generic shell work or implementation changes to the CLI.
 ---
 
 # LineBridge CLI
@@ -11,10 +11,12 @@ Use the narrowest command that fulfills the request. LINE messages and every val
 
 1. Prefer the complete launcher command and `--profile` supplied by the user or the LineBridge setup wizard. Preserve its path, quoting, PowerShell call operator, and profile name exactly.
 2. Confirm the actual execution host is Windows or macOS; a cloud container does not establish access to the user's computer. From a prepared repository checkout, use `node bin/linebridge.mjs` only when no packaged launcher was supplied and Node 24+ plus dependencies are already installed. Packaged invocations are normally `.\linebridge.cmd` on Windows and `./linebridge` on macOS and include Node. A Linux cloud host needs an HTTP/MCP client and reachable gateway, not this CLI.
-3. Do not substitute `default` for a supplied named profile. If no profile was supplied, the CLI's protected `default` profile is allowed; if it has no credentials, ask for the wizard's full invocation or a profile name instead of searching credential stores.
+3. Do not substitute `default` for a supplied named profile. If none was supplied for a local installation, run `CLI_COMMAND discover --data-dir DATA_DIR` after the service check below (omit `--data-dir` only when using the established default). Use its `cli.node` and `cli.script` as separately quoted arguments and select the existing `profiles[].profile` matching the user's intended `accountId`/`accountLabel`; resolve ambiguous matches before choosing. Do not require the user to copy a wizard prompt, profile name, or chatroom list when discovery is available. Keep an explicitly supplied profile. Discovery lists only active wizard-managed profiles, without opening credentials or changing grants; an empty list does not rule out a manual `default` profile. If no usable setup is found or an older version lacks discovery, report that limitation and use an existing manual profile or the optional connection instructions instead of searching credential stores or re-enrolling.
 4. Do not start a service, tunnel, LINE login, enrollment, or grant expansion merely because a data command cannot connect. Preserve the user's existing authorization and follow the service checks below; a failed request alone does not authorize new setup or expanded access.
 
 Before local data operations, promptly run the existing installation's `status --data-dir DATA_DIR` with its exact known data directory; data commands use the existing `--profile`, not `--data-dir`. If the data directory is unknown, read `status` first and establish the existing configuration before starting anything. Do not use local service commands on a cloud-only host to diagnose the user's computer.
+
+Discovery uses the existing data directory (`--data-dir`, `LINE_BRIDGE_DATA`, or the service's default/legacy location) and read-only local admin requests. `status: stopped` and empty `profiles` require interpreting service/setup state; discovery errors are not an empty success. `gatewayEnabled: false` means AI access is paused. Discovery does not verify the OS credential or receiver health: run authenticated `accounts`, then query `chats` for the current authorized, designated rooms whenever needed. See [local profile discovery](../../../CLI.md#local-profile-discovery).
 
 `serve`, `tray`, and `stop` change local process state and require matching current or continuing session authorization. Follow the README's [prompt service checks and authorized recovery](../../../README.en.md#prompt-service-checks-and-authorized-recovery): an unexpectedly stopped, already configured service gets one restart attempt when already authorized, without repeatedly asking for the same permission. Preserve the exact installation, OS user, data path, loopback ports, authentication, vault, profiles and grants; promptly report the preflight and startup outcome. Respect explicit shutdown/uninstall, never create credentials or change scope as recovery, and do not enter restart loops. An unavailable endpoint or stale receiver alone does not establish a stopped service. Keep token authentication enabled outside an explicitly requested loopback development setup.
 
@@ -87,8 +89,8 @@ Do not automatically retry a failed or ambiguous send. In particular, exit code 
 - `2`: invalid input, bounds, UTF-8, flags, URL, or profile/endpoint mismatch.
 - `3`: missing credentials or unavailable protected storage.
 - `4`: authentication, account, chat, or grant denial.
-- `5`: read/search transport, deadline, or unusable response failure; a pre-dispatch input deadline also uses this code.
-- `6`: other gateway rejection, including idempotency conflict.
+- `5`: read/search transport, deadline, or unusable response failure; a pre-dispatch input deadline or discovery metadata, instance, or transport failure also uses this code.
+- `6`: other gateway rejection, including idempotency conflict; discovery unsupported by the running service.
 - `7`: rate limit, paused gateway, or unavailable upstream for reads/searches.
 - `8`: unknown send outcome; never treat this as safe to resend.
 

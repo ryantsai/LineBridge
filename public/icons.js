@@ -1,6 +1,7 @@
 // Original LineBridge line icons on a 24px grid. styles.css draws them with
 // round 1.75px strokes, so they stay crisp, follow the theme and can animate.
 const paths={
+  dashboard:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
   play:'<circle cx="12" cy="12" r="8.75"/><path d="M10.25 8.9v6.2l5-3.1z"/>',
   pulse:'<path d="M3 12h3.6l2.4-6.2 4.8 12.4 2.4-6.2H21"/>',
   search:'<circle cx="11" cy="11" r="6.75"/><path d="m20 20-4.2-4.2"/>',

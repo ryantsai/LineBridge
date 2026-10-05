@@ -51,8 +51,18 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
   }));
   const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
-  admin.get('/admin/state',asyncRoute(async(req,res)=>res.json({version:VERSION,backend:'node',locale:'zh-TW',instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},accounts:await Promise.all(hub.accounts(adminActor).map(async a=>({...a,localSetup:await localSetup.status(a.id),localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)}))),tokens:hub.tokens(),audit:hub.store.audits(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
-    gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},refresh:hub.refreshSettings(),vault:hub.vault.protection})));
+  admin.get('/admin/discovery',(req,res)=>res.json({version:VERSION,instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},gatewayEnabled:hub.store.setting('aiEnabled',true),profiles:localSetup.discover()}));
+  admin.get('/admin/state',asyncRoute(async(req,res)=>{
+    const startedAt=Date.now();
+    try{
+      const state={version:VERSION,backend:'node',locale:'zh-TW',instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},accounts:await Promise.all(hub.accounts(adminActor).map(async a=>({...a,localSetup:await localSetup.status(a.id),localAccess:hub.localAccess(a.id),discovery:hub.store.setting(`discovery:${a.id}`,null)}))),tokens:hub.tokens(),tunnel:await tunnels.status(),cloudflare:cloudflare.status(),
+        chatCounts:Object.fromEntries(hub.store.accounts().map(a=>[a.id,hub.store.chats(a.id).length])),
+        gateway:{port:gatewayPort,mcp:'/mcp',api:'/api/v1',authentication:authentication(),requireToken,enabled:hub.store.setting('aiEnabled',true)},refresh:hub.refreshSettings(),vault:hub.vault.protection};
+      hub.debug.refresh(startedAt,state);
+      res.json({...state,debugLogging:hub.debug.settings(),audit:hub.store.audits()});
+    }catch(error){hub.debug.refresh(startedAt,null,error);throw error;}
+  }));
+  admin.put('/admin/debug-settings',(req,res)=>res.json(hub.debug.configure(req.body)));
   admin.put('/admin/refresh-settings',asyncRoute(async(req,res)=>res.json(await hub.setRefreshSettings(req.body))));
   admin.post('/admin/pause',(req,res)=>{if(typeof req.body.enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');hub.store.setSetting('aiEnabled',req.body.enabled);hub.store.audit('local-admin','gateway.toggle',null,null,req.body.enabled?'enabled':'paused');res.json({enabled:req.body.enabled});});
   admin.post('/admin/accounts',asyncRoute(async(req,res)=>res.status(201).json(await hub.addAccount(req.body))));
@@ -62,6 +72,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.post('/admin/accounts/:id/disconnect',(req,res)=>{hub.disconnect(req.params.id,req.body.forget===true);res.json({ok:true});});
   admin.delete('/admin/accounts/:id',asyncRoute(async(req,res)=>{const setup=await localSetup.revoke(req.params.id);if(setup.phase==='cleanup_required')fail(503,'credential_store_unavailable','Access is revoked. Unlock protected storage and retry removal to clean up the managed profile.');hub.remove(req.params.id);res.json({ok:true});}));
   admin.post('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.enable(req.params.id,req.body))));
+  admin.patch('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.updateSettings(req.params.id,req.body))));
   admin.delete('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.revoke(req.params.id))));
   admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
   admin.put('/admin/accounts/:id/local-access',(req,res)=>res.json(hub.setLocalAccess(req.params.id,req.body)));

@@ -6,6 +6,23 @@
 
 日常 CLI 操作另參考儲存庫的 [LineBridge CLI skill](https://github.com/ryantsai/LineBridge/blob/main/.agents/skills/linebridge-cli/SKILL.md)。安裝與已授權的服務復原依本指南；指令與限制以安裝版本的 `--help` 及 [CLI 文件](CLI.md)為準。
 
+## 探索既有的本機 AI 存取
+
+**AI Agent：使用者完成 LINE 配對與授權後，請自行探索現有設定，不要要求使用者複製精靈指令、profile 名稱或監控聊天室清單。** 以同一個 OS 使用者執行現有安裝。下方 `CLI_COMMAND` 代表其啟動程式：Windows 的 `.\linebridge.cmd`、macOS 的 `./linebridge`，或該啟動程式的絕對路徑。已備妥 Node 24+ 與相依套件的原始碼目錄可用 `node bin/linebridge.mjs`。
+
+```sh
+CLI_COMMAND status
+CLI_COMMAND discover
+CLI_COMMAND accounts --profile PROFILE_NAME
+CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID
+```
+
+已知自訂資料目錄時，**`status` 與 `discover` 都要帶上相同的 `--data-dir DATA_DIR`**。未知時先查看 `status`；探索會使用 `LINE_BRIDGE_DATA` 或與服務一致的預設／舊版資料目錄。資料指令使用 `--profile`，不是 `--data-dir`。
+
+`discover` 回傳 JSON，包含 `status`、`dataDir`、`profiles`；服務執行中時另有 `cli.node`、`cli.script`、`cli.platform` 及 `gatewayEnabled`。每個 profile 含 `profile`、`url`、`accountId`、`accountLabel`、`expiresAt`。依使用者指定的帳號選擇既有 profile，將其原名作為 `PROFILE_NAME` 帶入每個資料指令；使用回傳的 CLI 路徑並正確引用（PowerShell：`& 'NODE_PATH' 'SCRIPT_PATH'`）。需要時以 `accounts` 取得帳號 ID、以 `chats` 取得最新已授權且指定的聊天室 ID，不依賴複製的清單。多個帳號符合時先釐清；使用者已明確提供 profile 時保留該選擇，不自行換用其他設定檔。
+
+探索只讀取本機設定中繼資料，不開啟憑證儲存區、不變更權限；只列出仍有效的精靈管理授權，不列出手動／遠端 profile。探索成功不代表憑證或 LINE 收訊正常，接著須以 `accounts` 驗證。`status: stopped` 或空的 `profiles` 表示該資料目錄未找到有效的管理設定，請回報缺少設定或服務問題並依下方復原指引處理。舊版本若尚無 `discover`，可使用選用的連線說明，或在使用者授權範圍內升級。首次配對及權限確認仍由使用者完成。詳見 [CLI 探索說明](CLI.md#local-profile-discovery)。
+
 ## 執行環境與最新版本
 
 - 使用**使用者電腦上的終端機，以及相同 OS 使用者身分**。只有雲端終端機時，`localhost` 不是使用者電腦；請使用既有的 HTTPS AI 閘道，見[遠端連線](CONNECTIONS.md)。
@@ -95,18 +112,20 @@ nohup "$bundle/linebridge" serve --require-token \
 
 ## 使用者配對與授權
 
-1. 初次透過本機管理畫面設定時，先嘗試使用**使用者電腦上的 Computer Use 開啟預設瀏覽器**，前往 `http://localhost:3210/`；埠號須換成 `status` 確認的實際管理埠，不是 AI 閘道埠，並確認設定頁已載入。若沒有 Computer Use 或無法開啟，明確告訴使用者：「請開啟瀏覽器，將 `http://localhost:3210/` 複製貼到網址列，再按 Enter。」以行內程式碼或程式碼區塊列出含實際埠號的完整網址，不要只提供可點擊的 Markdown 連結；已有使用者回報 ChatGPT app 的 Dot 無法直接開啟 localhost 連結。若 `localhost` 無法載入，改試或提供相同實際管理埠的 `http://127.0.0.1:3210/`。系統匣的 Open LineBridge 也會在瀏覽器開啟同一個精靈。**讓使用者完成手機 LINE 配對**、選擇聊天室，並核對帳號與聊天室名稱／ID。
+沒有已儲存帳號時，首次開啟會自動顯示設定精靈對話框。有帳號後預設顯示「總覽」，提供帳號連線、AI 監控範圍、封存量及服務狀態；可隨時按「設定精靈」重新開啟。
+
+1. 初次透過本機管理畫面設定時，先嘗試使用**使用者電腦上的 Computer Use 開啟預設瀏覽器**，前往 `http://localhost:3210/`；埠號須換成 `status` 確認的實際管理埠，不是 AI 閘道埠，並確認設定頁已載入。若沒有 Computer Use 或無法開啟，明確告訴使用者：「請開啟瀏覽器，將 `http://localhost:3210/` 複製貼到網址列，再按 Enter。」以行內程式碼或程式碼區塊列出含實際埠號的完整網址，不要只提供可點擊的 Markdown 連結；已有使用者回報 ChatGPT app 的 Dot 無法直接開啟 localhost 連結。若 `localhost` 無法載入，改試或提供相同實際管理埠的 `http://127.0.0.1:3210/`。系統匣的 Open LineBridge 也會在瀏覽器開啟同一個管理畫面。**讓使用者完成手機 LINE 配對**、選擇聊天室，並核對帳號與聊天室名稱／ID。
 2. 本機精靈會要求明確確認**讀取 + 傳送**，再建立 90 天的專用 CLI profile、開始接收與加密封存。若使用者只要讀取，改用「AI 存取」頁的手動流程建立窄範圍 read grant。
-3. 使用精靈顯示的**完整 CLI 執行方式與原樣 `--profile`**，保留路徑、引號及 PowerShell 的 `&`。不要猜 profile 名稱，或混用 API 金鑰標籤、`default` 與其他 profile。
+3. 依上方步驟執行 `discover` 取得既有 CLI 路徑與 profile；精靈的連線說明是選用備援。使用**完整 CLI 執行方式與原樣 `--profile`**，保留路徑、引號及 PowerShell 的 `&`。不要猜 profile 名稱，或混用 API 金鑰標籤、`default` 與其他 profile。
 4. profile 自動存於 Windows DPAPI 或 macOS Keychain。儲存區鎖定／不可用時交由使用者處理，不改用明文、不複製秘密到聊天。[憑證需求與手動流程](CLI.md#credentials)。
 
-精靈的聊天室清單可依名稱、類型或 ID 搜尋，篩選不會取消已勾選的聊天室。選用「自動監控之後新發現的聊天室」並確認後，監聽期間會依自動更新間隔探索新的一對一、群組與 OpenChat，加入本機 profile 的讀取 + 傳送授權並封存新訊息。目前未勾選的聊天室仍排除在外；停止監聽、帳號離線或授權撤銷／到期時不會自動加入新聊天室。
+精靈的聊天室清單可依名稱、類型或 ID 搜尋，篩選不會取消已勾選的聊天室。選用「自動加入新聊天室」並確認後，監聽期間會依自動更新間隔探索新的一對一、群組與 OpenChat，加入本機 profile 的讀取 + 傳送授權並封存新訊息。目前未勾選的聊天室仍排除在外；停止監聽、帳號離線或授權撤銷／到期時不會自動加入新聊天室。
 
-專用 profile 限同一個本機閘道及確認過的聊天室，包含已明確選用的自動監控新聊天室。手動新增聊天室指定不會擴大既有授權；手動更改範圍、自動監控選項或續期須停用並由使用者重新確認。停用會立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示無法完全無人操作。電腦須保持開機、連網，服務持續執行。
+專用 profile 限同一個本機閘道及確認過的聊天室，包含已明確選用的自動監控新聊天室。手動新增聊天室指定不會擴大既有授權；手動更改範圍或續期須停用並由使用者重新確認。已有有效的本機 AI 授權時，可直接在「聊天室」帳號設定切換「自動加入新聊天室」；關閉後保留已加入的聊天室與現有授權。聊天室清單預設篩選「AI 監控」，也可選「非 AI 監控」或「所有聊天室」，並搭配類型與文字搜尋。停用會立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示無法完全無人操作。電腦須保持開機、連網，服務持續執行。
 
 ## 資料指令與接收驗證
 
-以下 `CLI_COMMAND` 代表精靈的完整執行方式，`PROFILE_NAME` 是其 profile。`ACCOUNT_ID`、`CHAT_ID` 必須取自前兩個查詢；先替換佔位文字，再依使用者需求執行。
+以下 `CLI_COMMAND` 代表經 `discover` 找到或已明確提供的既有執行方式，`PROFILE_NAME` 是選定的既有 profile。`ACCOUNT_ID`、`CHAT_ID` 必須取自前兩個查詢；先替換佔位文字，再依使用者需求執行。
 
 ```sh
 CLI_COMMAND accounts --profile PROFILE_NAME
@@ -119,6 +138,7 @@ CLI_COMMAND events --profile PROFILE_NAME --account ACCOUNT_ID --after 0 --limit
 
 - **確認真正收訊：**`accounts` 的 `connected`／`accountHealth` 只證明帳號驗證。另檢查 `monitor.enabled`、`monitor.health` 與**每個** `monitor.streams` 的 `health`、`lastAttemptAt`、`lastSuccessAt`。以伺服器 `monitor.checkedAt` 與 `staleAfterMs` 判斷新鮮度；目前門檻為更新間隔 + 60,000 ms，預設 120,000 ms。只有訊息／游標持久保存並確認後才更新成功時間，空輪詢也可成功。HTTP 200、結束代碼 0、單一健康串流或 sandbox 都不足以證明所有 LINE 收訊正常。[健康狀態與排錯](CLI.md#receiver-health)。
 - **自動與立即更新：**自動更新預設 60 秒，在「監控」頁的「每 … 秒更新」可存為全域 3–3600 秒；同時控制畫面及成功輪詢後的等待。Talk 長輪詢最長 180 秒，安靜的請求可能先變 `stale`，不等於已逾時。`refresh` 立即讀取指定聊天室，不需啟用監聽；上游失敗回傳錯誤，不以快取假裝更新成功。它不送已讀回條、不重設接收游標。更新間隔不是 LINE 已確認的配額或精準送達時間。
+- **除錯紀錄：**在「紀錄」頁開啟「除錯紀錄」，可記錄每次畫面更新、LINE 輪詢、帳號驗證及立即更新訊息的狀態、耗時與錯誤類型。預設關閉，設定會保存；關閉後停止新增除錯項目。紀錄不含訊息內容或憑證，共保留最近 2,000 筆活動，頁面顯示最近 80 筆。
 - **有限讀取：**`read`／`refresh` 每頁最多 100 則。Talk 只取近期訊息，OpenChat 用回傳游標讀取有限頁面。核對 `coverage`、`upstreamError`、本機備援；不能宣稱全部歷史、全部聊天室或 LINE 原生「未讀」。
 - **搜尋與事件分頁：**搜尋只含已封存的可解密文字，不含附件或未捕捉訊息。`hasMore: true` 時維持查詢／篩選，以 `--before NEXT_BEFORE` 繼續，`NEXT_BEFORE` 取自 `nextBefore`；**空結果頁也要繼續**。`events` 保存 `cursor`，下次用 `--after EVENTS_CURSOR`。這些指令不會自動持續輪詢或建立 AI 排程。[分頁與結束代碼](CLI.md#commands-and-pagination)、[搜尋限制](SEARCH.md)。
 

@@ -19,7 +19,8 @@ test('zh-TW local instructions preserve platform quoting, scope, protected crede
   assert.ok(fallback.includes('linebridge chats --profile linebridge-synthetic --account synthetic-account'));
   for(const text of [posix,windows,fallback]){
     assertPolicies(text);
-    for(const required of ['請在這台電腦上','受保護設定檔 linebridge-synthetic','閘道：http://127.0.0.1:54321','帳號：synthetic-account','已確認的聊天室：synthetic-chat, second-chat','不要輸出、複製、覆寫或重新登錄這些憑證','每個資料指令都必須帶上 --profile linebridge-synthetic','不要另行安裝或啟動其他服務','不要自行設定通道或重新登入 LINE','權限只適用於已確認的聊天室'])assert.ok(text.includes(required),required);
+    for(const required of ['請在這台電腦上','受保護設定檔 linebridge-synthetic','閘道：http://127.0.0.1:54321','帳號：synthetic-account','請使用 chats 查詢最新授權範圍','這份連線說明是選用的','執行 discover','--data-dir','不要輸出、複製、覆寫或重新登錄這些憑證','每個資料指令都必須帶上 --profile linebridge-synthetic','不要另行安裝或啟動其他服務','不要自行設定通道或重新登入 LINE','權限只適用於已確認的聊天室'])assert.ok(text.includes(required),required);
+    for(const id of account.localSetup.chatIds)assert.ok(!text.includes(id),'Chat IDs must be queried when needed, not copied into the handoff');
   }
 });
 test('local instructions explain explicitly confirmed automatic room scope without relaxing send consent',()=>{

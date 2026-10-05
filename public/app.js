@@ -5,6 +5,8 @@ import {icon,hydrateIcons} from './icons.js';
 import {accountName,chatName,senderName} from './names.js';
 import {createWizard} from './wizard.js';
 import {createArchive} from './archive.js';
+import {createDashboard} from './dashboard.js';
+import {createActivity} from './activity.js';
 import {aiInstructionsCard,renderAiInstructions} from './ai-instructions.js';
 import {copyText,confirmButton,navIndicator} from './ui.js';
 const $=selector=>document.querySelector(selector);
@@ -19,10 +21,12 @@ const short=value=>{
   if(part(date,{})===part(now,{}))return date.toLocaleTimeString('zh-TW',{timeZone:zone,hour12:false,hour:'2-digit',minute:'2-digit'});
   return date.toLocaleString('zh-TW',{timeZone:zone,hour12:false,...(part(date,{year:'numeric'})===part(now,{year:'numeric'})?{}:{year:'numeric'}),month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 };
-let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,loginView,toastTimer,sendAttempt,chatFilter='all',chatSearch='';
+let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,loginView,toastTimer,sendAttempt,chatFilter='all',chatSearch='',chatAiFilter='monitored';
+let startupChecked=false;
+const savingAutoMonitor=new Set();
 let refreshRunning=false,reading=false,sending=false,chatListRefreshPending=false;
 let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
-let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
+let currentPage='dashboard',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
 let feedAccount=null,readerChat=null,chatInfoOpen=false;
 const seenEvents=new Set(),seenMessages=new Set();
 const observedSequences=new Map();
@@ -61,16 +65,28 @@ function renderAccountHealth(a){
   const checked=$('#account-last-checked');if(checked)checked.textContent=short(a.lastChecked);
 }
 function switchTab(tab){
+  if(tab==='setup'){openSetup();return;}
   currentPage=tab;document.body.dataset.page=tab;
   document.querySelectorAll('.nav').forEach(e=>{e.classList.toggle('active',e.dataset.tab===tab);if(e.dataset.tab===tab)e.setAttribute('aria-current','page');else e.removeAttribute('aria-current');});
   document.querySelectorAll('.page').forEach(e=>e.classList.toggle('active',e.id===tab));
   document.title=`${pageTitles[tab]} · LineBridge`;document.scrollingElement?.scrollTo(0,0);
-  if(tab==='setup')wizard.render();
+  if(tab==='dashboard')dashboard.render();
   if(tab==='accounts'&&!selectedAccount&&state?.accounts.length)action(async()=>{selectedAccount=state.accounts[0].id;await loadChats();renderAccounts();});
   if(tab==='accounts')flushDiscoveredChats();
   if(tab==='monitoring'){monitorAccount=monitorAccount||selectedAccount;renderMonitoring();action(()=>refreshMonitorFeed(true));}
 }
-const pageTitles={setup:'開始',monitoring:'監控',archive:'搜尋',accounts:'聊天室',access:'AI 存取',tunnel:'雲端連線',activity:'紀錄'};
+function openSetup(){
+  const dialog=$('#setup-dialog');if(dialog.open)return;
+  wizard.start();dialog.showModal();
+}
+function initializeStartup(){
+  if(startupChecked||!state)return;
+  // Wait for a successful state read, and never interrupt another open dialog.
+  if(!state.accounts.length&&document.querySelector('dialog[open]'))return;
+  startupChecked=true;
+  if(!state.accounts.length)openSetup();
+}
+const pageTitles={dashboard:'總覽',monitoring:'監控',archive:'搜尋',accounts:'聊天室',access:'AI 存取',tunnel:'雲端連線',activity:'紀錄'};
 document.querySelectorAll('[data-tab]').forEach(e=>{e.setAttribute('aria-label',e.textContent.trim());e.title=e.textContent.trim();e.addEventListener('click',()=>switchTab(e.dataset.tab));});
 document.querySelectorAll('[data-close]').forEach(e=>e.addEventListener('click',()=>{$(`#${e.dataset.close}`).close();if(e.dataset.close==='account-dialog')wizard.cancelNewAccount();if(e.dataset.close==='secret-dialog')$('#new-secret').value='';}));
 $('#secret-dialog').addEventListener('close',()=>{$('#new-secret').value='';});
@@ -98,11 +114,11 @@ const wizard=createWizard({escape,action,nice,avatar,getState:()=>state,getSelec
   revoke:async id=>{await api(`/accounts/${id}/local-setup`,{method:'DELETE'});await refresh();await loadChats();},
   openAccount:()=>{$('#account-form').elements.kind.value='line';$('#account-dialog').showModal();},
   connect:async qr=>{const a=state.accounts.find(a=>a.id===selectedAccount);if(a.kind==='demo'||!qr)await reconnect();else await login(a.id);},
-  go:tab=>{if(tab==='monitoring')monitorAccount=selectedAccount;switchTab(tab);}
+  go:tab=>{$('#setup-dialog').close();if(tab==='monitoring')monitorAccount=selectedAccount;switchTab(tab);}
 });
-const archive=createArchive({api,action,escape,when,short,getState:()=>state,openChat:async(id,chat)=>{selectedAccount=id;selectedChat=chat;chatFilter='all';chatSearch='';sendAttempt=null;switchTab('accounts');await loadChats();renderAccounts();}});
+const dashboard=createDashboard({getState:()=>state,escape});
+const archive=createArchive({api,action,escape,when,short,getState:()=>state,openChat:async(id,chat)=>{selectedAccount=id;selectedChat=chat;chatFilter='all';chatAiFilter='all';chatSearch='';sendAttempt=null;switchTab('accounts');await loadChats();renderAccounts();}});
 $('#access-ai-instructions').innerHTML=aiInstructionsCard('access-ai-prompt');
-document.body.dataset.page='setup';wizard.render();
 $('#account-dialog').addEventListener('cancel',()=>wizard.cancelNewAccount());
 
 async function refresh(){
@@ -122,7 +138,7 @@ async function refresh(){
       }
     }
     flushDiscoveredChats();
-    renderRefreshSettings();renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();archive.render();wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);
+    renderRefreshSettings();renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();dashboard.render();archive.render();if($('#setup-dialog').open)wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);initializeStartup();
     const base=state.tunnel.url || `http://127.0.0.1:${state.gateway.port}`;
     $('#mcp-url').textContent=`${base}/mcp`;$('#api-url').textContent=`${base}/openapi.json`;
     if(selectedAccount&&!state.accounts.some(a=>a.id===selectedAccount)){selectedAccount=null;selectedChat=null;chats=[];renderAccountPane();}
@@ -148,7 +164,7 @@ function renderAccounts(){
   $('#account-list').innerHTML=state.accounts.length?state.accounts.map(a=>`<button class="account-item ${selectedAccount===a.id?'selected':''}" data-account="${escape(a.id)}">${avatar(accountName(a),a.id,'',`<span class="presence ${presence(a)}"></span>`)}<span class="account-info"><strong>${escape(accountName(a))}</strong><small>${a.kind==='demo'?'沙盒':escape(accountStatus(a))} · AI ${a.designatedChats}</small></span></button>`).join(''):'<p class="pane-empty">尚無帳號</p>';
   document.querySelectorAll('[data-account]').forEach(e=>e.addEventListener('click',()=>action(async()=>{selectedAccount=e.dataset.account;selectedChat=null;sendAttempt=null;await loadChats();renderAccounts();})));
   }
-  if(selectedAccount){const a=state.accounts.find(a=>a.id===selectedAccount);if(a){const el=$('#selected-status');if(el)el.innerHTML=statusBadge(a);renderAccountHealth(a);renderDiscoveryNotice(a);}}
+  if(selectedAccount){const a=state.accounts.find(a=>a.id===selectedAccount);if(a){const el=$('#selected-status');if(el)el.innerHTML=statusBadge(a);renderAccountHealth(a);renderDiscoveryNotice(a);renderAutoMonitorSetting(a);}}
 }
 function renderDiscoveryNotice(account){
   const el=$('#discovery-notice');if(!el)return;
@@ -167,16 +183,43 @@ function renderAccountPane(){
     `<button class="icon-btn danger" id="remove-account" aria-label="移除帳號" title="移除帳號">${icon('trash')}</button>`
   ].join('');
   $('#chat-pane').innerHTML=`<div class="account-head">${avatar(accountName(a),a.id,'lg')}<div class="account-title"><h2>${escape(accountName(a))} <span id="selected-status">${statusBadge(a)}</span></h2><p>${a.kind==='demo'?'模擬資料，不連線 LINE':`${escape(nice(a.device))} · 驗證於 <span id="account-last-checked">${escape(short(a.lastChecked))}</span>`}</p></div><div class="account-actions">${actions}</div></div><div class="note warn account-error" id="account-health-notice" hidden></div><div class="chat-layout"><div class="chat-col"><div class="chat-tools"><div class="input-icon">${icon('search')}<label class="sr-only" for="chat-search">搜尋聊天室名稱或 ID</label><input id="chat-search" type="search" placeholder="搜尋聊天室" value="${escape(chatSearch)}"></div><button class="icon-btn" id="discover-chats" aria-label="探索聊天室" title="探索聊天室" ${a.status!=='connected'?'disabled':''}>${icon('refresh')}</button><button class="icon-btn" id="add-chat" aria-label="新增已知聊天室 ID" title="新增已知聊天室 ID">${icon('plus')}</button><select id="chat-filter" class="compact" aria-label="聊天室類型">${['all','group','direct','openchat'].map(kind=>`<option value="${kind}" ${chatFilter===kind?'selected':''}>${filterLabel(kind)}</option>`).join('')}</select><span class="badge good" title="開放給 AI 的聊天室">AI · ${chats.filter(c=>c.enabled).length}</span></div><div class="chat-sub"><span id="chat-search-count" role="status" aria-live="polite"></span></div><div class="note warn discovery-notice" id="discovery-notice" hidden></div><div class="chat-list" id="chat-list"></div></div><div class="chat-reader" id="reader">${selectedChat?readerLoading():`<div class="reader-placeholder">${icon('chat')}<span>選擇聊天室以查看訊息</span></div>`}</div></div>`;
-  renderAccountHealth(a);renderDiscoveryNotice(a);
+  $('#account-health-notice').insertAdjacentHTML('afterend',`<div class="account-settings"><label class="toggle-card"><input type="checkbox" class="switch" id="account-auto-monitor" aria-describedby="account-auto-monitor-help"><span><strong>自動加入新聊天室</strong><small id="account-auto-monitor-help"></small></span></label><button class="btn sm" id="account-setup" data-go="setup">設定精靈</button></div>`);
+  $('.chat-sub').insertAdjacentHTML('afterbegin',`<select id="chat-ai-filter" class="compact" aria-label="AI 監控篩選">${['monitored','unmonitored','all'].map(value=>`<option value="${value}" ${chatAiFilter===value?'selected':''}>${aiFilterLabel(value)}</option>`).join('')}</select>`);
+  renderAccountHealth(a);renderDiscoveryNotice(a);renderAutoMonitorSetting(a);
+  $('#account-auto-monitor').addEventListener('change',event=>action(()=>saveAutoMonitorSetting(a.id,event.target.checked)));
   $('#connect-account')?.addEventListener('click',()=>action(()=>a.kind==='demo'?reconnect():login(a.id)));
   $('#resume-account')?.addEventListener('click',()=>action(reconnect));
   $('#disconnect-account')?.addEventListener('click',()=>action(async()=>{await api(`/accounts/${a.id}/disconnect`,{method:'POST',body:'{}'});await refresh();await loadChats();}));
   $('#remove-account').addEventListener('click',()=>action(async()=>{if(!confirm(`移除「${accountName(a)}」？登入憑證與封存訊息都會刪除。`))return;await api(`/accounts/${a.id}`,{method:'DELETE'});selectedAccount=null;selectedChat=null;chats=[];await refresh();renderAccountPane();}));
   $('#discover-chats').addEventListener('click',()=>action(async()=>{const button=$('#discover-chats');button.disabled=true;button.classList.add('busy');try{const result=await api(`/accounts/${a.id}/discover`,{method:'POST',body:'{}'});chats=result.chats;toast(`找到 ${chats.length} 個聊天室${result.warnings.length?'（部分探索失敗）':''}`,!!result.warnings.length);await refresh();renderAccountPane();}finally{button.disabled=a.status!=='connected';button.classList.remove('busy');}}));
-  $('#chat-filter').addEventListener('change',event=>{chatFilter=event.target.value;if(!chats.some(c=>c.id===selectedChat&&(chatFilter==='all'||c.kind===chatFilter))){selectedChat=null;sendAttempt=null;}renderAccountPane();if(selectedChat)action(readMessages);});
+  $('#chat-filter').addEventListener('change',event=>{chatFilter=event.target.value;renderChatList();});
+  $('#chat-ai-filter').addEventListener('change',event=>{chatAiFilter=event.target.value;renderChatList();});
   $('#add-chat').addEventListener('click',()=>$('#chat-dialog').showModal());
   $('#chat-search').addEventListener('input',event=>{chatSearch=event.target.value;renderChatList();});
   renderChatList();
+}
+function renderAutoMonitorSetting(a){
+  const toggle=$('#account-auto-monitor');if(!toggle||!a)return;
+  const active=!!a.localSetup?.grantActive;
+  if(!savingAutoMonitor.has(a.id))toggle.checked=active&&a.localSetup.autoMonitorNewChats===true;
+  toggle.disabled=!active||savingAutoMonitor.has(a.id);
+  $('#account-auto-monitor-help').textContent=active?`監聽時每 ${state.refresh?.intervalSeconds??60} 秒探索；新聊天室會自動開放 AI 讀取與傳送並封存。關閉後保留已加入的聊天室。`:'先完成設定精靈並啟用本機 AI，即可自動加入新聊天室。';
+  $('#account-setup').hidden=active;
+}
+async function saveAutoMonitorSetting(id,enabled){
+  if(savingAutoMonitor.has(id))return;
+  savingAutoMonitor.add(id);
+  const account=state.accounts.find(a=>a.id===id);
+  if(id===selectedAccount)renderAutoMonitorSetting(account);
+  try{
+    const setup=await api(`/accounts/${id}/local-setup`,{method:'PATCH',body:JSON.stringify({autoMonitorNewChats:enabled})});
+    const current=state.accounts.find(a=>a.id===id);if(current)current.localSetup=setup;
+    toast(enabled?'已開啟自動加入新聊天室':'已關閉自動加入新聊天室');
+    await refresh();
+  }finally{
+    savingAutoMonitor.delete(id);
+    const current=state.accounts.find(a=>a.id===id);if(current&&id===selectedAccount)renderAutoMonitorSetting(current);
+  }
 }
 function readerLoading(){return '<div class="reader-loading" aria-label="正在讀取訊息"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>';}
 function flushDiscoveredChats(){
@@ -190,14 +233,16 @@ function flushDiscoveredChats(){
   renderChatList();chatListRefreshPending=false;
 }
 function filterLabel(kind){return `${kind==='all'?'全部':nice(kind)} (${chats.filter(c=>kind==='all'||c.kind===kind).length})`;}
+function aiFilterLabel(value){return `${value==='all'?'所有聊天室':value==='monitored'?'AI 監控':'非 AI 監控'} (${chats.filter(c=>value==='all'||!!c.enabled===(value==='monitored')).length})`;}
 function renderChatList(){
   const target=$('#chat-list'),a=state?.accounts.find(a=>a.id===selectedAccount);if(!target||!a)return;
   const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase();
   const terms=normalize(chatSearch).trim().split(/\s+/).filter(Boolean);
-  const visibleChats=chats.filter(c=>(chatFilter==='all'||c.kind===chatFilter)&&terms.every(term=>normalize(chatName(c)+' '+c.id).includes(term)));
+  const visibleChats=chats.filter(c=>(chatAiFilter==='all'||!!c.enabled===(chatAiFilter==='monitored'))&&(chatFilter==='all'||c.kind===chatFilter)&&terms.every(term=>normalize(chatName(c)+' '+c.id).includes(term)));
+  for(const option of $('#chat-ai-filter')?.options??[])option.textContent=aiFilterLabel(option.value);
   $('#chat-search-count').textContent=`${visibleChats.length===chats.length?'':`${visibleChats.length} / `}${chats.length} 個聊天室${chats.length&&!chats.some(c=>c.enabled)?' · 點選 AI 以開放':''}`;
   target.innerHTML=visibleChats.length?visibleChats.map(c=>`<div class="chat-item ${selectedChat===c.id?'selected':''}" data-chat="${escape(c.id)}" role="button" tabindex="0">${avatar(chatName(c),c.id,'sm')}<div class="chat-item-main"><strong>${escape(chatName(c))}</strong><small>${escape(c.kind==='openchat'?'OpenChat · 實驗性':nice(c.kind))}</small></div><label class="ai-toggle" title="${c.enabled?'已開放給 AI':'開放給 AI'}"><input type="checkbox" data-designate="${escape(c.id)}" aria-label="開放給 AI：${escape(chatName(c))}" ${c.enabled?'checked':''}><span>AI</span></label></div>`).join(''):chats.length?'<div class="list-empty">沒有符合的聊天室<button class="link-btn" id="clear-chat-search">清除篩選</button></div>':`<div class="list-empty">尚無聊天室<button class="btn sm" data-act="discover" ${a.status!=='connected'?'disabled':''}>探索聊天室</button></div>`;
-  $('#clear-chat-search')?.addEventListener('click',()=>{chatSearch='';chatFilter='all';$('#chat-search').value='';$('#chat-filter').value='all';renderChatList();$('#chat-search').focus();});
+  $('#clear-chat-search')?.addEventListener('click',()=>{chatSearch='';chatFilter='all';chatAiFilter='all';$('#chat-search').value='';$('#chat-filter').value='all';$('#chat-ai-filter').value='all';renderChatList();$('#chat-search').focus();});
   target.querySelectorAll('[data-chat]').forEach(el=>{const select=()=>action(async()=>{if(reading||sending)return;selectedChat=el.dataset.chat;sendAttempt=null;renderChatList();$('#reader').innerHTML=readerLoading();await readMessages();});el.addEventListener('click',event=>{if(!event.target.closest('label'))select();});el.addEventListener('keydown',event=>{if(event.target===el&&(event.key==='Enter'||event.key===' ')){event.preventDefault();select();}});});
   document.querySelectorAll('[data-designate]').forEach(el=>el.addEventListener('change',()=>action(async()=>{try{await api(`/accounts/${a.id}/chats/${encodeURIComponent(el.dataset.designate)}`,{method:'PATCH',body:JSON.stringify({enabled:el.checked})});const chat=chats.find(c=>c.id===el.dataset.designate);chat.enabled=el.checked?1:0;toast(el.checked?'已開放給 AI':'已關閉 AI 存取');renderAccountPane();if(selectedChat)await readMessages();await refresh();}catch(error){el.checked=!el.checked;throw error;}})));
 }
@@ -249,7 +294,7 @@ async function refreshMonitorFeed(force=false){
     feed.classList.toggle('stagger',first);
     feed.innerHTML=list.length?list.map(event=>{const chat=rooms.find(c=>c.id===event.chatId),message=event.message,name=senderName(message,a,chat),at=message.timestamp || event.receivedAt;return `<article class="feed-item${!first&&!seenEvents.has(event.sequence)?' fresh':''}">${avatar(name,message.senderId||name)}<div class="feed-main"><div class="feed-top"><strong>${escape(name)}</strong><button class="feed-chat" data-open-chat="${escape(event.chatId)}">${escape(chatName(chat))}</button><time title="${escape(when(at))}">${escape(short(at))}</time></div><p class="feed-text${message.unavailableReason?' muted':''}">${escape(message.unavailableReason?'無法解密此訊息':message.text || `[${message.contentType || '非文字'} 訊息]`)}</p></div></article>`;}).join(''):`<div class="empty"><span class="empty-icon">${icon('inbox')}</span><h3>${a.monitor?.enabled?'等待新訊息':'尚無訊息'}</h3><p>${a.kind==='demo'?'到沙盒聊天室傳送訊息試試看。':a.monitor?.enabled?'新訊息會即時出現在這裡。':'開啟監聽以接收開放聊天室的新訊息。'}</p></div>`;
     list.forEach(event=>seenEvents.add(event.sequence));
-    feed.querySelectorAll('[data-open-chat]').forEach(el=>el.addEventListener('click',()=>action(async()=>{selectedAccount=id;selectedChat=el.dataset.openChat;sendAttempt=null;switchTab('accounts');await loadChats();renderAccounts();})));
+    feed.querySelectorAll('[data-open-chat]').forEach(el=>el.addEventListener('click',()=>action(async()=>{selectedAccount=id;selectedChat=el.dataset.openChat;chatFilter='all';chatAiFilter='all';chatSearch='';sendAttempt=null;switchTab('accounts');await loadChats();renderAccounts();})));
     monitorVersion=version;
   }catch(error){if(id===monitorAccount)$('#monitor-feed').innerHTML=`<div class="empty"><span class="empty-icon">${icon('alert')}</span><h3>暫時無法讀取收件匣</h3><p>${escape(error.message)}</p></div>`;}
   finally{monitorReading=false;}
@@ -334,10 +379,8 @@ function openToken(accountId){if(!state?.accounts.length){toast('請先新增帳
 $('#new-token').addEventListener('click',()=>openToken());
 $('#token-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{const form=event.currentTarget,grants=[...document.querySelectorAll('[data-grant]')].map(e=>({accountId:e.dataset.grant,read:e.querySelector('[name=read]').checked,send:e.querySelector('[name=send]').checked})).filter(g=>g.read||g.send);if(!grants.length)throw new Error('請至少為一個帳號開啟讀取或傳送。');const data=await api('/tokens',{method:'POST',body:JSON.stringify({name:form.elements.name.value,days:Number(form.elements.days.value),grants})});$('#token-dialog').close();$('#token-form').reset();$('#new-secret').value=data.token;$('#secret-dialog').showModal();await refresh();});});
 $('#copy-secret').addEventListener('click',()=>action(async()=>{try{await navigator.clipboard.writeText($('#new-secret').value);}catch{$('#new-secret').select();if(!document.execCommand('copy'))throw new Error('請選取並手動複製權杖。');}confirmButton($('#copy-secret'));}));
-function renderAudit(){
-  const actorName=id=>id==='local-admin'?'本機管理介面':id==='local-agent'?'本機 AI':state.tokens.find(t=>t.id===id)?.name||'AI 用戶端';
-  $('#audit-list').innerHTML=state.audit.length?state.audit.map(row=>{const kind=['ok','enabled'].includes(row.outcome)?'good':['failed','rejected','unknown'].includes(row.outcome)?'danger':'';return `<tr><td><time title="${escape(when(row.at))}">${escape(short(row.at))}</time></td><td>${escape(nice(row.action))}</td><td>${escape(state.accounts.find(a=>a.id===row.account_id)?.label||'—')}${row.chat_id?`<small>${escape(row.chat_id.slice(0,20))}</small>`:''}</td><td>${escape(actorName(row.actor))}</td><td><span class="result-state"><span class="dot ${kind}"></span>${escape(nice(row.outcome))}</span></td></tr>`;}).join(''):'<tr><td colspan="5" class="table-empty">尚無紀錄</td></tr>';
-}
+const activity=createActivity({getState:()=>state,api,action,toast,refresh,escape,when,short});
+function renderAudit(){activity.render();}
 const connections=createConnections({api,action,toast,refresh,escape,when,getState:()=>state});
 function renderTunnel(){connections.render();}
 await refresh();configureRefreshTimer(state?.refresh?.intervalSeconds??60);

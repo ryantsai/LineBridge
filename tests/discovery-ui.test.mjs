@@ -43,14 +43,14 @@ function fixture(){
     tunnel:{connected:false,provider:'local'},tokens:[],vault:'synthetic'};
   const context={
     state,selectedAccount:account.id,selectedChat:oldChat.id,chats:[oldChat],
-    currentPage:'accounts',chatFilter:'all',chatSearch:'',refreshRunning:false,reading:false,sending:false,
+    currentPage:'accounts',chatFilter:'all',chatAiFilter:'monitored',chatSearch:'',refreshRunning:false,reading:false,sending:false,startupChecked:false,
     chatListRefreshPending:false,observedDiscoveries:new Map(),observedSequences:new Map([[account.id,1]]),
     sendAttempt:{key:'synthetic-intent'},$:node,
-    document:{body:{dataset:{}},querySelectorAll(){return [];}},
+    document:{body:{dataset:{}},querySelectorAll(){return [];},querySelector(){return null;}},
     api:async(path,options)=>{requests.push({path,options});if(path==='/state')return state;if(path===`/accounts/${account.id}/chats`)return next;throw new Error('Unexpected request: '+path);},
     renderRefreshSettings(){},renderAccounts(){},renderLocalAccess(){},renderTokens(){},
     renderAudit(){},renderTunnel(){},renderMonitoring(){},renderAiInstructions(){},
-    archive:{render(){}},wizard:{sync(){},render(){}},providerName:value=>value,
+    dashboard:{render(){}},archive:{render(){}},wizard:{sync(){},render(){}},providerName:value=>value,
     renderAccountPane(){throw new Error('Discovery must preserve the account pane');},
     readMessages(){throw new Error('Discovery must not fetch messages');},
     escape:value=>String(value??'').replace(/[&<>"]/g,value=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[value])),
@@ -60,6 +60,7 @@ function fixture(){
   node('#reader').innerHTML='Existing conversation';
   node('#send-form textarea').value='Unsent synthetic draft';
   node('#chat-filter').options=['all','group','direct','openchat'].map(value=>({value,textContent:''}));
+  node('#chat-ai-filter').options=['monitored','unmonitored','all'].map(value=>({value,textContent:''}));
   vm.createContext(context);vm.runInContext(handlers,context);
   return {context,node,requests,next,account};
 }
@@ -115,7 +116,7 @@ test('discovery updates while typing without replacing the compose field or hand
 });
 
 test('discovery on another page is applied when returning to the existing account reader',async()=>{
-  const f=fixture();f.context.currentPage='setup';
+  const f=fixture();f.context.currentPage='dashboard';
   await f.context.refresh();
   assert.equal(f.context.chatListRefreshPending,true);
   assert.equal(f.node('#chat-list').writes,0);
@@ -123,4 +124,53 @@ test('discovery on another page is applied when returning to the existing accoun
   assert.match(f.node('#chat-list').innerHTML,/New room/);
   assert.equal(f.requests.length,2);
   assertReaderUnchanged(f);
+});
+
+test('AI monitoring filter defaults to monitored rooms and combines with type and normalized search',()=>{
+  const f=fixture();
+  f.context.chats=[...f.next,{id:'excluded',name:'Other room',kind:'group',enabled:0}];
+  f.context.renderChatList();
+  assert.match(f.node('#chat-list').innerHTML,/Existing room/);
+  assert.doesNotMatch(f.node('#chat-list').innerHTML,/Other room/);
+  f.context.chatAiFilter='unmonitored';f.context.renderChatList();
+  assert.match(f.node('#chat-list').innerHTML,/Other room/);
+  assert.doesNotMatch(f.node('#chat-list').innerHTML,/Existing room/);
+  f.context.chatAiFilter='all';f.context.chatFilter='group';f.context.chatSearch='ＯＴＨＥＲ';f.context.renderChatList();
+  assert.match(f.node('#chat-list').innerHTML,/Other room/);
+  assert.doesNotMatch(f.node('#chat-list').innerHTML,/Existing room|New room/);
+  assertReaderUnchanged(f);
+});
+
+test('clearing filters exposes unchecked chats and discovery refreshes monitoring filter counts',async()=>{
+  const f=fixture();f.next.push({id:'excluded',name:'Unchecked room',kind:'direct',enabled:0});
+  await f.context.refresh();
+  assert.deepEqual(f.node('#chat-ai-filter').options.map(option=>option.textContent),['AI 監控 (2)','非 AI 監控 (1)','所有聊天室 (3)']);
+  f.context.chatFilter='direct';f.context.renderChatList();
+  assert.match(f.node('#chat-list').innerHTML,/沒有符合/);
+  f.node('#clear-chat-search').listeners.click();
+  assert.equal(f.context.chatAiFilter,'all');assert.equal(f.context.chatFilter,'all');
+  assert.match(f.node('#chat-list').innerHTML,/Unchecked room/);
+  assertReaderUnchanged(f);
+});
+
+test('first successful startup opens setup once for an empty account list; saved accounts land on the dashboard',()=>{
+  for(const saved of [false,true]){
+    const f=fixture();f.context.currentPage='dashboard';
+    if(!saved)f.context.state.accounts=[];
+    let opened=0,started=0;
+    f.node('#setup-dialog').showModal=()=>{opened++;f.node('#setup-dialog').open=true;};
+    f.context.wizard.start=()=>{started++;};
+    f.context.initializeStartup();
+    assert.equal(opened,saved?0:1);assert.equal(started,opened);
+    f.node('#setup-dialog').open=false;f.context.initializeStartup();assert.equal(opened,saved?0:1);
+    f.context.switchTab('setup');assert.equal(opened,saved?1:2);
+    assert.equal(f.context.currentPage,'dashboard','The wizard overlays the dashboard');
+  }
+});
+
+test('startup waits for state and leaves another modal alone',()=>{
+  const f=fixture(),state=f.context.state;f.context.state=undefined;
+  f.context.initializeStartup();assert.equal(f.context.startupChecked,false);
+  f.context.state=state;state.accounts=[];f.context.document.querySelector=()=>({open:true});
+  f.context.initializeStartup();assert.equal(f.context.startupChecked,false);
 });

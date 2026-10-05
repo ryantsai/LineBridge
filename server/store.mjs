@@ -9,7 +9,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS secrets(account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(account_id,key));
       CREATE TABLE IF NOT EXISTS chats(account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,id TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account_id,id));
       CREATE TABLE IF NOT EXISTS tokens(id TEXT PRIMARY KEY,name TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,grants TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0,last_used TEXT);
-      CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,at TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,account_id TEXT,chat_id TEXT,outcome TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,at TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,account_id TEXT,chat_id TEXT,outcome TEXT NOT NULL,details TEXT);
       CREATE TABLE IF NOT EXISTS sends(actor TEXT NOT NULL,key TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,result TEXT,at TEXT NOT NULL,PRIMARY KEY(actor,key));
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
@@ -17,6 +17,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS messages_chat ON messages(account_id,chat_id,seq);
       CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(terms,content='',contentless_delete=1,detail=none,tokenize='ascii');
       CREATE TRIGGER IF NOT EXISTS messages_search_delete AFTER DELETE ON messages BEGIN DELETE FROM message_search WHERE rowid=old.seq; END;`);
+    if(!this.db.prepare('PRAGMA table_info(audit)').all().some(column=>column.name==='details'))this.db.exec('ALTER TABLE audit ADD COLUMN details TEXT');
     // A process crash after dispatch leaves an unknown outcome; never resend it automatically.
     this.db.prepare("UPDATE sends SET state='unknown' WHERE state='pending'").run();
   }
@@ -49,11 +50,11 @@ export class Store {
   tokens() { return this.db.prepare('SELECT id FROM tokens ORDER BY created_at DESC').all().map(r => this.token(r.id)); }
   revoke(id) { this.db.prepare('UPDATE tokens SET revoked=1 WHERE id=?').run(id);this.setSetting(`tokenRevocation:${id}`,this.setting(`tokenRevocation:${id}`,0)+1); }
   touchToken(id) { this.db.prepare('UPDATE tokens SET last_used=? WHERE id=?').run(new Date().toISOString(),id); }
-  audit(actor,action,account,chat,outcome) {
-    this.db.prepare('INSERT INTO audit VALUES(?,?,?,?,?,?,?)').run(randomUUID(),new Date().toISOString(),actor,action,account ?? null,chat ?? null,outcome);
-    this.db.exec('DELETE FROM audit WHERE id IN (SELECT id FROM audit ORDER BY at DESC LIMIT -1 OFFSET 2000)');
+  audit(actor,action,account,chat,outcome,details=null) {
+    this.db.prepare('INSERT INTO audit(id,at,actor,action,account_id,chat_id,outcome,details) VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),new Date().toISOString(),actor,action,account ?? null,chat ?? null,outcome,details===null?null:JSON.stringify(details));
+    this.db.exec('DELETE FROM audit WHERE id IN (SELECT id FROM audit ORDER BY at DESC,rowid DESC LIMIT -1 OFFSET 2000)');
   }
-  audits(limit=80) { return this.db.prepare('SELECT * FROM audit ORDER BY at DESC LIMIT ?').all(limit); }
+  audits(limit=80) { return this.db.prepare('SELECT * FROM audit ORDER BY at DESC,rowid DESC LIMIT ?').all(limit).map(({details,...row})=>({...row,...(details?{details:JSON.parse(details)}:{})})); }
   send(actor,key) { return this.db.prepare('SELECT * FROM sends WHERE actor=? AND key=?').get(actor,key); }
   reserve(actor,key,fingerprint) { this.db.prepare("INSERT INTO sends VALUES(?,?,?,'pending',NULL,?)").run(actor,key,fingerprint,new Date().toISOString()); }
   finishSend(actor,key,state,result) { this.db.prepare('UPDATE sends SET state=?,result=? WHERE actor=? AND key=?').run(state,result ? JSON.stringify(result) : null,actor,key); }

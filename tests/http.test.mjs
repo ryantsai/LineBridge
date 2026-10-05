@@ -119,6 +119,37 @@ test('same-VM HTTP and official MCP clients read/send without minting a token',a
   for(const provider of ['cloudflare_quick','tailscale','cloudflare']){store.setSetting('tunnel',{provider,hostname:'',teamDomain:'',audience:''});assert.equal((await fetch(`${base}/api/v1/accounts`)).status,401,provider);}
   store.setSetting('tunnel',{provider:'local',hostname:'',teamDomain:'',audience:''});assert.equal((await fetch(`${base}/api/v1/accounts`)).status,200);
 });
+
+test('debug settings are admin-only and every enabled dashboard refresh includes its own status record',async t=>{
+  const {hub,store,base,adminBase}=await localGateway(t,true);
+  const page=await fetch(adminBase),cookie=page.headers.getSetCookie()[0].split(';')[0];
+  const headers={Cookie:cookie,Origin:adminBase,'X-Line-Bridge':'dashboard','Content-Type':'application/json'};
+  const state=()=>fetch(`${adminBase}/admin/state`,{headers:{Cookie:cookie}});
+  const route=`${adminBase}/admin/debug-settings`,body='{"enabled":true}';
+  assert.equal((await (await state()).json()).debugLogging.enabled,false);
+  assert.equal(store.audits().filter(row=>row.action==='debug.refresh').length,0);
+  assert.equal((await fetch(route,{method:'PUT',headers:{'Content-Type':'application/json'},body})).status,401);
+  assert.equal((await fetch(route,{method:'PUT',headers:{Cookie:cookie,'Content-Type':'application/json'},body})).status,403);
+  assert.equal((await fetch(route,{method:'PUT',headers:{...headers,Origin:'https://evil.example'},body})).status,403);
+  for(const value of [{},{enabled:'true'},{enabled:true,extra:1}])assert.equal((await fetch(route,{method:'PUT',headers,body:JSON.stringify(value)})).status,400);
+  assert.equal((await fetch(route,{method:'PUT',headers,body})).status,200);
+  await hub.addAccount({label:'Debug sandbox',kind:'demo'});
+  for(let i=1;i<=3;i++){
+    const data=await (await state()).json();assert.equal(data.debugLogging.enabled,true);
+    assert.equal(data.audit.filter(row=>row.action==='debug.refresh').length,i);
+    assert.equal(data.audit[0].action,'debug.refresh');assert.equal(data.audit[0].details.accounts,1);assert.equal(data.audit[0].details.connected,1);
+  }
+  const accounts=hub.accounts;hub.accounts=()=>{throw new Error('private-debug-sentinel');};
+  assert.equal((await state()).status,502);hub.accounts=accounts;
+  const recovered=await (await state()).json();
+  assert.ok(recovered.audit.some(row=>row.action==='debug.refresh'&&row.outcome==='failed'&&row.details.httpStatus===502));
+  assert.ok(!JSON.stringify(recovered.audit).includes('private-debug-sentinel'));
+  assert.equal((await fetch(route,{method:'PUT',headers,body:'{"enabled":false}'})).status,200);
+  const count=store.audits().filter(row=>row.action==='debug.refresh').length;
+  await state();await state();assert.equal(store.audits().filter(row=>row.action==='debug.refresh').length,count);
+  const a=hub.store.accounts()[0],token=hub.createToken({name:'Reader',grants:[{accountId:a.id,read:true,send:false}]});
+  assert.equal((await fetch(`${base}/admin/debug-settings`,{method:'PUT',headers:{Authorization:`Bearer ${token.token}`,'Content-Type':'application/json'},body})).status,404);
+});
 test('strict token mode keeps localhost authenticated',async t=>{
   const {hub,base}=await localGateway(t,true),a=await hub.addAccount({label:'Strict sandbox',kind:'demo'});
   assert.equal((await fetch(`${base}/api/v1/accounts`)).status,401);
@@ -142,6 +173,16 @@ test('dashboard combined setup enrolls privately; local profiles reject browsers
   assert.equal(store.tokens().length,0);
   const response=await fetch(route,{method:'POST',headers,body});assert.equal(response.status,200);const enrolled=await response.json(),stored=items.get(enrolled.profile);
   assert.equal(enrolled.ready,false);assert.equal(enrolled.health,'sandbox');assert.ok(!JSON.stringify(enrolled).includes(stored.token));
+  const policy=JSON.stringify({autoMonitorNewChats:true});
+  assert.equal((await fetch(route,{method:'PATCH',headers:{'Content-Type':'application/json'},body:policy})).status,401);
+  assert.equal((await fetch(route,{method:'PATCH',headers:{...headers,Origin:'https://evil.example'},body:policy})).status,403);
+  assert.equal((await fetch(route,{method:'PATCH',headers:missingOrigin,body:policy})).status,403);
+  assert.equal((await fetch(route,{method:'PATCH',headers,body:'{"autoMonitorNewChats":"true"}'})).status,400);
+  const changed=await fetch(route,{method:'PATCH',headers,body:policy});assert.equal(changed.status,200);
+  const changedSetup=await changed.json();assert.equal(changedSetup.autoMonitorNewChats,true);assert.equal(changedSetup.profile,enrolled.profile);
+  const policyState=await (await fetch(`${local}/admin/state`,{headers:{Cookie:cookie}})).json();
+  assert.equal(policyState.accounts[0].localSetup.autoMonitorNewChats,true);assert.equal(policyState.chatCounts[a.id],hub.store.chats(a.id).length);
+  assert.equal((await fetch(route,{method:'PATCH',headers,body:'{"autoMonitorNewChats":false}'})).status,200);
   let output='',stderr='';const code=await runCli(['accounts','--profile',enrolled.profile],{store:credentials,env:{},stdout:{write:s=>{output+=s;}},stderr:{write:s=>{stderr+=s;}}});assert.equal(code,0);assert.equal(stderr,'');assert.equal(JSON.parse(output)[0].permissions.send,true);
   const authorization={Authorization:`Bearer ${stored.token}`};
   for(const extra of [{Origin:local},{Referer:local},{'X-Forwarded-For':'203.0.113.9'},{Forwarded:'for=203.0.113.9'},{'CF-Connecting-IP':'203.0.113.9'}])assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:{...authorization,...extra}})).status,403);
@@ -159,4 +200,5 @@ test('dashboard combined setup enrolls privately; local profiles reject browsers
   const currentAuthorization={Authorization:`Bearer ${items.get(automatic.profile).token}`};
   const allowed=await (await fetch(`${base}/api/v1/accounts/${a.id}/chats`,{headers:currentAuthorization})).json();assert.ok(allowed.some(chat=>chat.id==='http-future-room'));
   await fetch(route,{method:'DELETE',headers});assert.equal(items.size,0);
+  assert.equal((await fetch(route,{method:'PATCH',headers,body:policy})).status,409);
 });

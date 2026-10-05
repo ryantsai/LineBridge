@@ -5,10 +5,12 @@ import {CredentialStore, configDirectory, credentialInput, endpoint, profileName
 import {ClientError, EXIT, usage} from './errors.mjs';
 import {gatewayRequest} from './request.mjs';
 import {VERSION} from '../server/version.mjs';
+import {discoverLocal} from './discovery.mjs';
 
-export const DATA_COMMANDS = ['version','accounts','chats','read','refresh','search','events','send','auth'];
+export const DATA_COMMANDS = ['discover','version','accounts','chats','read','refresh','search','events','send','auth'];
 const common = ['profile','url','timeout-ms','credential-stdin'];
 const commandOptions = {
+  discover:['data-dir'],
   version:[],
   accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
   search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
@@ -18,6 +20,7 @@ const commandOptions = {
 const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
 export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS)
 
+  linebridge discover [--data-dir DIR] [--timeout-ms 7000]
   linebridge version [--profile NAME | --url GATEWAY]
   linebridge accounts
   linebridge chats --account ACCOUNT
@@ -33,6 +36,9 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
 
 Common: --profile NAME (default: default), --url GATEWAY, --timeout-ms 45000,
         --credential-stdin (transient JSON credentials through a private pipe).
+Discover uses only --data-dir and --timeout-ms. It lists existing local setup
+profiles and the running CLI paths, without credentials or changing any setup.
+Then use accounts --profile NAME and chats --profile NAME --account ACCOUNT.
 Version checks the connected gateway app; --version prints the installed CLI version.
 Search also accepts --query-file UTF8_FILE or --query-stdin instead of --query.
 Refresh immediately reads the latest upstream messages for one permitted chat,
@@ -51,8 +57,8 @@ be inspected before any further send. See CLI.md for exit codes and examples.
 
 function parse(argv) {
   const command=argv[0];
-  if(!DATA_COMMANDS.includes(command))usage('Use version, accounts, chats, read, refresh, search, events, send or auth. See --help.');
-  const allowed=new Set([...common,...commandOptions[command],'help']);
+  if(!DATA_COMMANDS.includes(command))usage('Use discover, version, accounts, chats, read, refresh, search, events, send or auth. See --help.');
+  const allowed=new Set([...(command==='discover'?['timeout-ms']:common),...commandOptions[command],'help']);
   const options=Object.fromEntries([...allowed].map(name=>[name,{type:booleans.has(name)?'boolean':'string'}]));
   let parsed;
   try { parsed=parseArgs({args:argv.slice(1),options,allowPositionals:command==='auth',tokens:true}); }
@@ -122,6 +128,7 @@ async function credentials(values,context) {
 async function execute(argv,context) {
   const {command,action,values}=parse(argv);
   if(values.help){context.stderr.write(HELP);return {version:VERSION,commands:DATA_COMMANDS};}
+  if(command==='discover')return discoverLocal({dataDir:values['data-dir'],env:context.env,timeoutMs:integer(values['timeout-ms'],7000,1,120000,'timeout-ms'),fetchImpl:context.fetchImpl});
   profileName(values.profile);
   context.timeoutMs=integer(values['timeout-ms'],45000,1,120000,'timeout-ms');
   if(values.url!==undefined)endpoint(values.url);

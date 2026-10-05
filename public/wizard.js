@@ -16,6 +16,7 @@ export function createWizard(ctx){
   const root=document.querySelector('#wizard-content');
   let step=1,mode='welcome',waiting=false,awaitingNew=false,lastPicker='',lastConnect='',draftAccount=null,rooms=[],chosen=new Set(),busy=false,chatSearch='',autoMonitorNewChats=false,lastScope='',view='';
   const account=()=>ctx.getState()?.accounts.find(a=>a.id===ctx.getSelected());
+  const setupSignature=setup=>JSON.stringify([setup?.chatIds,setup?.autoMonitorNewChats,setup?.phase,setup?.grantActive]);
   function listen(selector,job){root.querySelector(selector)?.addEventListener('click',()=>action(job));}
   // Re-rendering the same view (status polling, search) must not replay motion.
   function paint(next,html){
@@ -76,12 +77,14 @@ export function createWizard(ctx){
       listen('#wizard-back',()=>{step=1;mode='stored';render();});listen('#wizard-next',()=>{step=3;render();});return;
     }
     const setup=a.localSetup??{phase:'not_enabled'},selected=rooms.filter(c=>chosen.has(c.id));
-    const active=setup.phase==='enabled',hasSetup=!['not_enabled','revoked'].includes(setup.phase);
-    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>90 天</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span><span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}</ul></div><p class="note">${icon('info')}<span>啟用後，本機 AI 可讀取並傳送訊息到以上聊天室${autoMonitorNewChats?'與之後新發現的聊天室':''}，並開始接收與加密封存。${hasSetup?'變更範圍需先停用再重新啟用。':''}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',active?'已啟用':'啟用',busy||active||hasSetup||!selected.length||selected.length!==chosen.size||a.status!=='connected',active),chip(a)));
+    lastScope=setupSignature(setup);
+    const active=setup.grantActive===true,hasSetup=!['not_enabled','revoked'].includes(setup.phase);
+    const unchanged=chosen.size===(setup.chatIds?.length??0)&&(setup.chatIds??[]).every(id=>chosen.has(id))&&autoMonitorNewChats===(setup.autoMonitorNewChats===true);
+    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>90 天</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span><span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}</ul></div><p class="note">${icon('info')}<span>啟用後，本機 AI 可讀取並傳送訊息到以上聊天室${autoMonitorNewChats?'與之後新發現的聊天室':''}，並開始接收與加密封存。${hasSetup?'變更範圍需先停用再重新啟用。':''}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',active?'完成':'啟用',busy||(active&&!unchanged)||(!active&&(hasSetup||!selected.length||selected.length!==chosen.size||a.status!=='connected')),active),chip(a)));
     renderStatus();
     listen('#wizard-back',()=>{step=2;render();});
     listen('#setup-advanced',()=>ctx.go('access'));
-    listen('#wizard-next',async()=>{if(busy)return;busy=true;render();try{await ctx.enable(a.id,{chatIds:[...chosen],read:true,send:true,confirmed:true,autoMonitorNewChats});}finally{busy=false;render();}});
+    listen('#wizard-next',async()=>{if(busy)return;if(active){ctx.go('dashboard');return;}busy=true;render();try{await ctx.enable(a.id,{chatIds:[...chosen],read:true,send:true,confirmed:true,autoMonitorNewChats});}finally{busy=false;render();}});
     listen('#setup-revoke',async()=>{if(busy)return;busy=true;render();try{await ctx.revoke(a.id);}finally{busy=false;render();}});
   }
   function renderStatus(){
@@ -93,19 +96,20 @@ export function createWizard(ctx){
     if(target.dataset.view!==html){target.innerHTML=html;target.dataset.view=html;}
     const instructions=root.querySelector('#setup-ai-instructions');
     if(instructions&&setup?.grantActive&&setup.credentialStatus==='protected'){
-      if(!instructions.querySelector('textarea'))instructions.innerHTML=`<div class="handoff"><div class="handoff-head"><span class="handoff-icon">${icon('terminal')}</span><div><strong>交給本機 AI</strong><small>使用已保存的設定檔，不需複製金鑰或開啟終端機。</small></div><button class="btn primary sm" id="setup-copy">${icon('copy')}複製指令</button></div><details class="preview"><summary>預覽指令</summary><textarea aria-label="本機 AI 指令" rows="8" readonly></textarea></details></div>`;
+      if(!instructions.querySelector('textarea'))instructions.innerHTML=`<div class="handoff"><div class="handoff-head"><span class="handoff-icon">${icon('terminal')}</span><div><strong>本機 AI 存取已啟用</strong><small>AI 可自行查詢帳號與聊天室，不需複製指令。</small></div></div><details class="preview"><summary>連線說明（選用）</summary><p class="muted">AI 可依 README 的探索步驟連線；需要手動提供連線資訊時，可複製下方說明。</p><button class="btn sm" id="setup-copy">${icon('copy')}複製連線說明</button><textarea aria-label="本機 AI 連線說明" rows="8" readonly></textarea></details></div>`;
       instructions.querySelector('textarea').value=localCliInstructions(a,ctx.getState()?.cli);
       instructions.querySelector('#setup-copy').onclick=()=>action(()=>copyText(instructions.querySelector('textarea').value,instructions.querySelector('#setup-copy')));
     }else if(instructions)instructions.innerHTML='';
   }
   return {
+    start(){if(busy){render();return;}step=1;mode=ctx.getState()?.accounts.length?'stored':'welcome';waiting=false;awaitingNew=false;draftAccount=null;rooms=[];chosen=new Set();chatSearch='';lastScope='';view='';render();},
     render,
     cancelNewAccount(){awaitingNew=false;if(step===1)waiting=false;},
     accountAdded(){if(waiting){awaitingNew=false;mode='connect';if(account()?.status==='connected'){waiting=false;step=2;}render();}},
     sync(){
       if(waiting&&!awaitingNew&&account()?.status==='connected'){waiting=false;step=2;render();}
       else if(step===2){const next=ctx.getChats();if(JSON.stringify(next)!==JSON.stringify(rooms)){rooms=next;render();}}
-      else if(step===3){const setup=account()?.localSetup,scope=JSON.stringify(setup?.chatIds??[]);if(setup?.grantActive&&scope!==lastScope){lastScope=scope;rooms=ctx.getChats();chosen=new Set(setup.chatIds);autoMonitorNewChats=setup.autoMonitorNewChats===true;render();}else renderStatus();}
+      else if(step===3){const setup=account()?.localSetup,scope=setupSignature(setup);if(scope!==lastScope){if(setup?.grantActive){rooms=ctx.getChats();chosen=new Set(setup.chatIds);autoMonitorNewChats=setup.autoMonitorNewChats===true;}render();}else renderStatus();}
       else if(step===1&&mode==='stored'){const next=JSON.stringify((ctx.getState()?.accounts ?? []).map(a=>[a.id,a.status,a.profile?.displayName]));if(next!==lastPicker)render();}
       else if(step===1&&mode==='welcome'){const stored=root.querySelector('#wizard-stored');if(stored)stored.hidden=!ctx.getState()?.accounts.length;}
       else if(step===1){const a=account();if(JSON.stringify([a?.status,a?.canResume])!==lastConnect)render();}

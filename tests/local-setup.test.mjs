@@ -79,6 +79,52 @@ test('only an opted-in setup monitors newly discovered rooms and expands its own
   }
 });
 
+test('account settings change automatic discovery without replacing credentials, selections or other grants',async t=>{
+  const f=await fixture(t),driver=f.hub.driver(f.id);
+  await f.setup.enable(f.id,confirm());
+  const original=f.setup.record(f.id),fixed=f.hub.createToken({name:'Fixed',grants:[{accountId:f.id,read:true,send:false,chatIds:['demo-group']}]});
+  const enabled=await f.setup.updateSettings(f.id,{autoMonitorNewChats:true});
+  assert.equal(enabled.autoMonitorNewChats,true);assert.equal(enabled.profile,original.profile);
+  assert.equal(f.credentials.creates,1);assert.equal(f.setup.record(f.id).tokenId,original.tokenId);
+  assert.deepEqual(activeToken(f).grants[0].chatIds,['demo-group']);assert.ok(f.hub.runtime.get(f.id).discoveryTimer);
+  driver.rooms.push({id:'new-room',name:'Future room',kind:'group'});await f.hub.discover(f.id);
+  assert.equal(f.store.chat(f.id,'new-room').enabled,1);assert.equal(f.store.chat(f.id,'demo-openchat').enabled,0);
+  const grants=activeToken(f).grants;
+  const disabled=await f.setup.updateSettings(f.id,{autoMonitorNewChats:false});
+  assert.equal(disabled.autoMonitorNewChats,false);assert.equal(disabled.grantActive,true);
+  assert.equal(f.hub.runtime.get(f.id).discoveryTimer,null);assert.deepEqual(activeToken(f).grants,grants);
+  driver.rooms.push({id:'later-room',name:'Later room',kind:'openchat'});await f.hub.discover(f.id);
+  assert.equal(f.store.chat(f.id,'later-room').enabled,0);assert.equal(f.store.chat(f.id,'new-room').enabled,1);
+  assert.deepEqual(f.store.token(fixed.id).grants[0].chatIds,['demo-group']);
+  const restarted=new LocalSetup(f.hub,{credentials:f.credentials,gatewayPort:54321});
+  assert.equal((await restarted.status(f.id)).autoMonitorNewChats,false);
+  f.hub.disconnect(f.id);await restarted.updateSettings(f.id,{autoMonitorNewChats:true});
+  assert.equal((await restarted.status(f.id)).autoMonitorNewChats,true,'The preference can be saved while offline');
+  assert.equal(f.hub.runtime.get(f.id)?.discoveryTimer??null,null);
+});
+
+test('switching automatic discovery off excludes a discovery already in flight',async t=>{
+  const f=await fixture(t);await f.setup.enable(f.id,{...confirm(),autoMonitorNewChats:true});
+  const runtime=f.hub.runtime.get(f.id);f.hub.cancelDiscovery(runtime);
+  let release,entered;const started=new Promise(resolve=>{entered=resolve;});
+  f.hub.driver(f.id).discover=async()=>{entered();await new Promise(resolve=>{release=resolve;});return {chats:[{id:'late-room',name:'Late room',kind:'group'}],warnings:[]};};
+  const discovery=f.hub.discover(f.id,runtime);await started;
+  await f.setup.updateSettings(f.id,{autoMonitorNewChats:false});release();
+  assert.equal(await discovery,null);assert.equal(f.store.chat(f.id,'late-room'),undefined);
+  assert.deepEqual(activeToken(f).grants[0].chatIds,['demo-group']);
+});
+
+test('automatic monitoring settings reject invalid, missing, busy, revoked and expired setups',async t=>{
+  const f=await fixture(t);
+  assert.throws(()=>f.setup.updateSettings(f.id,{autoMonitorNewChats:true}),{code:'setup_needs_reset'});
+  await f.setup.enable(f.id,confirm());
+  for(const data of [{},{autoMonitorNewChats:'true'},{autoMonitorNewChats:true,chatIds:['demo-openchat']}])assert.throws(()=>f.setup.updateSettings(f.id,data));
+  f.setup.busy.set(f.id,{});assert.throws(()=>f.setup.updateSettings(f.id,{autoMonitorNewChats:true}),{code:'setup_busy'});f.setup.busy.delete(f.id);
+  f.store.db.prepare('UPDATE tokens SET expires_at=? WHERE id=?').run(new Date(0).toISOString(),f.setup.record(f.id).tokenId);
+  assert.throws(()=>f.setup.updateSettings(f.id,{autoMonitorNewChats:true}),{code:'setup_needs_reset'});
+  await f.setup.revoke(f.id);assert.throws(()=>f.setup.updateSettings(f.id,{autoMonitorNewChats:true}),{code:'setup_needs_reset'});
+});
+
 test('automatic discovery follows the refresh interval, resumes on reconnect and retries receiver updates',async t=>{
   t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-10-05T00:00:00Z')});
   const f=await fixture(t),flush=()=>new Promise(resolve=>setImmediate(resolve)),driver=f.hub.driver(f.id);let polls=0,updates=0;

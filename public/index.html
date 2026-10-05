@@ -6,18 +6,18 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0d10">
-<title>開始 · LineBridge</title>
+<title>總覽 · LineBridge</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/fonts/noto-sans-tc.css">
 <link rel="stylesheet" href="/styles.css">
 <script src="/app.js" type="module"></script>
 </head>
-<body data-page="setup">
+<body data-page="dashboard">
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="LineBridge 首頁"><img src="/icon.svg" alt="" width="28" height="28"><span>LineBridge</span></a>
     <nav class="nav-list" aria-label="主要導覽">
       <span class="nav-indicator gone" aria-hidden="true"></span>
-      <button class="nav active" data-tab="setup" data-icon="play" aria-current="page"><span class="nav-label">開始</span></button>
+      <button class="nav active" data-tab="dashboard" data-icon="dashboard" aria-current="page"><span class="nav-label">總覽</span></button>
       <button class="nav" data-tab="monitoring" data-icon="pulse"><span class="nav-label">監控</span></button>
       <button class="nav" data-tab="archive" data-icon="search"><span class="nav-label">搜尋</span></button>
       <button class="nav" data-tab="accounts" data-icon="chats"><span class="nav-label">聊天室</span></button>
@@ -38,14 +38,12 @@
   <main>
     <div id="service-error" class="banner" role="alert" hidden></div>
 
-    <section id="setup" class="page active" aria-labelledby="setup-title">
-      <h1 class="sr-only" id="setup-title">開始</h1>
-      <ol class="stepper" aria-label="設定進度">
-        <li class="current" aria-current="step"><span class="step-dot">1</span><span class="step-label">帳號</span><i class="step-bar"></i></li>
-        <li><span class="step-dot">2</span><span class="step-label">聊天室</span><i class="step-bar"></i></li>
-        <li><span class="step-dot">3</span><span class="step-label">授權</span></li>
-      </ol>
-      <div class="wizard-card" id="wizard-content"></div>
+    <section id="dashboard" class="page active" aria-labelledby="dashboard-title">
+      <header class="page-head">
+        <div><h1 id="dashboard-title">總覽</h1><p class="muted">LINE 帳號、AI 監控與本機封存狀態</p></div>
+        <div class="page-actions"><button class="btn primary" data-go="setup" data-icon="plus">設定精靈</button></div>
+      </header>
+      <div id="dashboard-content"><div class="empty" role="status"><span class="spinner"></span><p>正在載入狀態…</p></div></div>
     </section>
 
     <section id="monitoring" class="page">
@@ -249,7 +247,8 @@
     </section>
 
     <section id="activity" class="page">
-      <header class="page-head"><h1>紀錄</h1><span class="badge">最近 80 筆</span></header>
+      <header class="page-head"><h1>紀錄</h1><span class="badge">最近 80 筆</span><div class="page-actions"><button class="switch-field" id="debug-logging" role="switch" aria-checked="false" aria-describedby="debug-logging-status" disabled><span class="switch" aria-hidden="true"></span>除錯紀錄</button></div></header>
+      <p class="muted activity-description" id="debug-logging-status" role="status">開啟後，將記錄每次更新的狀態、耗時與錯誤類型。</p>
       <div class="panel table-panel">
         <table class="log">
           <thead><tr><th>時間</th><th>操作</th><th>帳號</th><th>來源</th><th>結果</th></tr></thead>
@@ -258,6 +257,16 @@
       </div>
     </section>
   </main>
+
+  <dialog id="setup-dialog" aria-labelledby="setup-dialog-title">
+    <div class="dialog-head"><h2 id="setup-dialog-title">設定精靈</h2><button type="button" class="icon-btn" data-close="setup-dialog" data-icon="x" aria-label="關閉設定精靈" autofocus></button></div>
+    <ol class="stepper" aria-label="設定進度">
+      <li class="current" aria-current="step"><span class="step-dot">1</span><span class="step-label">帳號</span><i class="step-bar"></i></li>
+      <li><span class="step-dot">2</span><span class="step-label">聊天室</span><i class="step-bar"></i></li>
+      <li><span class="step-dot">3</span><span class="step-label">授權</span></li>
+    </ol>
+    <div class="wizard-card" id="wizard-content"></div>
+  </dialog>
 
   <dialog id="account-dialog" aria-labelledby="account-dialog-title">
     <form id="account-form">
