@@ -50,6 +50,14 @@ macOS 用 `uname -s` 與 `uname -m` 辨識；`x86_64` 對應 `x64`，`arm64`／`
 
 - **Dot 與 Mac：**[OpenAI 的 Dot 文件](https://learn.chatgpt.com/docs/dots/computers-and-apps)說明 Dot 能在已連接的電腦建立本機 Work／Codex 工作；[Computer Use 文件](https://learn.chatgpt.com/docs/computer-use)明列 macOS／Windows。這些文件支持 Mac 本機工作流程，但每次仍須確認帳號可用功能與實際終端機權限。在使用者的 ChatGPT 桌面程式開啟 Dot → Computers → Your computer → Allow access 並確認，保持程式開啟、登入及主機連網。Dot 授權與 Codex Remote／Work Sync 分開；可用性受方案、工作區設定與逐步推出影響。需要 Mac GUI 操作時，另外依提示授予螢幕錄製與輔助使用權限。[本機存取設定](https://learn.chatgpt.com/docs/enterprise/cloud-local-access)。
 
+### 透過 Dot 使用 LineBridge
+
+將 LineBridge 安裝並執行在使用者已連接、受支援的 Windows 或 Mac 電腦上。Dot 呼叫本機 CLI 前，確認電腦目前已連線、已授權，且該工作確實能在電腦上執行終端機指令；Dot 雲端的 `localhost` 是另一台主機。沿用既有的本機執行方式與受保護 profile。Dot 存取本機時，ChatGPT 程式須保持開啟並登入；安裝 LineBridge 本身不會連接電腦，也不會授予 Dot 持續的遠端存取權。
+
+持續接收 LINE 訊息需要該電腦保持**開機、清醒不休眠及連網**，並讓 **LineBridge 服務持續執行、LINE 帳號保持連線、指定聊天室已啟用監聽**。沒有正在執行的 Dot 工作時，LineBridge 仍可繼續接收。關閉管理畫面的瀏覽器或選擇 **Quit tray (keep service running)** 會保留服務與接收；**Stop service and quit** 則會停止。Dot 在雲端仍可使用，不代表休眠、離線或已停止的本機 LineBridge 能繼續收訊。
+
+接收與封存和 AI 工作分開：Dot **依使用者當次要求**讀取、摘要或執行動作，只有使用者明確指定週期排程時才設定定期工作。安裝與聊天室監聽不會自動建立定期 AI 摘要或動作；傳送仍須遵守下方的收件對象與確切內容授權。LineBridge 是非官方橋接程式，不是 ChatGPT 原生的官方 LINE 連接器。只有雲端環境的 Agent 需要另行可達的 HTTPS 閘道與已授權憑證，見[遠端連線](CONNECTIONS.md)；本機設定不會自動建立這種遠端存取。
+
 Windows 使用下方的隱藏 `Start-Process`，macOS 使用 `nohup`；兩者均是背景程序，不是含自動重啟／開機啟動的系統服務。所有平台的 LINE 手機配對與權限確認仍由使用者完成。
 
 ## 本機安裝與背景啟動

@@ -50,6 +50,14 @@ On macOS, inspect `uname -s` and `uname -m`: `x86_64` maps to `x64`, and `arm64`
 
 - **Dot and Mac:** [OpenAI's Dot documentation](https://learn.chatgpt.com/docs/dots/computers-and-apps) describes dots creating local Work/Codex tasks on connected computers; [Computer Use documentation](https://learn.chatgpt.com/docs/computer-use) explicitly supports macOS/Windows. Together, these support a Mac local workflow, but verify feature availability and actual terminal permissions for the account/session. In the user's ChatGPT desktop app, open Dot → Computers → Your computer → Allow access and confirm. Keep the app open and signed in, and the host online. Dot authorization is separate from Codex Remote/Work Sync; availability depends on the plan, workspace, and rollout. Mac GUI tasks additionally require Screen Recording and Accessibility permissions when prompted. See [local-access setup](https://learn.chatgpt.com/docs/enterprise/cloud-local-access).
 
+### Using LineBridge with a dot
+
+Install and run LineBridge on the user's connected, supported Windows or Mac computer. Before a dot invokes the local CLI, verify that the computer is currently connected and authorized and that the task has terminal access there; the dot's cloud `localhost` is a different machine. Use the existing local invocation and protected profile. The ChatGPT app must remain open and signed in for the dot's local access; installing LineBridge does not itself connect the computer or grant the dot persistent remote access.
+
+Ongoing LINE collection requires that computer to stay **powered on, awake and online**, with the **LineBridge service running, LINE connected and monitoring enabled** for the designated chats. Collection can continue without an active dot task. Closing the dashboard browser or choosing **Quit tray (keep service running)** leaves the service collecting; **Stop service and quit** stops it. A dot that remains available in the cloud cannot keep a sleeping, offline or stopped local LineBridge receiver collecting.
+
+Collection and archiving are separate from AI work: the dot reads, summarizes or acts **on request**, unless the user explicitly schedules a recurring task. Installation and chat monitoring create no recurring AI summaries or actions; sends still require the destination and exact-content approval below. LineBridge is an unofficial bridge, not a native official LINE connector for ChatGPT. A cloud-only agent needs a separately reachable HTTPS gateway and authorized credentials as described in [remote connections](CONNECTIONS.md); local setup does not create that remote access automatically.
+
 Use the hidden `Start-Process` below on Windows and `nohup` on macOS. Both start background processes, not installed system services with automatic restart/boot startup. LINE phone pairing and permission confirmation remain user steps on every platform.
 
 ## Local installation and background startup
