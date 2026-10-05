@@ -11,7 +11,7 @@ const escape=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 const nice=label;
 const when=value=>value?new Date(value).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false}): '—';
 let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,toastTimer,sendAttempt,chatFilter='all',chatSearch='';
-let refreshRunning=false,reading=false,sending=false;
+let refreshRunning=false,reading=false,sending=false,chatListRefreshPending=false;
 let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
 let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
 const observedSequences=new Map();
@@ -50,6 +50,7 @@ function switchTab(tab){
   $('#page-description').textContent={setup:'連接帳號、選擇聊天室，並確認 AI 讀取與傳送權限。',monitoring:'每一則新訊息，都在你的掌握之中。',archive:'任何語言的訊息，都能在本機封存中查找。',accounts:'管理你的 LINE 帳號，與你指定的聊天室。',access:'讓 AI 用戶端存取你指定的帳號與聊天室。',tunnel:'透過通道，將這台電腦與雲端 AI 連接。',activity:'查看用戶端的讀取、搜尋、傳送與異動紀錄。'}[tab];
   if(tab==='setup')wizard.render();
   if(tab==='accounts'&&!selectedAccount&&state?.accounts.length)action(async()=>{selectedAccount=state.accounts[0].id;await loadChats();renderAccounts();});
+  if(tab==='accounts')flushDiscoveredChats();
   if(tab==='monitoring'){monitorAccount=monitorAccount||selectedAccount;renderMonitoring();action(()=>refreshMonitorFeed(true));}
 }
 document.querySelectorAll('[data-tab]').forEach(e=>{e.setAttribute('aria-label',e.textContent.trim());e.title=e.textContent.trim();e.addEventListener('click',()=>switchTab(e.dataset.tab));});
@@ -95,10 +96,11 @@ async function refresh(){
         observedDiscoveries.set(selected.id,selected.discovery.at);
         if(JSON.stringify(next)!==JSON.stringify(chats)){
           chats=next;
-          if(currentPage==='accounts'&&!reading&&!sending&&!$('#send-form textarea')?.matches(':focus'))renderAccountPane();
+          chatListRefreshPending=true;
         }
       }
     }
+    flushDiscoveredChats();
     renderRefreshSettings();renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();archive.render();wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);
     const base=state.tunnel.url || `http://127.0.0.1:${state.gateway.port}`;
     $('#mcp-url').textContent=`${base}/mcp`;$('#api-url').textContent=`${base}/openapi.json`;
@@ -134,6 +136,7 @@ function renderDiscoveryNotice(account){
 }
 async function loadChats(){const id=selectedAccount;const result=await api(`/accounts/${id}/chats`);if(id!==selectedAccount)return;chats=result;observedDiscoveries.set(id,state?.accounts.find(a=>a.id===id)?.discovery?.at);if(selectedChat&&!chats.some(c=>c.id===selectedChat))selectedChat=null;renderAccountPane();if(selectedChat)await readMessages();}
 function renderAccountPane(){
+  chatListRefreshPending=false;
   const a=state?.accounts.find(a=>a.id===selectedAccount);if(!a){$('#chat-pane').innerHTML=`<div class="empty"><span class="empty-icon">${icon('users')}</span><h3>選擇或新增帳號</h3><p>帳號工作區會顯示在這裡。</p></div>`;return;}
 
   $('#chat-pane').innerHTML=`<div class="account-head"><div><h3>${escape(accountName(a))} <span id="selected-status">${statusBadge(a)}</span></h3><p>${a.kind==='demo'?'模擬帳號 · 不會連線至 LINE':`${escape(a.profile?.displayName || nice(a.device))} · 最後驗證：<span id="account-last-checked">${escape(when(a.lastChecked))}</span>`}</p></div><div class="button-row">${a.status!=='connected'?'<button class="button tiny" id="connect-account">'+(a.kind==='demo'?'重新連線':'使用 QR Code 連線')+'</button>':'<button class="button tiny" id="disconnect-account">中斷連線</button>'}<button class="button tiny danger" id="remove-account">移除</button></div></div><div class="notice account-error" id="account-health-notice" hidden></div><div class="chat-tools"><label class="sr-only" for="chat-search">搜尋聊天室名稱或 ID</label><input id="chat-search" type="search" placeholder="搜尋聊天室名稱或 ID…" value="${escape(chatSearch)}"><button class="button" id="discover-chats" ${a.status!=='connected'?'disabled':''}>探索聊天室</button><button class="button" id="add-chat">新增已知聊天室</button><select id="chat-filter" aria-label="聊天室類型">${[["all","所有聊天室"],["group","群組"],["direct","聯絡人"],["openchat","OpenChat"]].map(([kind,label])=>`<option value="${kind}" ${chatFilter===kind?"selected":""}>${label} (${chats.filter(c=>kind==="all"||c.kind===kind).length})</option>`).join("")}</select><span class="badge">${chats.filter(c=>c.enabled).length} 個開放給 AI</span></div><div class="chat-access-help"><span id="chat-search-count" role="status" aria-live="polite"></span> · 勾選允許 AI 存取的聊天室。本機讀取與手動傳送不受 AI 存取開關限制。</div><div class="notice discovery-notice" id="discovery-notice" hidden></div><div class="chat-layout"><div class="chat-list" id="chat-list"></div><div class="chat-reader" id="reader">${selectedChat?'<p class="muted">正在讀取訊息…</p>':'<div class="chat-placeholder">選擇聊天室以檢視訊息。<p class="muted">勾選聊天室即可開放給 AI 存取。</p></div>'}</div></div>`;
@@ -149,6 +152,16 @@ function renderAccountPane(){
   $('#add-chat').addEventListener('click',()=>$('#chat-dialog').showModal());
   $('#chat-search').addEventListener('input',event=>{chatSearch=event.target.value;renderChatList();});
   renderChatList();
+}
+function flushDiscoveredChats(){
+  if(!chatListRefreshPending||currentPage!=='accounts'||reading||sending)return;
+  if(!$('#chat-list')||!state?.accounts.some(a=>a.id===selectedAccount))return;
+  // Discovery changes the sidebar only. Preserve the open reader, draft and
+  // send intent, even while typing. Keep pending updates until requests finish.
+  const filter=$('#chat-filter');
+  for(const option of filter?.options??[]){const kind=option.value;option.textContent=`${kind==='all'?'全部聊天室':nice(kind)} (${chats.filter(c=>kind==='all'||c.kind===kind).length})`;}
+  const count=$('.chat-tools .badge');if(count)count.textContent=`${chats.filter(c=>c.enabled).length} 個開放給 AI`;
+  renderChatList();chatListRefreshPending=false;
 }
 function renderChatList(){
   const target=$('#chat-list'),a=state?.accounts.find(a=>a.id===selectedAccount);if(!target||!a)return;
@@ -217,10 +230,10 @@ async function readMessages(){
         }catch(error){
           if(['send_preparation_failed','line_send_rejected'].includes(error.code))sendAttempt=null;
           feedback.textContent=error.message;feedback.hidden=false;throw error;
-        }finally{button.disabled=false;sending=false;}
+        }finally{button.disabled=false;sending=false;flushDiscoveredChats();}
       });
     });
-  }catch(error){if(accountId===selectedAccount&&chatId===selectedChat)$('#reader').innerHTML=`<div class="notice">${escape(error.message)}</div>`;}finally{reading=false;}
+  }catch(error){if(accountId===selectedAccount&&chatId===selectedChat)$('#reader').innerHTML=`<div class="notice">${escape(error.message)}</div>`;}finally{reading=false;flushDiscoveredChats();}
 }
 
 $('#add-account').addEventListener('click',()=>$('#account-dialog').showModal());

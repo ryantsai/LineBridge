@@ -1,6 +1,6 @@
 {
   "name": "line-bridge",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "type": "module",
   "description": "LineBridge portable LINE gateway with a browser dashboard, native tray and encrypted searchable archive",
   "license": "MIT",

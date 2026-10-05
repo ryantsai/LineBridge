@@ -58,7 +58,7 @@ async function handle(request){
               writes.set(ackId,{resolve:()=>{clearTimeout(timer);resolve();},reject:()=>{clearTimeout(timer);reject(new Error('capture_failed'));}});
               emit({type:'capture',id:ackId,accountId,chatId,message});
             });
-          },{refreshIntervalMs:params.refreshIntervalMs});monitor.update(params.chats ?? []);monitors.set(accountId,monitor);result={ok:true};break;
+          },{refreshIntervalMs:params.refreshIntervalMs,diagnostics:process.env.LINE_BRIDGE_MONITOR_DIAGNOSTICS==='1'});monitor.update(params.chats ?? []);monitors.set(accountId,monitor);result={ok:true};break;
         }
         case 'monitor_update':monitors.get(accountId)?.update(params.chats ?? []);result={ok:true};break;
         case 'monitor_interval':monitors.get(accountId)?.setRefreshInterval(params.refreshIntervalMs);result={ok:true};break;
