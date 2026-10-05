@@ -25,10 +25,16 @@ test('portable architecture options select the matching runtime and artifact',()
 test('bundled runtime must execute and report the selected architecture and pinned version',()=>{
   const plan=portablePlan('darwin','x64'),expected={version:portableNode.nodeVersion,platform:'darwin',arch:'x64'};
   const actual=verifyPortableRuntime('/synthetic/node',plan,{run:(file,args,options)=>{
-    assert.equal(file,'/synthetic/node');assert.equal(args[0],'-p');assert.equal(options.timeout,15000);
+    assert.equal(file,'/synthetic/node');assert.equal(args[0],'-p');assert.equal(options.timeout,60000);
     return JSON.stringify(expected);
   }});
   assert.deepEqual(actual,expected);
+  for(const native of [portablePlan('darwin','arm64'),portablePlan('win32','x64')]){
+    verifyPortableRuntime('/synthetic/node',native,{run:(file,args,options)=>{
+      assert.equal(options.timeout,15000);
+      return JSON.stringify({version:portableNode.nodeVersion,platform:native.platform,arch:native.arch});
+    }});
+  }
   for(const changed of [{arch:'arm64'},{platform:'win32'},{version:'0.0.0'}])assert.throws(()=>verifyPortableRuntime('/synthetic/node',plan,{run:()=>JSON.stringify({...expected,...changed})}),/did not match/);
   assert.throws(()=>verifyPortableRuntime('/synthetic/node',plan,{run:()=>{throw new Error('cannot execute');}}),/could not execute.*existing Rosetta/);
   assert.throws(()=>verifyPortableRuntime('/synthetic/node',plan,{run:()=>''}),/could not execute/);

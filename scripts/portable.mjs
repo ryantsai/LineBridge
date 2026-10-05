@@ -28,9 +28,12 @@ export function portablePlan(platform=process.platform,arch=process.arch){
 }
 
 export function verifyPortableRuntime(nodePath,plan,{run=execFileSync,...options}={}){
+  // Rosetta's first translation of each freshly copied Intel runtime can exceed
+  // 15 seconds. Keep the probe bounded while allowing that cold launch to finish.
+  const timeout=plan.platform==='darwin'&&plan.arch==='x64'?60000:15000;
   let actual;
   try{
-    actual=JSON.parse(run(nodePath,['-p','JSON.stringify({version:process.versions.node,platform:process.platform,arch:process.arch})'],{...options,encoding:'utf8',windowsHide:true,timeout:15000}));
+    actual=JSON.parse(run(nodePath,['-p','JSON.stringify({version:process.versions.node,platform:process.platform,arch:process.arch})'],{...options,encoding:'utf8',windowsHide:true,timeout}));
   }catch{
     throw new Error(`Bundled Node for ${plan.platform}-${plan.arch} could not execute. Use a host able to run the selected architecture.${plan.platform==='darwin'&&plan.arch==='x64'?' Intel binaries on Apple Silicon require an existing Rosetta installation.':''}`);
   }
