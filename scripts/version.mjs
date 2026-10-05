@@ -2,7 +2,7 @@ import {readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {root} from './packaging.mjs';
 
-export const VERSION_FILES = ['package.json', 'package-lock.json', 'server/version.mjs', 'src-tauri/tauri.conf.json', 'Cargo.toml', 'Cargo.lock', 'openapi.json'];
+export const VERSION_FILES = ['package.json', 'package-lock.json', 'server/version.mjs', 'openapi.json'];
 
 function parseVersion(version) {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(version);
@@ -64,16 +64,6 @@ export async function versionPlan(bump, directory = root) {
       after = version === current ? before : JSON.stringify(data, null, 2) + '\n';
     } else if (path === 'server/version.mjs') {
       after = replaceVersion(before, /(export\s+const\s+VERSION\s*=\s*['"])([^'"]+)(['"])/g, path);
-    } else {
-      let sections = 0;
-      const pattern = path === 'Cargo.toml' ? /^\[workspace\.package\]\r?\n[\s\S]*?(?=^\[|(?![\s\S]))/gm
-        : /^\[\[package\]\]\r?\n[\s\S]*?(?=^\[\[package\]\]|(?![\s\S]))/gm;
-      after = before.replace(pattern, section => {
-        if (path === 'Cargo.lock' && !/^name\s*=\s*"line-bridge-desktop"\s*$/m.test(section)) return section;
-        sections++;
-        return replaceVersion(section, /^(\s*version\s*=\s*")([^"]+)(")/gm, path);
-      });
-      if (sections !== 1) throw new Error(`Expected one application version section in ${path}.`);
     }
     return {path, before, after};
   });

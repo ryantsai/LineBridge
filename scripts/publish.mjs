@@ -2,7 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {copyFile, mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {buildPlan, root, sha256} from './packaging.mjs';
+import {root, sha256} from './packaging.mjs';
 import {portablePlan} from './portable.mjs';
 import {npm} from './npm.mjs';
 import {applyVersionPlan, validateBump, versionPlan} from './version.mjs';
@@ -10,8 +10,8 @@ import {applyVersionPlan, validateBump, versionPlan} from './version.mjs';
 const help = `Publish local builds to GitHub Releases (never to the npm registry).
 
 Usage: npm run publish:github -- [options]
-  --kind native|desktop|portable|npm|all
-                         Default: native (desktop + portable; portable on Linux)
+  --kind native|portable|npm|all
+                         Default: native (portable with tray on Windows/macOS)
   --repo OWNER/REPO      Default: repository selected by gh for this checkout
   --bump patch|minor|major|VERSION
                          Sync versions, test/build, commit, tag and push to origin
@@ -42,22 +42,20 @@ export function parseOptions(args) {
       options[key.slice(2)] = value;
     } else throw new Error(`Unknown option: ${args[i]}. Use --help.`);
   }
-  if (!['native', 'desktop', 'portable', 'npm', 'all'].includes(options.kind)) throw new Error('Invalid --kind. Use native, desktop, portable, npm or all.');
+  if (!['native', 'portable', 'npm', 'all'].includes(options.kind)) throw new Error('Invalid --kind. Use native, portable, npm or all.');
   if (options.repo && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repo)) throw new Error('--repo must be OWNER/REPO.');
   if (options.bump !== undefined) validateBump(options.bump);
   return options;
 }
 
 export function releasePlan(kind, platform = process.platform, arch = process.arch) {
+  if (!['native','portable','npm','all'].includes(kind)) throw new Error('Unsupported distribution; use portable or npm.');
+  if (!['win32','darwin'].includes(platform)) throw new Error('Unsupported release host. Use Windows or macOS.');
   const kinds = kind === 'native' || kind === 'all'
-    ? [...(platform === 'linux' ? [] : ['desktop']), 'portable', ...(kind === 'all' ? ['npm'] : [])]
+    ? ['portable', ...(kind === 'all' ? ['npm'] : [])]
     : [kind];
   return kinds.map(type => {
     if (type === 'npm') return {type, slug: 'npm', directory: 'npm', manifest: 'package-info.json', build: 'package', test: 'test:package-cli'};
-    if (type === 'desktop') {
-      const plan = buildPlan(platform, arch);
-      return {type, slug: `desktop-${plan.slug}`, directory: plan.slug, manifest: 'build-info.json', build: `build:${plan.name}`, test: platform === 'darwin' ? 'verify:macos' : 'test:desktop'};
-    }
     const plan = portablePlan(platform, arch);
     return {type, slug: `portable-${plan.slug}`, directory: `portable/${plan.slug}`, manifest: 'build-info.json', build: 'package:portable', test: 'test:portable'};
   });

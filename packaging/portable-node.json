@@ -16,16 +16,6 @@
       "asset": "node-v26.5.0-darwin-x64.tar.gz",
       "sha256": "98293394c945a24e64e00b4177bf075ec963ea70b34d1d2e24bd4a71716d334f",
       "requirements": "Supported macOS 13.5+ on Intel."
-    },
-    "linux-x64": {
-      "asset": "node-v26.5.0-linux-x64.tar.gz",
-      "sha256": "22b5f47ad6ae78837e4c2b846019965ce1a06ba143de176102294a1bf44fc677",
-      "requirements": "Supported glibc Linux x64: kernel 4.18+, glibc 2.28+, libstdc++ 6.0.25+, and libatomic (libatomic1 on Debian/Ubuntu). Alpine/musl is not supported."
-    },
-    "linux-arm64": {
-      "asset": "node-v26.5.0-linux-arm64.tar.gz",
-      "sha256": "308e5fe89a82461ba5a6cf15ff5221b2cdbd7ae87600aa72bb3c3fbdc66412d1",
-      "requirements": "Supported glibc Linux ARM64: kernel 4.18+, glibc 2.28+, libstdc++ 6.0.25+, and libatomic (libatomic1 on Debian/Ubuntu). Alpine/musl is not supported."
     }
   }
 }

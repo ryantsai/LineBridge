@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest, macos-latest]
         node: [24, 26]
     steps:
       - uses: actions/checkout@v7.0.1
@@ -31,21 +31,7 @@ jobs:
       - run: npm test
       - run: npm run test:smoke
       - name: Native synthetic Windows/macOS client credential storage
-        if: runner.os != 'Linux'
         run: npm run test:credentials:native
-      - name: Native synthetic Linux Secret Service in a disposable session
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
-          export XDG_DATA_HOME="$(mktemp -d "$RUNNER_TEMP/linebridge-keyring.XXXXXX")"
-          trap 'rm -rf -- "$XDG_DATA_HOME"' EXIT
-          export LINE_BRIDGE_TEST_SECRET_SERVICE=1
-          dbus-run-session -- bash -euo pipefail -c '
-            printf "%s" "synthetic-ci-keyring-password" | gnome-keyring-daemon --unlock --components=secrets
-            npm run test:credentials:native
-          '
       - run: npm run package
       - run: npm run test:package-cli
       - uses: actions/upload-artifact@v7.0.1

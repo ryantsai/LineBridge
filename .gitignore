@@ -1,7 +1,7 @@
 node_modules/
 target/
 runtime/
-src-tauri/gen/
+src-tauri/
 tools/*.msi
 data/
 .env

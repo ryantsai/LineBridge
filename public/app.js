@@ -15,6 +15,7 @@ let refreshRunning=false,reading=false,sending=false;
 let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
 let currentPage='setup',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
 const observedSequences=new Map();
+const observedDiscoveries=new Map();
 async function api(path,options={}) {
   const res=await fetch(`/admin${path}`,{...options,headers:{'Content-Type':'application/json','X-Line-Bridge':'dashboard',...options.headers}});
   const result=await res.json();if(!res.ok){const error=new Error(errorText(result.error,result.message));error.code=result.error;throw error;}return result;
@@ -87,6 +88,17 @@ async function refresh(){
     $('#metric-tunnel-detail').textContent=providerName(state.tunnel.provider);
     $('#metric-gateway').textContent=state.gateway.enabled?'可使用':'已暫停';$('#metric-gateway').className=`text-status ${state.gateway.enabled?'good':'warn'}`;
     $('#pause').textContent=state.gateway.enabled?'暫停':'恢復';$('#vault-detail').textContent=`本機 SQLite · ${state.vault}`;
+    const selected=state.accounts.find(a=>a.id===selectedAccount);
+    if(selected?.discovery&&observedDiscoveries.get(selected.id)!==selected.discovery.at){
+      const next=await api(`/accounts/${selected.id}/chats`);
+      if(selected.id===selectedAccount){
+        observedDiscoveries.set(selected.id,selected.discovery.at);
+        if(JSON.stringify(next)!==JSON.stringify(chats)){
+          chats=next;
+          if(currentPage==='accounts'&&!reading&&!sending&&!$('#send-form textarea')?.matches(':focus'))renderAccountPane();
+        }
+      }
+    }
     renderRefreshSettings();renderAccounts();renderLocalAccess();renderTokens();renderAudit();renderTunnel();renderMonitoring();archive.render();wizard.sync();renderAiInstructions($('#access-ai-instructions'),state,null,action);
     const base=state.tunnel.url || `http://127.0.0.1:${state.gateway.port}`;
     $('#mcp-url').textContent=`${base}/mcp`;$('#api-url').textContent=`${base}/openapi.json`;
@@ -120,7 +132,7 @@ function renderDiscoveryNotice(account){
   el.hidden=!d;
   if(d){const s=d.stages ?? {},parts=['groups','direct','openchat'].filter(k=>s[k]).map(k=>`${k==='openchat'?'OpenChat':k==='direct'?'聯絡人':'群組'}: ${s[k].status!=='failed'?s[k].count+' 個'+(s[k].status==='partial'?'（部分）':''):'探索失敗（'+s[k].errorCode+'）'}`);el.textContent=parts.join(' · ') || d.warnings.join(' ');el.classList.toggle('discovery-error',!!d.warnings.length);}
 }
-async function loadChats(){const id=selectedAccount;const result=await api(`/accounts/${id}/chats`);if(id!==selectedAccount)return;chats=result;if(selectedChat&&!chats.some(c=>c.id===selectedChat))selectedChat=null;renderAccountPane();if(selectedChat)await readMessages();}
+async function loadChats(){const id=selectedAccount;const result=await api(`/accounts/${id}/chats`);if(id!==selectedAccount)return;chats=result;observedDiscoveries.set(id,state?.accounts.find(a=>a.id===id)?.discovery?.at);if(selectedChat&&!chats.some(c=>c.id===selectedChat))selectedChat=null;renderAccountPane();if(selectedChat)await readMessages();}
 function renderAccountPane(){
   const a=state?.accounts.find(a=>a.id===selectedAccount);if(!a){$('#chat-pane').innerHTML=`<div class="empty"><span class="empty-icon">${icon('users')}</span><h3>選擇或新增帳號</h3><p>帳號工作區會顯示在這裡。</p></div>`;return;}
 
@@ -159,7 +171,7 @@ function renderMonitoring(){
   const a=state.accounts.find(a=>a.id===monitorAccount),m=a?.monitor ?? {enabled:false,status:'off',storedMessages:0};
   $('#monitor-account-name').textContent=a?accountName(a):'尚未新增帳號';
   $('#toggle-monitor').textContent=m.enabled?'停止監聽':'開始監聽';$('#toggle-monitor').disabled=!a||(!m.enabled&&a.status!=='connected');
-  $('#monitor-detail').textContent=a?`${nice(a.status==='connected'?m.status:m.enabled?'disconnected':'off')} · ${a.designatedChats} 個指定聊天室 · 已儲存 ${m.storedMessages || 0} 則${m.lastMessage?` · 最新 ${when(m.lastMessage)}`:''}`:'前往「開始設定」連接帳號。';
+  $('#monitor-detail').textContent=a?`${nice(a.status==='connected'?m.status:m.enabled?'disconnected':'off')} · ${a.designatedChats} 個指定聊天室${a.localSetup?.grantActive&&a.localSetup.autoMonitorNewChats?' · 自動監控新聊天室':''} · 已儲存 ${m.storedMessages || 0} 則${m.lastMessage?` · 最新 ${when(m.lastMessage)}`:''}`:'前往「開始設定」連接帳號。';
   const streams=Array.isArray(m.streams)?m.streams:Object.values(m.streams ?? {});
   const healthLabel={healthy:'輪詢正常',stale:`超過 ${(m.staleAfterMs??120000)/1000} 秒未成功`,waiting:'等待首次成功',initializing:'建立起始位置',retrying:'重試中',disconnected:'帳號未連線',off:'已停止',sandbox:'模擬沙盒',no_chats:'尚未指定聊天室'};
   $('#monitor-streams').innerHTML=streams.map(s=>`<div class="monitor-stream-health">${badge(`${s.channel==='talk'?'一對一與群組':s.channel==='demo'?'沙盒':'OpenChat'} · ${healthLabel[s.health]||nice(s.status)}`,s.health==='healthy'?'good':['stale','retrying','disconnected'].includes(s.health)?'warn':'')}<span>最後成功輪詢：${s.lastSuccessAt?escape(when(s.lastSuccessAt)):s.channel==='demo'?'沙盒不輪詢 LINE':'尚無成功紀錄'}</span>${s.lastAttemptAt?`<small>最後嘗試：${escape(when(s.lastAttemptAt))}</small>`:''}${s.channel!=='talk'&&s.channel!=='demo'?`<small>${escape(s.channel)}</small>`:''}</div>`).join('')||`<p>${healthLabel[m.health]||'尚未開始輪詢'}</p>`;

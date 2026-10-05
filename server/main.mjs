@@ -14,9 +14,10 @@ import {HubError} from './errors.mjs';
 
 export const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export function defaultDataDirectory(){
+  if(!['win32','darwin'].includes(process.platform))throw new Error('LineBridge supports Windows and macOS only.');
   if(process.env.LINE_BRIDGE_DATA)return resolve(process.env.LINE_BRIDGE_DATA);
-  const base=process.platform==='win32'?process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'):process.platform==='darwin'?join(homedir(),'Library','Application Support'):process.env.XDG_DATA_HOME??join(homedir(),'.local','share');
-  const current=join(base,process.platform==='win32'?'LineBridgeData':process.platform==='linux'?'linebridge':'LineBridge');
+  const base=process.platform==='win32'?process.env.LOCALAPPDATA??join(homedir(),'AppData','Local'):join(homedir(),'Library','Application Support');
+  const current=join(base,process.platform==='win32'?'LineBridgeData':'LineBridge');
   // Keep fresh Windows data separate from NSIS's application directory, while
   // reusing legacy vaults in place rather than moving account credentials.
   if(existsSync(join(current,'bridge.sqlite')))return current;
@@ -48,8 +49,13 @@ async function migrationBackup(data){
     await backup(db,destination);if(process.platform!=='win32')await chmod(destination,0o600);return name;
   }finally{db.close();}
 }
-function listen(app,port){return new Promise((ok,reject)=>{const server=app.listen(port,'127.0.0.1',()=>ok(server));server.once('error',reject);});}
+function listen(app,port){return new Promise((ok,reject)=>{
+  // Express 5 calls the listen callback on errors too. Never publish readiness
+  // for a failed bind (the callback runs before a later error listener).
+  const server=app.listen(port,'127.0.0.1',error=>error?reject(error):ok(server));
+});}
 export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_TRUST_LOCAL!=='1'||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1',defaultProvider=requireToken?'cloudflare_quick':'local'}={}){
+  if(!['win32','darwin'].includes(process.platform))throw new Error('LineBridge supports Windows and macOS only.');
   const data=resolve(dataDir),instance=randomUUID();
   if(![adminPort,gatewayPort,gatewayPort+1].every(validPort)||adminPort===gatewayPort||adminPort===gatewayPort+1)throw new HubError(400,'invalid_ports','Use distinct ports between 1025 and 65534; reserve gateway+1 for connector health.');
   await mkdir(data,{recursive:true,mode:0o700});if(process.platform!=='win32')await chmod(data,0o700);

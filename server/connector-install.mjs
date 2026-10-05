@@ -10,8 +10,6 @@ const ngrok={
   'win32-x64':['windows-amd64.zip','699bbf1932ec43a573b764bd03e6568efa2c4e45955eb3cc2089c19bb4be4464'],
   'darwin-x64':['darwin-amd64.tgz','098a72a436276227f71ea6a57f3560d47e15135b4c5c6ba605cd63edba386987'],
   'darwin-arm64':['darwin-arm64.tgz','cdf75135a6a7962dd368c0d4ec1bad2312420d933a41296a146fffcc6be13ee8'],
-  'linux-x64':['linux-amd64.tgz','cec0b4997fcc5f529dfc74bac89050354d11a915f968720600039738fdf330cf'],
-  'linux-arm64':['linux-arm64.tgz','3b6ba05a9d9585c34157fa0819fa95cdb13839f5b506b9e63204705cf7f79e29']
 };
 export function connectorPlan(provider,platform=process.platform,arch=process.arch){
   if(provider!=='ngrok'||!ngrok[`${platform}-${arch}`])fail(409,'connector_install_unsupported','Install a supported native connector on this platform.');

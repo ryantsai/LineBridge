@@ -16,12 +16,13 @@ test('publish options and native platform selection', () => {
   assert.equal(parseOptions(['--bump=patch']).bump, 'patch');
   assert.equal(parseOptions(['--bump', '0.7.0-rc.1']).bump, '0.7.0-rc.1');
   for (const args of [['--kind'], ['--kind', '--draft'], ['--kind=invalid'], ['--repo=x'], ['--clobber'], ['--draft=false'], ['--bump'], ['--bump', '--draft'], ['--bump=invalid']]) assert.throws(() => parseOptions(args));
-  assert.deepEqual(releasePlan('native', 'win32', 'x64').map(p => p.build), ['build:windows', 'package:portable']);
-  assert.deepEqual(releasePlan('native', 'linux', 'arm64').map(p => p.build), ['package:portable']);
-  assert.equal(releasePlan('desktop', 'darwin', 'arm64')[0].test, 'verify:macos');
+  assert.deepEqual(releasePlan('native', 'win32', 'x64').map(p => p.build), ['package:portable']);
+  assert.throws(() => releasePlan('native', 'linux', 'arm64'), /Unsupported/);
+  assert.throws(() => releasePlan('npm', 'linux', 'x64'), /Unsupported/);
+  assert.equal(releasePlan('portable', 'darwin', 'arm64')[0].test, 'test:portable');
   assert.throws(() => releasePlan('desktop', 'linux', 'x64'), /Unsupported/);
   assert.throws(() => releasePlan('portable', 'win32', 'arm64'), /Unsupported/);
-  assert.equal(releasePlan('all', 'darwin', 'x64').length, 3);
+  assert.equal(releasePlan('all', 'darwin', 'x64').length, 2);
 });
 
 test('stage only current verified artifacts with distinct platform metadata names', async () => {
@@ -38,10 +39,10 @@ test('stage only current verified artifacts with distinct platform metadata name
       await writeFile(join(source, 'SHA256SUMS.txt'), `${digest}  ${filename}\n`);
     }
     const assets = await stageAssets(plan, '0.6.0', directory);
-    assert.equal(assets.length, 6);
-    assert.equal(new Set(assets).size, 6);
+    assert.equal(assets.length, 3);
+    assert.equal(new Set(assets).size, 3);
     assert.ok(assets.every(path => !path.includes('private')));
-    assert.equal(await readFile(assets[0], 'utf8'), 'desktop-windows-x64');
+    assert.equal(await readFile(assets[0], 'utf8'), 'portable-windows-x64');
     await assert.rejects(stageAssets(plan, '0.7.0', directory), /Stale/);
     const source = join(directory, plan[0].directory), manifest = join(source, plan[0].manifest);
     const info = JSON.parse(await readFile(manifest, 'utf8'));

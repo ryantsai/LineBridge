@@ -2,7 +2,7 @@
   "name": "line-bridge",
   "version": "0.6.7",
   "type": "module",
-  "description": "LineBridge desktop + tunnel LINE gateway with an encrypted, multilingual searchable SQLite archive",
+  "description": "LineBridge portable LINE gateway with a browser dashboard, native tray and encrypted searchable archive",
   "license": "MIT",
   "bin": {
     "linebridge": "bin/linebridge.mjs"
@@ -46,16 +46,10 @@
     "version:bump": "node scripts/release.mjs bump",
     "release:tag": "node scripts/release.mjs tag",
     "publish:github": "node scripts/publish.mjs",
-    "publish:desktop": "node scripts/publish.mjs --kind desktop",
     "publish:portable": "node scripts/publish.mjs --kind portable",
     "publish:npm": "node scripts/publish.mjs --kind npm",
     "test:portable": "node tests/portable-smoke.mjs",
-    "check": "node scripts/check.mjs",
-    "desktop": "node scripts/desktop.mjs --dev",
-    "build:windows": "node scripts/desktop.mjs --platform=windows",
-    "build:macos": "node scripts/desktop.mjs --platform=macos",
-    "test:desktop": "node tests/desktop-smoke.mjs",
-    "verify:macos": "node scripts/verify-macos.mjs"
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
@@ -66,10 +60,13 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.12.1",
     "esbuild": "0.28.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true
-  }
+  },
+  "os": [
+    "win32",
+    "darwin"
+  ]
 }

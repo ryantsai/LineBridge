@@ -1,4 +1,14 @@
-# LineBridge 0.6.2 desktop runtime validation
+# LineBridge validation history
+
+## 2026-10-05 portable tray migration
+
+- Removed the Tauri/Rust app, installer builds, and desktop release pipeline. Portable Windows/macOS bundles now build small native tray launchers; Linux support was subsequently removed from portable targets, release plans, npm platforms, and CI; Windows and macOS remain supported.
+- Verified Windows native launcher/controller IPC from an extracted bundle with spaces/Unicode in its path and no Node/npm on PATH. It attached to an existing service, reported the verified custom admin URL, quit without stopping reception, and separately started and gracefully stopped a detached synthetic service. The smoke mode does not display the icon or launch a browser.
+- The full unit suite passed, followed by targeted tray checks including crash-metadata recovery. JavaScript syntax, HTTP/official MCP service smoke, and portable package smoke passed. All accounts and sends used by these checks were synthetic.
+- Fixed Express 5 listen error handling: occupied admin/gateway ports must fail startup rather than publish false readiness. Tests verify both port conflicts, preservation of the existing listener, and retry after release. Ports are not automatically reassigned.
+- macOS AppKit/Swift implementation and packaging are included in native CI, but compilation, signing and GUI behavior have not been verified from this Windows host.
+
+## Earlier desktop runtime validation (historical)
 
 Verified locally on macOS Apple Silicon, 2026-10-03 (Asia/Taipei):
 

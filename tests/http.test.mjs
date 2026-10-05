@@ -141,4 +141,13 @@ test('dashboard combined setup enrolls privately; local profiles reject browsers
   assert.equal(await rawStatus(`${base}/api/v1/accounts`,{...authorization,Host:'line.example.com'}),403,'Managed profiles cannot authenticate remote tunnel traffic');
   const state=await (await fetch(`${local}/admin/state`,{headers:{Cookie:cookie}})).json();assert.ok(!JSON.stringify(state).includes(stored.token));
   await fetch(route,{method:'DELETE',headers});assert.equal(items.size,0);assert.equal((await fetch(`${base}/api/v1/accounts`,{headers:authorization})).status,401);
+  assert.equal((await fetch(route,{method:'POST',headers,body:JSON.stringify({...JSON.parse(body),autoMonitorNewChats:'true'})})).status,400);
+  const automatic=await (await fetch(route,{method:'POST',headers,body:JSON.stringify({...JSON.parse(body),autoMonitorNewChats:true})})).json();
+  assert.equal(automatic.autoMonitorNewChats,true);
+  hub.driver(a.id).rooms.push({id:'http-future-room',name:'Future room',kind:'openchat'});await hub.discover(a.id);
+  const updatedState=await (await fetch(`${local}/admin/state`,{headers:{Cookie:cookie}})).json();
+  assert.equal(updatedState.accounts[0].localSetup.autoMonitorNewChats,true);assert.ok(updatedState.accounts[0].localSetup.chatIds.includes('http-future-room'));
+  const currentAuthorization={Authorization:`Bearer ${items.get(automatic.profile).token}`};
+  const allowed=await (await fetch(`${base}/api/v1/accounts/${a.id}/chats`,{headers:currentAuthorization})).json();assert.ok(allowed.some(chat=>chat.id==='http-future-room'));
+  await fetch(route,{method:'DELETE',headers});assert.equal(items.size,0);
 });

@@ -1,4 +1,4 @@
-name: Build LineBridge portable CLI bundles
+name: Build LineBridge portable bundles and native trays
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
           - {target: windows-x64, runner: windows-2025}
           - {target: macos-arm64, runner: macos-15}
           - {target: macos-x64, runner: macos-15-intel}
-          - {target: linux-x64, runner: ubuntu-24.04}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -39,31 +38,5 @@ jobs:
         with:
           name: LineBridge-portable-${{ matrix.target }}
           path: release/portable/${{ matrix.target }}/
-          if-no-files-found: error
-          retention-days: 14
-
-  # Public repositories can use the standard native ARM runner. Private repos
-  # can opt in with the label of an available native ARM64 Linux runner.
-  linux-arm64:
-    if: github.event.repository.private == false || vars.LINEBRIDGE_LINUX_ARM64_RUNNER != ''
-    runs-on: ${{ vars.LINEBRIDGE_LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 26.5.0
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run check
-      - run: npm run package:portable
-      - name: Test extracted bundle without Node or npm on PATH
-        run: npm run test:portable
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: LineBridge-portable-linux-arm64
-          path: release/portable/linux-arm64/
           if-no-files-found: error
           retention-days: 14

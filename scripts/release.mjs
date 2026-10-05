@@ -6,12 +6,12 @@ import {root} from './packaging.mjs';
 import {main as publish} from './publish.mjs';
 import {applyVersionPlan, validateBump, versionPlan} from './version.mjs';
 
-const help = `LineBridge release helpers for Windows, macOS and Linux.
+const help = `LineBridge release helpers for Windows and macOS.
 
 Usage: npm run release -- <command> [options]
        scripts/release.cmd <command> [options]           (Windows cmd)
        .\\scripts\\release.ps1 <command> [options]          (Windows PowerShell)
-       sh scripts/release.sh <command> [options]         (macOS/Linux)
+       sh scripts/release.sh <command> [options]         (macOS)
 
 Commands:
   bump [patch|minor|major|VERSION] [--dry-run]
@@ -27,8 +27,7 @@ Commands:
 
 All commands support --help. Dry runs do not write files, create tags, build,
 push or contact GitHub. Publishing requires GitHub CLI authentication and
-native build prerequisites; Windows/macOS include desktop + portable packages,
-and Linux includes portable packages.
+native build prerequisites; Windows/macOS portable packages include the tray.
 `;
 
 export function parseOptions(args) {

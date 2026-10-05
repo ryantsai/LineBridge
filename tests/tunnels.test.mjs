@@ -38,6 +38,6 @@ test('Funnel cleanup refuses a changed route and exposes only a validated consen
   tunnels.ownedRoute={host:'machine.test.ts.net:443',port:443,proxy:'http://127.0.0.1:3211',funnel:true};current={Web:{'machine.test.ts.net:443':{Handlers:{'/':{Proxy:'http://127.0.0.1:9999'}}}},AllowFunnel:{'machine.test.ts.net:443':true}};await tunnels.close();assert.equal(tunnels.ownedRoute,null);
 });
 test('connector packages have fixed platform digests and refuse changed downloads',()=>{
-  for(const key of [['win32','x64'],['darwin','arm64'],['darwin','x64'],['linux','x64'],['linux','arm64']])assert.match(connectorPlan('ngrok',...key).sha256,/^[a-f0-9]{64}$/);
+  for(const key of [['win32','x64'],['darwin','arm64'],['darwin','x64']])assert.match(connectorPlan('ngrok',...key).sha256,/^[a-f0-9]{64}$/);
   assert.throws(()=>verifiedDownload(Buffer.from('unexpected binary'),'0'.repeat(64)),{code:'connector_checksum_failed'});
 });

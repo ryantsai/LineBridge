@@ -16,7 +16,7 @@ gh release view --repo ryantsai/LineBridge --json tagName,publishedAt,isPrerelea
 
 GitHub CLI がない場合は[最新リリース API](https://api.github.com/repos/ryantsai/LineBridge/releases/latest)または公開ページを使用します。**そのリリースに実在するファイル**から OS／CPU に合うものを選び、説明と対応する SHA-256 を確認します。URL の推測、プレリリースの選択、無断での旧版への切り替えはしないでください。リポジトリへの認証が必要な場合は既存の許可された GitHub ログインを使用し、認証情報をチャットに貼るよう求めません。最新版を確認できない、または対応ファイルがない場合は報告し、待つか、その最新タグからビルドするかをユーザーに選んでもらいます。
 
-インストール後はランチャーの `--version` を、今回取得した最新タグと比較します（先頭の `v` を除く）。既存の版が古い場合は、ユーザーの許可範囲で旧アプリを停止して更新してください。**同じ OS ユーザー、データディレクトリ、暗号化マスターキー**を保持します。既定の保存先は Windows の `%LOCALAPPDATA%/LineBridgeData`、macOS の `~/Library/Application Support/LineBridge`、Linux の `$XDG_DATA_HOME/linebridge` または `~/.local/share/linebridge` です。既存のカスタムディレクトリは変更しません。
+インストール後はランチャーの `--version` を、今回取得した最新タグと比較します（先頭の `v` を除く）。既存の版が古い場合は、ユーザーの許可範囲で旧アプリを停止して更新してください。**同じ OS ユーザー、データディレクトリ、暗号化マスターキー**を保持します。既定の保存先は Windows の `%LOCALAPPDATA%/LineBridgeData`、macOS の `~/Library/Application Support/LineBridge` です。既存のカスタムディレクトリは変更しません。
 
 ## プラットフォーム互換性と AI の接続
 
@@ -26,19 +26,20 @@ GitHub CLI がない場合は[最新リリース API](https://api.github.com/rep
 | --- | --- | --- |
 | Windows | x64。サポート中の Windows 10／11 または Server 2016+。Windows ARM64 ネイティブ版はありません。 | `linebridge.cmd`。DPAPI には同じ現在のユーザーの読み込み済み Windows profile と Windows PowerShell が必要です。 |
 | macOS | Apple Silicon `arm64` または Intel `x64`。サポート中の macOS 13.5+。 | `linebridge`。アクセス可能でロック解除済みの Keychain と `/usr/bin/security` が必要です。必要な OS 許可画面はユーザーが操作します。 |
-| Linux | `x64`／`arm64`。glibc 2.28+、kernel 4.18+、libstdc++ 6.0.25+、libatomic。Alpine／musl は非対応です。 | `linebridge`。永続プロファイルには `/usr/bin/secret-tool`、ユーザー D-Bus セッション、アクセス可能でロック解除済みの Secret Service が必要です。 |
 
-macOS／Linux は `uname -s` と `uname -m` で確認します。`x86_64` は `x64`、`arm64`／`aarch64` は `arm64` に対応します。Windows PowerShell は `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture` で確認できます。これは現在のビルド要件です。最新リリースの説明、実際のファイル、`build-info.json` も確認してください。**ビルド可能な対象でも最新リリースのダウンロードがあるとは限りません。**対応ファイルがない場合は報告し、旧版に置き換えません。
+macOS は `uname -s` と `uname -m` で確認します。`x86_64` は `x64`、`arm64`／`aarch64` は `arm64` に対応します。Windows PowerShell は `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture` で確認できます。これは現在のビルド要件です。最新リリースの説明、実際のファイル、`build-info.json` も確認してください。**ビルド可能な対象でも最新リリースのダウンロードがあるとは限りません。**対応ファイルがない場合は報告し、旧版に置き換えません。
 
 - **Dot と Mac：**[OpenAI の Dot 文書](https://learn.chatgpt.com/docs/dots/computers-and-apps)は接続済みコンピューターでローカル Work／Codex タスクを作成する機能を説明し、[Computer Use 文書](https://learn.chatgpt.com/docs/computer-use)は macOS／Windows 対応を明記しています。これらは Mac のローカル運用を裏付けますが、アカウント／セッションの機能提供と実際のターミナル権限を確認してください。ユーザーの ChatGPT デスクトップアプリで Dot → Computers → Your computer → Allow access を開き、確認します。アプリを起動・ログイン状態に保ち、ホストをオンラインにします。Dot の許可は Codex Remote／Work Sync とは別で、提供状況はプラン、ワークスペース、段階的な展開に依存します。Mac の GUI 操作には、求められた場合に画面収録とアクセシビリティの許可も必要です。[ローカルアクセス設定](https://learn.chatgpt.com/docs/enterprise/cloud-local-access)を参照してください。
-- **Dot と Linux：**[OpenAI の Linux デスクトップ文書](https://learn.chatgpt.com/docs/linux/linux-app)はローカルプロジェクト／ファイルに対応しますが、現在 GUI Computer Use は非対応です。確認した文書では Dot の Linux ホスト接続を明示的に保証していません。LineBridge の Linux 互換性を Dot の対応保証として扱わず、実際のツールと権限を調べてください。許可された Linux ターミナルや SSH ツールを持つ Agent は LineBridge を操作できます。クラウドだけの場合は既存の HTTPS ゲートウェイが必要です。対応機能は変わるため、実行前に OpenAI 公式文書を再確認してください。
-- **ヘッドレス Linux：**D-Bus／Secret Service がない場合、ローカルウィザードは永続プロファイルを作成できません。平文への変更や認証解除は行いません。ユーザーは[手動認証手順](CLI.md#credentials)で狭い範囲の許可を作り、秘密管理ツールの非公開 stdin パイプまたは制御されたプロセス環境で一時認証情報を渡せます。この方法では永続プロファイルは作成されず、ウィザード設定成功とも扱えません。
 
-Windows は下記の非表示 `Start-Process`、macOS／Linux は `nohup` を使います。どちらもバックグラウンドプロセスで、自動再起動／起動時実行を備えるシステムサービスではありません。すべてのプラットフォームで LINE のスマートフォンペアリングと権限確認はユーザーが行います。
+Windows は下記の非表示 `Start-Process`、macOS は `nohup` を使います。どちらもバックグラウンドプロセスで、自動再起動／起動時実行を備えるシステムサービスではありません。すべてのプラットフォームで LINE のスマートフォンペアリングと権限確認はユーザーが行います。
 
 ## ローカルインストールとバックグラウンド起動
 
-最新リリースの**ポータブル CLI パッケージ**を優先します。ダウンロードして対応する `SHA256SUMS` を検証し、ユーザーが書き込める永続ディレクトリに全ファイルを展開します。ランチャー、`runtime`、`app` を一緒に保持してください。Node／npm の追加インストールや管理者権限は不要です。Windows は `Get-FileHash PATH -Algorithm SHA256`、macOS／Linux は `shasum -a 256 PATH` または `sha256sum PATH` で比較します。[プラットフォームと OS 要件](PACKAGING.md#portable-cli-and-service-bundles)はビルド可能な対象であり、最新リリースのファイル一覧を保証しません。
+**Windows と macOS のポータブル版には軽量トレイランチャーが含まれます。**`LineBridge.exe`（Windows）、`LineBridge.app`（macOS）を開くか、`linebridge tray` を実行します。認証必須のバックグラウンドサービスを起動するか、同じデータディレクトリの検証済みサービスに接続し、実際の管理 URL を既定のブラウザーで開きます。メニューは **Open LineBridge**、**Quit tray (keep service running)**（トレイだけ終了）、**Stop service and quit**（サービスも停止）です。展開したフォルダーを一緒に保持してください。対応 OS は Windows と macOS のみで、Linux は非対応です。`serve` だけではトレイアイコンは表示されません。Tauri ウィンドウと独立したデスクトップインストーラーは廃止しました。旧 Tauri 版から移行する場合は旧アプリを終了し、データと暗号化キーを保持したまま同じデータディレクトリでポータブルサービスを起動します。
+
+ポート競合時は安全に起動を中止し、自動で変更しません。`serve` または `tray` に `--admin-port PORT --gateway-port PORT` を指定し、gateway + 1 もコネクターの健全性確認用に空け、`status` で実際のポートを確認します。既存サービスに接続するトレイはそのポートを使用します。ゲートウェイを変更すると、URL に紐づく CLI プロファイルの更新または再登録とトンネル設定の更新が必要です。トレイ起動時のエラーはデータディレクトリの `service.stderr.log` に記録されます。
+
+最新リリースの**ポータブル CLI パッケージ**を優先します。ダウンロードして対応する `SHA256SUMS` を検証し、ユーザーが書き込める永続ディレクトリに全ファイルを展開します。ランチャー、`runtime`、`app` を一緒に保持してください。Node／npm の追加インストールや管理者権限は不要です。Windows は `Get-FileHash PATH -Algorithm SHA256`、macOS は `shasum -a 256 PATH` で比較します。[プラットフォームと OS 要件](PACKAGING.md#portable-cli-and-service-bundles)はビルド可能な対象であり、最新リリースのファイル一覧を保証しません。
 
 `serve` 自体はフォアグラウンドで動き、バックグラウンド動作には OS のプロセス起動機能が必要です。以下の `PATH_TO_EXTRACTED_BUNDLE` を**検証済みで全ファイルを展開したディレクトリ**に置き換えます。先に既存サービスがないか確認してください。カスタムデータディレクトリやポートがある場合は、`serve`、`status`、`stop` に同じオプションを使います。
 
@@ -56,7 +57,7 @@ Start-Process -FilePath $lineBridgeNode -ArgumentList $lineBridgeArguments `
 & "$bundle\linebridge.cmd" status
 ```
 
-macOS／Linux（最新リリースに対応ファイルが必要）：
+macOS（最新リリースに対応ファイルが必要）：
 
 ```sh
 bundle="/ABSOLUTE/PATH_TO_EXTRACTED_BUNDLE"
@@ -67,16 +68,18 @@ nohup "$bundle/linebridge" serve --require-token \
 
 起動は非同期です。期限を設けて `status` を再確認し、`status: running`、バージョン、データディレクトリ、実際のポートを確認します。プロセスの作成だけでは成功としません。既定の管理画面は `http://127.0.0.1:3210`、AI ゲートウェイは `http://127.0.0.1:3211` です。`--trust-local` で認証を解除したり管理画面を公開したりしないでください。バックグラウンドプロセスはインストール済みシステムサービスではなく、自動再起動や起動時の自動実行はありません。ログアウト／再起動後の動作も保証されません。継続運用やスケジュールは別途ユーザーの指示に従って設定します。
 
-停止には同じパッケージの `linebridge.cmd stop`（Windows）または `linebridge stop`（macOS／Linux）を完全なパスで使い、`status: stopped` を確認します。既存のデスクトップサービスが動作中なら、ウィザードが示す内蔵 CLI を使用し、追加インストールはしません。最新リリースの npm `.tgz` またはソース方式だけが Node.js 24+ を必要とします。[代替インストールと CLI](CLI.md)を参照してください。
+停止には同じパッケージの `linebridge.cmd stop`（Windows）または `linebridge stop`（macOS）を完全なパスで使い、`status: stopped` を確認します。既存のポータブルサービスが動作中なら、ウィザードが示す内蔵 CLI を使用し、追加インストールはしません。最新リリースの npm `.tgz` またはソース方式だけが Node.js 24+ を必要とします。[代替インストールと CLI](CLI.md)を参照してください。
 
 ## ユーザーのペアリングと許可
 
-1. ローカル管理画面を開き、**ユーザーにスマートフォンで LINE のペアリングを完了してもらい**、チャットを選択してアカウントとチャット名／ID を確認します。
+1. ローカル管理画面で初期設定する際は、まず**ユーザーのコンピューター上の Computer Use で既定のブラウザーを開き**、`http://localhost:3210/` に移動します。ポートは `status` で確認した実際の管理ポートに置き換え、AI ゲートウェイのポートと混同せず、設定画面の表示を確認します。Computer Use が利用できない、または開けない場合は、「ブラウザーを開き、`http://localhost:3210/` をアドレスバーにコピーして貼り付け、Enter を押してください」と明示します。実際のポートを含む完全な URL をインラインコードまたはコードブロックで示し、クリック可能な Markdown リンクだけに頼らないでください。ChatGPT アプリの Dot から localhost リンクを直接開けないというユーザー報告があります。`localhost` が読み込めない場合は、同じ実際の管理ポートの `http://127.0.0.1:3210/` を試すか案内します。トレイの Open LineBridge でも同じウィザードをブラウザーで開けます。**ユーザーにスマートフォンで LINE のペアリングを完了してもらい**、チャットを選択してアカウントとチャット名／ID を確認します。
 2. ローカルウィザードは**読み取り + 送信**の明示的な確認後、90 日の専用 CLI プロファイルを作成し、受信と暗号化アーカイブを開始します。読み取りだけの場合は「API 金鑰與 AI 存取」（API キーと AI アクセス）の手動設定で狭い範囲の read grant を作成します。
 3. ウィザードの**完全な CLI 実行方法と指定通りの `--profile`**を使い、パス、引用符、PowerShell の `&` を保持します。名前を推測したり、API キーのラベル、`default`、他のプロファイルと混同したりしません。
-4. プロファイルは Windows DPAPI、macOS Keychain、Linux Secret Service に自動保存されます。ストレージが利用不可／ロック中の場合はユーザーに対処してもらい、平文に切り替えたり秘密をチャットにコピーしたりしません。[認証要件と手動手順](CLI.md#credentials)を参照してください。
+4. プロファイルは Windows DPAPI または macOS Keychain に自動保存されます。ストレージが利用不可／ロック中の場合はユーザーに対処してもらい、平文に切り替えたり秘密をチャットにコピーしたりしません。[認証要件と手動手順](CLI.md#credentials)を参照してください。
 
-専用プロファイルは同じローカルゲートウェイと確認済みチャットだけに限定されます。チャット指定の追加では許可範囲は拡大しません。範囲変更や更新には無効化とユーザーの再確認が必要で、無効化すると直ちに失効します。`auth forget` はローカルプロファイルだけを削除し、サーバートークンは失効させません。LINE ペアリング、権限確認、必要な OS 許可画面は完全な無人操作にはできません。コンピューターを起動・接続状態に保ち、サービスを実行し続けてください。
+ウィザードのチャット一覧は名前・種類・ID で検索でき、絞り込み中も選択を保持します。「自動監控之後新發現的聊天室」（新しく発見されたチャットの自動監視）を選択して確認すると、監視中は設定した更新間隔で新しい個人チャット・グループ・OpenChat を探索し、ローカルプロファイルの読み取り + 送信権限に追加して新着メッセージを保存します。既存の未選択チャットは追加しません。監視停止、切断、権限の失効／期限切れ後は自動追加を停止します。
+
+専用プロファイルは同じローカルゲートウェイと確認済みチャットに限定され、明示的に選択した将来のチャットを含みます。手動のチャット指定では許可範囲は拡大しません。手動の範囲変更、自動監視設定の変更や更新には無効化とユーザーの再確認が必要で、無効化すると直ちに失効します。`auth forget` はローカルプロファイルだけを削除し、サーバートークンは失効させません。LINE ペアリング、権限確認、必要な OS 許可画面は完全な無人操作にはできません。コンピューターを起動・接続状態に保ち、サービスを実行し続けてください。
 
 ## データコマンドと受信の検証
 

@@ -1,6 +1,6 @@
 # Cloud connections
 
-LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The desktop bundles Node and cloudflared. The portable CLI bundles Node, while tunnel helpers are optional separate installations. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **API 金鑰與 AI 存取**; read grants include archive search, while send grants are independent.
+LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The portable bundle includes Node and a Windows/macOS tray launcher. Tunnel helpers are optional separate installations available through the dashboard. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **API 金鑰與 AI 存取**; read grants include archive search, while send grants are independent.
 
 For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.
 
@@ -26,7 +26,7 @@ Choose **Tailscale Funnel · HTTPS 公開網址**. It reuses the installed, sign
 
 Existing routes on the selected port are never overwritten. An exact matching external route may be reused without claiming ownership; otherwise choose another port. Stop/app exit removes only the matching route created in this run, and refuses cleanup if another process changed it. Private Serve routes on other ports remain intact. Bearer authentication and admin isolation apply to public Funnel traffic. [Funnel CLI](https://tailscale.com/docs/reference/tailscale-cli/funnel).
 
-**同一台主機 · 直接連線** is available for local use with a Bearer token. The CLI alone has an explicit `--trust-local` development opt-in restricted to direct loopback, the local provider, and requests without browser/proxy metadata. The desktop always enforces tokens. Selecting a tunnel does not grant token-free access, and an invalid supplied token never falls back to local trust.
+**同一台主機 · 直接連線** is available for local use with a Bearer token. The CLI alone has an explicit `--trust-local` development opt-in restricted to direct loopback, the local provider, and requests without browser/proxy metadata. Services started by the tray enforce tokens. Selecting a tunnel does not grant token-free access, and an invalid supplied token never falls back to local trust.
 
 ## Quick Tunnel
 

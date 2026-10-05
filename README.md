@@ -16,7 +16,7 @@ gh release view --repo ryantsai/LineBridge --json tagName,publishedAt,isPrerelea
 
 沒有 GitHub CLI 時使用[最新發布 API](https://api.github.com/repos/ryantsai/LineBridge/releases/latest)或發布頁。依**該版本實際存在的檔案**選擇 OS／CPU 相容套件，核對版本文件及對應 SHA-256；不要猜網址、選預發布版或自行退回舊版。若儲存庫需登入，使用既有獲授權的 GitHub 登入，不要求使用者把憑證貼到聊天。無法確認最新版或沒有相容套件時如實回報，由使用者決定等待或從該最新標籤建置。
 
-安裝後執行啟動器的 `--version`，與剛取得的最新標籤比較（忽略標籤開頭的 `v`）。現有版本較舊時，依使用者授權先停止舊程式並升級；保留**相同 OS 使用者、資料目錄與加密主金鑰**。Windows 預設資料在 `%LOCALAPPDATA%/LineBridgeData`，macOS 在 `~/Library/Application Support/LineBridge`，Linux 在 `$XDG_DATA_HOME/linebridge` 或 `~/.local/share/linebridge`；既有自訂目錄須沿用。
+安裝後執行啟動器的 `--version`，與剛取得的最新標籤比較（忽略標籤開頭的 `v`）。現有版本較舊時，依使用者授權先停止舊程式並升級；保留**相同 OS 使用者、資料目錄與加密主金鑰**。Windows 預設資料在 `%LOCALAPPDATA%/LineBridgeData`，macOS 在 `~/Library/Application Support/LineBridge`；既有自訂目錄須沿用。
 
 ## 平台相容性與 AI 連線
 
@@ -26,19 +26,20 @@ gh release view --repo ryantsai/LineBridge --json tagName,publishedAt,isPrerelea
 | --- | --- | --- |
 | Windows | x64；仍受支援的 Windows 10／11 或 Server 2016+。沒有原生 Windows ARM64 套件。 | `linebridge.cmd`；DPAPI 需同一位目前使用者的已載入 Windows profile，以及 Windows PowerShell。 |
 | macOS | Apple Silicon `arm64` 或 Intel `x64`；仍受支援的 macOS 13.5+。 | `linebridge`；Keychain 須可存取且已解鎖，需 `/usr/bin/security`；必要的 OS 許可提示由使用者確認。 |
-| Linux | `x64`／`arm64`；glibc 2.28+、kernel 4.18+、libstdc++ 6.0.25+、libatomic。不支援 Alpine／musl。 | `linebridge`；持久 profile 需 `/usr/bin/secret-tool`、使用者 D-Bus 工作階段與可存取且已解鎖的 Secret Service。 |
 
-macOS／Linux 用 `uname -s` 與 `uname -m` 辨識；`x86_64` 對應 `x64`，`arm64`／`aarch64` 對應 `arm64`。Windows PowerShell 可查 `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`。上述是目前建置需求；仍須核對最新發布的說明、實際套件與 `build-info.json`，**可建置不等於該平台已有最新版下載檔案**。缺少對應套件就回報，不下載舊版替代。
+macOS 用 `uname -s` 與 `uname -m` 辨識；`x86_64` 對應 `x64`，`arm64`／`aarch64` 對應 `arm64`。Windows PowerShell 可查 `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`。上述是目前建置需求；仍須核對最新發布的說明、實際套件與 `build-info.json`，**可建置不等於該平台已有最新版下載檔案**。缺少對應套件就回報，不下載舊版替代。
 
 - **Dot 與 Mac：**[OpenAI 的 Dot 文件](https://learn.chatgpt.com/docs/dots/computers-and-apps)說明 Dot 能在已連接的電腦建立本機 Work／Codex 工作；[Computer Use 文件](https://learn.chatgpt.com/docs/computer-use)明列 macOS／Windows。這些文件支持 Mac 本機工作流程，但每次仍須確認帳號可用功能與實際終端機權限。在使用者的 ChatGPT 桌面程式開啟 Dot → Computers → Your computer → Allow access 並確認，保持程式開啟、登入及主機連網。Dot 授權與 Codex Remote／Work Sync 分開；可用性受方案、工作區設定與逐步推出影響。需要 Mac GUI 操作時，另外依提示授予螢幕錄製與輔助使用權限。[本機存取設定](https://learn.chatgpt.com/docs/enterprise/cloud-local-access)。
-- **Dot 與 Linux：**[OpenAI Linux 桌面版文件](https://learn.chatgpt.com/docs/linux/linux-app)支援本機專案／檔案，但目前沒有 GUI Computer Use；已查閱文件沒有明確保證 Dot 可連接 Linux 主機。不要把 LineBridge 的 Linux 相容性當成 Dot 的平台保證，先檢查實際工具與存取權限。具備授權的 Linux 終端機或 SSH 工具的 Agent 可操作 LineBridge；只有雲端工具時需既有 HTTPS 閘道。執行前重新核對 OpenAI 官方文件，功能支援可能變更。
-- **無桌面 Linux：**缺少 D-Bus／Secret Service 時，本機精靈無法建立持久 profile。不要改成平文或停用認證。使用者可依[手動憑證流程](CLI.md#credentials)建立窄範圍 grant，透過秘密管理工具的私有 stdin pipe／受控程序環境提供暫時憑證；這不會建立持久 profile，也不能當成精靈設定成功。
 
-Windows 使用下方的隱藏 `Start-Process`，macOS／Linux 使用 `nohup`；兩者均是背景程序，不是含自動重啟／開機啟動的系統服務。所有平台的 LINE 手機配對與權限確認仍由使用者完成。
+Windows 使用下方的隱藏 `Start-Process`，macOS 使用 `nohup`；兩者均是背景程序，不是含自動重啟／開機啟動的系統服務。所有平台的 LINE 手機配對與權限確認仍由使用者完成。
 
 ## 本機安裝與背景啟動
 
-優先使用最新發布的**可攜式 CLI 套件**：下載、驗證對應 `SHA256SUMS`，再完整解壓縮至使用者可寫入的持久目錄。保留啟動器、`runtime`、`app`；不需另裝 Node／npm，也不需系統管理員權限。Windows 用 `Get-FileHash PATH -Algorithm SHA256`，macOS／Linux 用 `shasum -a 256 PATH` 或 `sha256sum PATH` 比對。[平台與 OS 要求](PACKAGING.md#portable-cli-and-service-bundles)只代表可建置的平台，不保證最新發布包含每種套件。
+**Windows 與 macOS 可攜式套件包含輕量系統匣程式。**開啟 `LineBridge.exe`（Windows）、`LineBridge.app`（macOS），或執行 `linebridge tray`。程式會啟動需要認證的背景服務，或連接同一資料目錄下已驗證的既有服務，並以預設瀏覽器開啟實際管理網址。選單提供 **Open LineBridge**、**Quit tray (keep service running)**（只關閉系統匣，服務繼續執行）與 **Stop service and quit**（停止服務並結束）。請保留完整解壓縮目錄。僅支援 Windows 與 macOS，不再支援 Linux。單獨執行 `serve` 不會顯示系統匣圖示；不再使用 Tauri 視窗或獨立桌面安裝程式。從舊 Tauri 版遷移時，先結束舊程式，再以相同資料目錄啟動可攜式服務，保留資料與加密金鑰。
+
+埠衝突時安全地停止啟動，不會自動換埠。可對 `serve` 或 `tray` 指定 `--admin-port PORT --gateway-port PORT`，另保留 gateway + 1 給連接器健康檢查，並用 `status` 核對實際埠。連接既有服務的系統匣沿用其埠。更改閘道埠後，需更新或重新登錄綁定網址的 CLI profile 及通道設定。系統匣啟動錯誤記錄在資料目錄的 `service.stderr.log`。
+
+優先使用最新發布的**可攜式 CLI 套件**：下載、驗證對應 `SHA256SUMS`，再完整解壓縮至使用者可寫入的持久目錄。保留啟動器、`runtime`、`app`；不需另裝 Node／npm，也不需系統管理員權限。Windows 用 `Get-FileHash PATH -Algorithm SHA256`，macOS 用 `shasum -a 256 PATH` 比對。[平台與 OS 要求](PACKAGING.md#portable-cli-and-service-bundles)只代表可建置的平台，不保證最新發布包含每種套件。
 
 `serve` 本身在前景執行；背景模式需由作業系統啟動程序。以下範例以**已驗證的完整解壓縮目錄**取代 `PATH_TO_EXTRACTED_BUNDLE`。先確認沒有既有服務。已有自訂資料目錄或埠時，對 `serve`、`status`、`stop` 沿用相應選項。
 
@@ -56,7 +57,7 @@ Start-Process -FilePath $lineBridgeNode -ArgumentList $lineBridgeArguments `
 & "$bundle\linebridge.cmd" status
 ```
 
-macOS／Linux（需最新發布有相容套件）：
+macOS（需最新發布有相容套件）：
 
 ```sh
 bundle="/ABSOLUTE/PATH_TO_EXTRACTED_BUNDLE"
@@ -67,16 +68,18 @@ nohup "$bundle/linebridge" serve --require-token \
 
 啟動是非同步操作；在有限期限內重查 `status`，確認 `status: running`、版本、資料目錄及實際埠，不能只以程序已建立當作成功。預設管理畫面為 `http://127.0.0.1:3210`，AI 閘道為 `http://127.0.0.1:3211`。不要使用 `--trust-local` 取消認證，也不要暴露管理畫面。背景程序不是系統服務，沒有自動重啟或開機啟動，登出／重開機後不保證繼續執行；需要持續運作或排程時，另依使用者指示設定。
 
-停止時使用同一個套件的 `linebridge.cmd stop`（Windows）或 `linebridge stop`（macOS／Linux，含完整路徑），再確認 `status: stopped`。已有桌面版服務時直接使用精靈提供的內建 CLI，無需再安裝。只有最新發布中的 npm `.tgz` 或原始碼方案需要 Node.js 24+；[替代安裝與 CLI](CLI.md)。
+停止時使用同一個套件的 `linebridge.cmd stop`（Windows）或 `linebridge stop`（macOS，含完整路徑），再確認 `status: stopped`。已有可攜式服務時直接使用精靈提供的內建 CLI，無需再安裝。只有最新發布中的 npm `.tgz` 或原始碼方案需要 Node.js 24+；[替代安裝與 CLI](CLI.md)。
 
 ## 使用者配對與授權
 
-1. 開啟本機管理畫面，**讓使用者完成手機 LINE 配對**、選擇聊天室，並核對帳號與聊天室名稱／ID。
+1. 初次透過本機管理畫面設定時，先嘗試使用**使用者電腦上的 Computer Use 開啟預設瀏覽器**，前往 `http://localhost:3210/`；埠號須換成 `status` 確認的實際管理埠，不是 AI 閘道埠，並確認設定頁已載入。若沒有 Computer Use 或無法開啟，明確告訴使用者：「請開啟瀏覽器，將 `http://localhost:3210/` 複製貼到網址列，再按 Enter。」以行內程式碼或程式碼區塊列出含實際埠號的完整網址，不要只提供可點擊的 Markdown 連結；已有使用者回報 ChatGPT app 的 Dot 無法直接開啟 localhost 連結。若 `localhost` 無法載入，改試或提供相同實際管理埠的 `http://127.0.0.1:3210/`。系統匣的 Open LineBridge 也會在瀏覽器開啟同一個精靈。**讓使用者完成手機 LINE 配對**、選擇聊天室，並核對帳號與聊天室名稱／ID。
 2. 本機精靈會要求明確確認**讀取 + 傳送**，再建立 90 天的專用 CLI profile、開始接收與加密封存。若使用者只要讀取，改用「API 金鑰與 AI 存取」的手動流程建立窄範圍 read grant。
 3. 使用精靈顯示的**完整 CLI 執行方式與原樣 `--profile`**，保留路徑、引號及 PowerShell 的 `&`。不要猜 profile 名稱，或混用 API 金鑰標籤、`default` 與其他 profile。
-4. profile 自動存於 Windows DPAPI、macOS Keychain 或 Linux Secret Service。儲存區鎖定／不可用時交由使用者處理，不改用明文、不複製秘密到聊天。[憑證需求與手動流程](CLI.md#credentials)。
+4. profile 自動存於 Windows DPAPI 或 macOS Keychain。儲存區鎖定／不可用時交由使用者處理，不改用明文、不複製秘密到聊天。[憑證需求與手動流程](CLI.md#credentials)。
 
-專用 profile 限同一個本機閘道及確認過的聊天室。新增聊天室指定不會擴大既有授權；更改範圍或續期須停用並由使用者重新確認。停用會立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示無法完全無人操作。電腦須保持開機、連網，服務持續執行。
+精靈的聊天室清單可依名稱、類型或 ID 搜尋，篩選不會取消已勾選的聊天室。選用「自動監控之後新發現的聊天室」並確認後，監聽期間會依自動更新間隔探索新的一對一、群組與 OpenChat，加入本機 profile 的讀取 + 傳送授權並封存新訊息。目前未勾選的聊天室仍排除在外；停止監聽、帳號離線或授權撤銷／到期時不會自動加入新聊天室。
+
+專用 profile 限同一個本機閘道及確認過的聊天室，包含已明確選用的自動監控新聊天室。手動新增聊天室指定不會擴大既有授權；手動更改範圍、自動監控選項或續期須停用並由使用者重新確認。停用會立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示無法完全無人操作。電腦須保持開機、連網，服務持續執行。
 
 ## 資料指令與接收驗證
 

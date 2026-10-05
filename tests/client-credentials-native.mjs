@@ -7,12 +7,12 @@ import {CredentialStore, runProtectedHelper} from '../client/credentials.mjs';
 import {clientFixturePath, removeClientFixture} from './client-test-utils.mjs';
 
 // Separate from npm test: these are actual OS protection checks, exclusively with
-// disposable synthetic credentials. Linux requires the CI's private D-Bus/keyring.
+// disposable synthetic credentials on Windows/macOS.
 const directory=await mkdtemp(join(tmpdir(),'linebridge-cli-native-'));
 const profile=`synthetic-${randomUUID()}`,keychain=process.platform==='darwin'?join(directory,'test.keychain-db'):undefined;
 let store;
 try {
-  if(process.platform==='linux' && (process.env.LINE_BRIDGE_TEST_SECRET_SERVICE!=='1' || !process.env.DBUS_SESSION_BUS_ADDRESS || !process.env.XDG_DATA_HOME))throw new Error('Run Linux native checks in a disposable Secret Service session; see the package workflow.');
+  if(!['win32','darwin'].includes(process.platform))throw new Error('Native checks support Windows/macOS only.');
   if(keychain) {
     const result=await runProtectedHelper('/usr/bin/security',['-q','-i'],{input:`create-keychain -p synthetic-test-password "${keychain}"\n`});
     assert.equal(result.code,0,'Could not create disposable test Keychain');

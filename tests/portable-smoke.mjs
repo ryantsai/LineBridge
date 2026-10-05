@@ -98,6 +98,24 @@ try{
   let adminPort=await port(),gatewayPort=await port();
   while(gatewayPort>=65535 || adminPort===gatewayPort || adminPort===gatewayPort+1)gatewayPort=await port();
   const call=await start(adminPort,gatewayPort),gateway=`http://127.0.0.1:${gatewayPort}`;
+  async function nativeTray(stop=false){
+    const native=join(bundle,process.platform==='win32'?'LineBridge.exe':'LineBridge.app/Contents/MacOS/LineBridge');
+    const result=await new Promise((ok,fail)=>{
+      const child=spawn(native,['--smoke-test',...(stop?['--smoke-stop']:[]),'--data-dir',data,'--admin-port',String(adminPort),'--gateway-port',String(gatewayPort)],{cwd,env,windowsHide:true,stdio:['ignore','pipe','pipe']});
+      let output='',errors='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>errors+=b);
+      const timer=setTimeout(()=>{child.kill();fail(new Error('Native tray timed out: '+output+errors));},60000);
+      child.once('error',e=>{clearTimeout(timer);fail(e);});
+      child.once('close',code=>{clearTimeout(timer);ok({code,output,errors});});
+    });
+    assert.equal(result.code,0,result.output+result.errors);assert.doesNotMatch(result.output,/error\t/);
+    assert.ok(result.output.includes(`open\thttp://127.0.0.1:${adminPort}`),result.output);
+    assert.match(result.output,/quit\t/);
+  }
+  if(process.platform!=='linux'){
+    assert.equal(info.tray,process.platform==='win32'?'LineBridge.exe':'LineBridge.app');
+    await nativeTray();
+    assert.equal((await json(['status','--data-dir',data])).pid,ownedPid,'Quitting an attached native tray keeps the service running.');
+  }
   assert.equal((await fetch(`${gateway}/api/v1/accounts`)).status,401);
   assert.equal((await json(['status','--data-dir',data])).status,'running');
   const account=await call('/accounts','POST',{label:'Portable synthetic sandbox',kind:'demo'});
@@ -121,6 +139,12 @@ try{
   assert.equal((await json(search,{credentials})).results[0].message.text,text);
   assert.equal((await json(['events','--account',account.id],{credentials})).events[0].message.text,text);
   await stop();
+  if(process.platform!=='linux'){
+    // Native launcher starts a detached service, verifies the custom URL, then
+    // exercises its Stop service and quit menu through the same IPC path.
+    try{await nativeTray(true);assert.equal((await json(['status','--data-dir',data])).status,'stopped');}
+    finally{await json(['stop','--data-dir',data]);}
+  }
   console.log(`Portable ${plan.slug}: extracted archive, bundled runtime/worker, no Node/npm on PATH, Unicode paths, argument/stdin/exit forwarding, scoped CLI, synthetic sends, archive persistence and shutdown passed.`);
 }finally{
   try{await stop();}catch(error){
