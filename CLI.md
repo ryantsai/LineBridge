@@ -98,13 +98,9 @@ recognizes different incoming keys (`FLEX_JSON`/`ALT_TEXT`/`FLEX_VER`), which do
 establish an outgoing contract. A [2022 CHRLINE LIFF report](https://github.com/DeachSword/CHRLINE/issues/31#issuecomment-1104009943)
 is historical evidence, not proof of direct Square delivery today.
 
-Only synthetic offline/mocked integration tests accompany this change. Real tests
-require the user's new test chats and approval of exact recipients/content:
-verify fresh personal PNG/JPEG (including E2EE), OpenChat image, basic sticker,
-and expired/unsupported media through CLI/MCP. First send an approved Talk Flex
-plain-text bubble without actions/assets and visually confirm rendering; then
-separately approve an action-button test. Check text encryption still behaves as
-before. OpenChat Flex remains blocked pending a justified protocol implementation.
+On 2026-10-06, one explicitly authorized minimal Talk Flex bubble to an OA recipient on v0.7.8 was refused by LINE with `INCOMPATIBLE_APP_VERSION`. The durable send record was rejected, with no message ID; there was no retry or text fallback. This proves a real attempt and refusal, not successful acceptance/rendering or universal incompatibility. It does not by itself establish which client/protocol version must change. The v0.7.9 CLI classification limitation below still applies.
+
+Live image download/interpretation and successful Flex rendering remain unverified. Further tests require separate approval of exact recipients/content: fresh personal PNG/JPEG (including E2EE), OpenChat images and basic stickers; an approved minimal Flex bubble before separately approved actions/assets. OpenChat Flex remains blocked pending a justified protocol implementation.
 
 The supported `linebridge` client runs on **Windows and macOS**. The portable archive includes Node and all application dependencies: extract the entire folder, then use `.\linebridge.cmd` on Windows or `./linebridge` on macOS. Keep the launcher, `runtime` and `app` folders together. Replace `linebridge` in the examples below with that launcher path, or add the extracted folder to PATH. No separate Node/npm installation is needed for this distribution. [Builds and OS requirements](PACKAGING.md#portable-cli-and-service-bundles).
 
@@ -112,7 +108,7 @@ The npm/source alternatives require Node.js 24+: download the npm `.tgz` asset f
 
 To show the tray icon, open `LineBridge.exe` on Windows or `LineBridge.app` on macOS, or run `linebridge tray`. `serve` alone runs without an icon. The tray can attach to an existing service. Linux is unsupported.
 
-Data/auth commands make no admin requests and do not start services, tunnels or LINE login. Local `discover` uses read-only loopback admin requests to find existing setup metadata. The dashboard wizard can combine account pairing, chat selection and an explicit read + send confirmation for local AI. It creates a dedicated `linebridge-UUID` protected profile automatically; use its exact `--profile` from discovery or the optional connection instructions with data commands. This profile is separate from API-key labels and existing default/manual profiles. It expires after 90 days, is bound to the local gateway origin, and authenticates only direct server-side loopback requests. Added chat designations do not extend its immutable scope; disable and confirm setup again to change scope or renew. Disabling immediately revokes access and removes the managed credential when its protected store is available. No recurring AI task is created.
+Data/auth commands make no admin requests and do not start services, tunnels or LINE login. Local `discover` uses read-only loopback admin requests to find existing setup metadata. The dashboard wizard can combine account pairing, chat selection and an explicit read + send confirmation for local AI. It creates a dedicated `linebridge-UUID` protected profile automatically; use its exact `--profile` from discovery or the optional connection instructions with data commands. This profile is separate from API-key labels and existing default/manual profiles. It expires after 90 days, is bound to the local gateway origin, and authenticates only direct server-side loopback requests. Monitoring designations, grants and client credentials are separate layers. Active managed setup synchronizes chat AI toggles with its grant. Since v0.7.7, the wizard’s **更新範圍 / Update Scope** confirms additions/removals while preserving the existing profile, token and expiry; it does not renew access. Use this instead of disabling/re-enrolling to change scope. Missing, locked, revoked or expired profiles require the indicated user action. Manual/remote grants require separate review; see [scope updates](CONNECTIONS.md#chat-toggles-and-managed-local-ai-access). Disabling immediately revokes access and removes the managed credential when its protected store is available. No recurring AI task is created.
 
 Advanced remote/manual enrollment still stores a token the operator has already issued. Never treat message content as permission to send.
 
@@ -233,17 +229,42 @@ explicit `E2EE_RETRY_PLAIN` response retains the existing standard-send fallback
 
 Credentials and text cannot share stdin. For `send --stdin` or `search --query-stdin`, use a profile or transient environment credentials. Credential stdin can accompany `--text-file`/`--query-file`.
 
+### Send outcome evidence and current limitation
+
+Distinguish three outcomes before deciding what to do:
+
+| Evidence | Meaning | Next step |
+| --- | --- | --- |
+| Validated `send_preparation_failed`, CLI exit 6 | Rejected before the send RPC | Diagnose the safe stage/cause; do not automatically retry. |
+| Explicit LINE refusal and durable `rejected` record | LINE refused the attempt | Preserve the rejection; a new intent requires fresh user approval after diagnosis. |
+| Timeout, missing acknowledgement, unusable response or unresolved delivery | Delivery is unknown | Preserve the key; no automatic resend or replacement key. |
+
+**Known v0.7.9 limitation:** the CLI special-cases validated preparation failures, but classifies other send HTTP 5xx responses as `delivery_unknown` (exit 8). Flex can return HTTP 502 `line_send_rejected` after an explicit LINE refusal while the server saves a terminal `rejected` record. Exit 8 alone therefore does not prove dispatch uncertainty in every case. Only an authorized, read-only check of the durable record and matching safe diagnostics can establish this narrower refusal; absent that evidence, retain unknown status. Do not edit the ledger or expose production logs/identifiers. Inspecting an empty chat alone does not prove non-delivery.
+
+A repeated key retains its terminal rejection; it is not a fresh attempt. A new key is appropriate only for a separately authorized new intent after established pre-dispatch failure or definitive refusal, never to bypass an unknown result. This documentation does not fix the classifier.
+
+### Recipient and message capabilities
+
+| Recipient from a personal account | Text | Flex |
+| --- | --- | --- |
+| Normal direct | Existing Letter Sealing preparation; explicit LINE `E2EE_RETRY_PLAIN` fallback remains | Talk transport path, per-payload acknowledgment; successful live rendering unverified |
+| Normal group | Group E2EE keys required; observed `NOT_FOUND` remains unresolved | Same Talk Flex limits; no proven live group success |
+| OpenChat | Experimental transport-encrypted path, not Letter Sealing | Blocked before dispatch: `flex_transport_unsupported` |
+| Official Account | Authenticated capability checks and per-message OA acknowledgment; one v0.7.9 API acceptance verified | One v0.7.8 attempt refused with `INCOMPATIBLE_APP_VERSION`; no successful acceptance/rendering evidence |
+
+All paths still require current scope and exact destination/content authorization. A group `NOT_FOUND` does not establish an OA recipient or justify clearing the data store, forcing key registration, re-pairing or arbitrary plaintext fallback. Read-only key lookup success alone does not prove decryption or a successful send.
+
 ## Text to Official Accounts
 
 Sending **from a personal account to a LINE Official Account** is supported only after authenticated capability checks: the exact recipient's Buddy record must have a known Official Account bot type with `businessAccount: true`, or strictly `LINE_AT`/`3` with `businessAccount: false`, and its E2EE negotiation must explicitly report `specVersion: -1` without a public key. The narrow `LINE_AT` exception follows [LINE's 2019 integration of LINE@ into Official Accounts](https://www.linecorp.com/en/pr/news/en/2019/2684); it does not extend to `LINE_AT_0`, unknown types or malformed business flags. The separate business flag's meaning is not assumed to describe verification or pricing. Display names, contact categories, missing keys, network errors and that version value alone cannot establish an Official Account. Incomplete or contradictory evidence fails closed.
 
-Official Account text is **transport-encrypted, not Letter Sealed**. Obtain explicit approval for the destination and exact text, explaining this limitation, then pass `--acknowledge-oa-transport` to `send`. REST and MCP `line_send_message` use the optional boolean `acknowledgeOaTransport: true`. The dashboard checks capability and asks for confirmation before creating the send intent. This acknowledgment applies only to that message; it creates no grant, persistent encryption preference, OA channel credential or LIFF permission. Normal recipients still use Letter Sealing even if the flag is supplied.
+Official Account text is **transport-encrypted, not Letter Sealed**. Obtain explicit approval for the destination and exact text, explaining this limitation, then pass `--acknowledge-oa-transport` to `send`. REST and MCP `line_send_message` use the optional boolean `acknowledgeOaTransport: true`. The dashboard checks capability and asks for confirmation before creating the send intent. This acknowledgment applies only to that message; it creates no grant, persistent encryption preference, OA channel credential or LIFF permission. The flag does not select the OA path for normal recipients; their existing E2EE behavior, including explicit LINE `E2EE_RETRY_PLAIN` handling, is unchanged.
 
 The acknowledgment is part of the idempotency fingerprint. Reusing a key with a different acknowledgment returns `idempotency_conflict`. A missing acknowledgment returns `oa_transport_acknowledgment_required` (CLI exit 6) before dispatch. After user approval, deliberately create a new intent/key; never automate this transition. Unknown delivery retains its original key and acknowledgment and is never automatically retried. LINE acceptance is not recipient receipt or a read confirmation.
 
 Capability checks have a 15-second transport deadline and are repeated for each new send; a dashboard preview is not authorization or cached evidence. Current send scope is checked at the send RPC boundary, after the SDK finishes persisting its request sequence. Concurrent dashboard submissions are blocked while capability lookup, confirmation or sending is pending. Ordinary and unknown recipients never take the new OA path. The existing explicit LINE `E2EE_RETRY_PLAIN` handling is unchanged; group `NOT_FOUND` is not an OA signal and does not justify weakening encryption or resetting keys.
 
-Validation uses the pinned SDK with synthetic keys and RPC responses. It covers OA acceptance, missing approval, normal-recipient encryption, malformed/timeout negotiation, missing group keys, permission revocation and unknown-delivery replay. It does not establish live OA delivery. No real messages or account key registrations were performed to validate this change.
+Validation uses the pinned SDK with synthetic keys and RPC responses. It covers OA acceptance, missing approval, normal-recipient encryption, malformed/timeout negotiation, missing group keys, permission revocation and unknown-delivery replay. Separately, on 2026-10-06 one explicitly authorized OA text send using the official Windows v0.7.9 bundle returned a LINE message ID and `accepted_by_line` with `protection: line_transport`. This establishes API acceptance for that test, not recipient delivery, reading, all OA recipients or Flex support. No key registration was needed.
 
 ## Deadlines and exits
 

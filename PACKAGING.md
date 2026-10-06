@@ -236,7 +236,7 @@ Start the **complete old bundle** with the recorded launch settings and original
 
 ## CLI archive
 
-`npm run package` produces `release/npm/line-bridge-0.6.1.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-0.6.1.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
+Replace `VERSION` below with the actual release version. `npm run package` produces `release/npm/line-bridge-VERSION.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-VERSION.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
 
 ## Verification
 

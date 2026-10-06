@@ -74,13 +74,16 @@ Before `send`, verify that the human user directly authorized the exact final te
 1. Resolve the destination to one exact permitted account ID and chat ID. Stop on ambiguity.
 2. Choose one 8-128 character ASCII idempotency key using only letters, digits, `.`, `_`, `:`, or `-`. Record it before the first attempt. Reuse it only for the identical account, chat, and text; never reuse it for changed content.
 3. Choose exactly one text source. Prefer `--text-file` for multiline or Unicode text and verify that its UTF-8 contents exactly match what the user approved.
-4. Dispatch once:
+4. For an Official Account, explain transport encryption without Letter Sealing and obtain per-message acknowledgment before adding `--acknowledge-oa-transport`. An OA name or missing key is not capability proof; the server performs authenticated checks. The flag creates no persistent grant or encryption preference. See [OA text](../../../CLI.md#text-to-official-accounts).
+5. Dispatch once:
 
 ```sh
 CLI_COMMAND send --profile PROFILE_NAME --account ACCOUNT_ID --chat CHAT_ID --key IDEMPOTENCY_KEY --text-file APPROVED_UTF8_FILE
 ```
 
 Do not automatically retry a failed or ambiguous send. In particular, exit code 8 or `delivery_unknown` means the outcome is unknown: inspect the chat if the current authorization permits a read, then report the uncertainty and wait for the user. Never change the idempotency key to bypass that state. A successful LINE acceptance is not proof of recipient delivery or reading.
+
+For v0.7.9, a Flex HTTP 502 explicit LINE refusal can still appear as exit 8 although its durable record is rejected. Do not infer safe retry from the CLI alone: use only authorized read-only evidence, preserve the key and report the limitation. Validated `send_preparation_failed` exits 6 before dispatch. A new intent after proven rejection needs fresh user approval; unknown delivery never permits automatic replacement keys. See [outcome evidence](../../../CLI.md#send-outcome-evidence-and-current-limitation).
 
 ## Handle exits and report accurately
 
