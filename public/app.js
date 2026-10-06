@@ -24,6 +24,7 @@ const short=value=>{
 let state,selectedAccount,selectedChat,chats=[],loginAccount,loginTimer,loginView,toastTimer,sendAttempt,chatFilter='all',chatSearch='',chatAiFilter='monitored';
 let startupChecked=false;
 const savingAutoMonitor=new Set();
+const savingChatMonitoring=new Set();
 let refreshRunning=false,reading=false,sending=false,chatListRefreshPending=false;
 let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
 let currentPage='dashboard',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
@@ -229,22 +230,45 @@ function flushDiscoveredChats(){
   // send intent, even while typing. Keep pending updates until requests finish.
   const filter=$('#chat-filter');
   for(const option of filter?.options??[])option.textContent=filterLabel(option.value);
-  const count=$('.chat-tools .badge');if(count)count.textContent=`AI · ${chats.filter(c=>c.enabled).length}`;
   renderChatList();chatListRefreshPending=false;
 }
 function filterLabel(kind){return `${kind==='all'?'全部':nice(kind)} (${chats.filter(c=>kind==='all'||c.kind===kind).length})`;}
 function aiFilterLabel(value){return `${value==='all'?'所有聊天室':value==='monitored'?'AI 監控':'非 AI 監控'} (${chats.filter(c=>value==='all'||!!c.enabled===(value==='monitored')).length})`;}
+function renderChatMonitoring(){
+  const chat=chats.find(c=>c.id===selectedChat),toggle=$('#toggle-chat-monitor'),status=$('#chat-monitor-status');
+  if(!chat||!toggle||!status)return;
+  status.textContent=chat.enabled?'AI監控中':'AI未監控';status.classList.toggle('on',!!chat.enabled);
+  toggle.setAttribute('aria-checked',String(!!chat.enabled));toggle.title=chat.enabled?'停用 AI 監控':'啟用 AI 監控';
+  toggle.disabled=savingChatMonitoring.has(`${selectedAccount}\n${chat.id}`);
+}
+async function saveChatMonitoring(accountId,chatId,enabled){
+  const key=`${accountId}\n${chatId}`;if(savingChatMonitoring.has(key))return;
+  savingChatMonitoring.add(key);
+  if(accountId===selectedAccount){renderChatList();renderChatMonitoring();}
+  try{
+    await api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}`,{method:'PATCH',body:JSON.stringify({enabled})});
+    if(accountId===selectedAccount){
+      const chat=chats.find(c=>c.id===chatId);if(chat)chat.enabled=enabled?1:0;
+      renderChatList();renderChatMonitoring();
+    }
+    toast(enabled?'已啟用 AI 監控':'已停用 AI 監控');await refresh();
+  }finally{
+    savingChatMonitoring.delete(key);
+    if(accountId===selectedAccount){renderChatList();renderChatMonitoring();}
+  }
+}
 function renderChatList(){
   const target=$('#chat-list'),a=state?.accounts.find(a=>a.id===selectedAccount);if(!target||!a)return;
   const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase();
   const terms=normalize(chatSearch).trim().split(/\s+/).filter(Boolean);
   const visibleChats=chats.filter(c=>(chatAiFilter==='all'||!!c.enabled===(chatAiFilter==='monitored'))&&(chatFilter==='all'||c.kind===chatFilter)&&terms.every(term=>normalize(chatName(c)+' '+c.id).includes(term)));
   for(const option of $('#chat-ai-filter')?.options??[])option.textContent=aiFilterLabel(option.value);
-  $('#chat-search-count').textContent=`${visibleChats.length===chats.length?'':`${visibleChats.length} / `}${chats.length} 個聊天室${chats.length&&!chats.some(c=>c.enabled)?' · 點選 AI 以開放':''}`;
-  target.innerHTML=visibleChats.length?visibleChats.map(c=>`<div class="chat-item ${selectedChat===c.id?'selected':''}" data-chat="${escape(c.id)}" role="button" tabindex="0">${avatar(chatName(c),c.id,'sm')}<div class="chat-item-main"><strong>${escape(chatName(c))}</strong><small>${escape(c.kind==='openchat'?'OpenChat · 實驗性':nice(c.kind))}</small></div><label class="ai-toggle" title="${c.enabled?'已開放給 AI':'開放給 AI'}"><input type="checkbox" data-designate="${escape(c.id)}" aria-label="開放給 AI：${escape(chatName(c))}" ${c.enabled?'checked':''}><span>AI</span></label></div>`).join(''):chats.length?'<div class="list-empty">沒有符合的聊天室<button class="link-btn" id="clear-chat-search">清除篩選</button></div>':`<div class="list-empty">尚無聊天室<button class="btn sm" data-act="discover" ${a.status!=='connected'?'disabled':''}>探索聊天室</button></div>`;
+  const count=$('.chat-tools .badge');if(count)count.textContent=`AI · ${chats.filter(c=>c.enabled).length}`;
+  $('#chat-search-count').textContent=`${visibleChats.length===chats.length?'':`${visibleChats.length} / `}${chats.length} 個聊天室${chats.length&&!chats.some(c=>c.enabled)?' · 點選「未監控」以啟用 AI 監控':''}`;
+  target.innerHTML=visibleChats.length?visibleChats.map(c=>`<div class="chat-item ${selectedChat===c.id?'selected':''}" data-chat="${escape(c.id)}" role="button" tabindex="0">${avatar(chatName(c),c.id,'sm')}<div class="chat-item-main"><strong>${escape(chatName(c))}</strong><small>${escape(c.kind==='openchat'?'OpenChat · 實驗性':nice(c.kind))}</small></div><label class="ai-toggle" title="${c.enabled?'停用 AI 監控':'啟用 AI 監控'}"><input type="checkbox" data-designate="${escape(c.id)}" aria-label="AI 監控：${escape(chatName(c))}" ${c.enabled?'checked':''} ${savingChatMonitoring.has(`${a.id}\n${c.id}`)?'disabled':''}><span>${c.enabled?'AI':'未監控'}</span></label></div>`).join(''):chats.length?'<div class="list-empty">沒有符合的聊天室<button class="link-btn" id="clear-chat-search">清除篩選</button></div>':`<div class="list-empty">尚無聊天室<button class="btn sm" data-act="discover" ${a.status!=='connected'?'disabled':''}>探索聊天室</button></div>`;
   $('#clear-chat-search')?.addEventListener('click',()=>{chatSearch='';chatFilter='all';chatAiFilter='all';$('#chat-search').value='';$('#chat-filter').value='all';$('#chat-ai-filter').value='all';renderChatList();$('#chat-search').focus();});
   target.querySelectorAll('[data-chat]').forEach(el=>{const select=()=>action(async()=>{if(reading||sending)return;selectedChat=el.dataset.chat;sendAttempt=null;renderChatList();$('#reader').innerHTML=readerLoading();await readMessages();});el.addEventListener('click',event=>{if(!event.target.closest('label'))select();});el.addEventListener('keydown',event=>{if(event.target===el&&(event.key==='Enter'||event.key===' ')){event.preventDefault();select();}});});
-  document.querySelectorAll('[data-designate]').forEach(el=>el.addEventListener('change',()=>action(async()=>{try{await api(`/accounts/${a.id}/chats/${encodeURIComponent(el.dataset.designate)}`,{method:'PATCH',body:JSON.stringify({enabled:el.checked})});const chat=chats.find(c=>c.id===el.dataset.designate);chat.enabled=el.checked?1:0;toast(el.checked?'已開放給 AI':'已關閉 AI 存取');renderAccountPane();if(selectedChat)await readMessages();await refresh();}catch(error){el.checked=!el.checked;throw error;}})));
+  target.querySelectorAll('[data-designate]').forEach(el=>el.addEventListener('change',()=>action(()=>saveChatMonitoring(a.id,el.dataset.designate,el.checked))));
 }
 // Stable avatar tones make long chat and account lists easier to scan.
 function avatar(name,id,size='',extra=''){
@@ -318,7 +342,9 @@ async function readMessages(){
     }).join('');
     data.messages.forEach(m=>m.id&&seenMessages.add(m.id));
     const demo=a.kind==='demo',seal=chat.kind==='openchat'?'OpenChat 使用 LINE 傳輸加密。':'支援時使用 Letter Sealing；僅在 LINE 要求時使用標準傳輸加密。';
-    $('#reader').innerHTML=`<div class="reader-head">${avatar(chatName(chat),chat.id)}<div class="reader-title"><strong>${escape(chatName(chat))}</strong><span class="reader-meta">${escape(chat.kind==='openchat'?'OpenChat · 實驗性':nice(chat.kind))} · ${chat.enabled?'<span class="on">AI 已開放</span>':'AI 未開放'}</span></div><div class="reader-actions"><button class="icon-btn" id="search-chat-messages" aria-label="搜尋封存" title="搜尋封存">${icon('search')}</button><button class="icon-btn" id="refresh-messages" aria-label="重新整理訊息" title="重新整理">${icon('refresh')}</button><button class="icon-btn" id="chat-info" aria-label="聊天室 ID" title="聊天室 ID" aria-controls="chat-info-panel" aria-expanded="${chatInfoOpen}">${icon('info')}</button></div></div><div class="reader-id" id="chat-info-panel" ${chatInfoOpen?'':'hidden'}><code id="chat-id-value">${escape(chatId)}</code><button class="icon-btn sm" data-copy="#chat-id-value" aria-label="複製聊天室 ID" title="複製">${icon('copy')}</button></div><div class="message-list${first?' enter':''}"><p class="coverage">${escape(coverage(data.coverage))}</p>${bubbles||'<p class="reader-empty">尚無文字訊息</p>'}</div><div id="send-feedback" class="note warn" role="status" hidden></div><form class="compose" id="send-form">${demo?'':`<span class="compose-lock" title="${escape(seal)}" aria-label="${escape(seal)}" role="img">${icon('lock')}</span>`}<textarea name="text" rows="1" maxlength="5000" required placeholder="${demo?'傳送到沙盒':'輸入訊息，將傳送到 LINE'}" aria-label="訊息內容"></textarea><button class="send-btn" type="submit" aria-label="${demo?'傳送到沙盒':'傳送到 LINE'}" title="傳送（Ctrl+Enter）">${icon('send')}</button></form>`;
+    $('#reader').innerHTML=`<div class="reader-head">${avatar(chatName(chat),chat.id)}<div class="reader-title"><strong>${escape(chatName(chat))}</strong><span class="reader-meta">${escape(chat.kind==='openchat'?'OpenChat · 實驗性':nice(chat.kind))} · <span id="chat-monitor-status" class="${chat.enabled?'on':''}">${chat.enabled?'AI監控中':'AI未監控'}</span></span></div><div class="reader-actions"><button type="button" class="switch" id="toggle-chat-monitor" role="switch" aria-label="AI 監控" aria-checked="${!!chat.enabled}"></button><button class="icon-btn" id="search-chat-messages" aria-label="搜尋封存" title="搜尋封存">${icon('search')}</button><button class="icon-btn" id="refresh-messages" aria-label="重新整理訊息" title="重新整理">${icon('refresh')}</button><button class="icon-btn" id="chat-info" aria-label="聊天室 ID" title="聊天室 ID" aria-controls="chat-info-panel" aria-expanded="${chatInfoOpen}">${icon('info')}</button></div></div><div class="reader-id" id="chat-info-panel" ${chatInfoOpen?'':'hidden'}><code id="chat-id-value">${escape(chatId)}</code><button class="icon-btn sm" data-copy="#chat-id-value" aria-label="複製聊天室 ID" title="複製">${icon('copy')}</button></div><div class="message-list${first?' enter':''}"><p class="coverage">${escape(coverage(data.coverage))}</p>${bubbles||'<p class="reader-empty">尚無文字訊息</p>'}</div><div id="send-feedback" class="note warn" role="status" hidden></div><form class="compose" id="send-form">${demo?'':`<span class="compose-lock" title="${escape(seal)}" aria-label="${escape(seal)}" role="img">${icon('lock')}</span>`}<textarea name="text" rows="1" maxlength="5000" required placeholder="${demo?'傳送到沙盒':'輸入訊息，將傳送到 LINE'}" aria-label="訊息內容"></textarea><button class="send-btn" type="submit" aria-label="${demo?'傳送到沙盒':'傳送到 LINE'}" title="傳送（Ctrl+Enter）">${icon('send')}</button></form>`;
+    renderChatMonitoring();
+    $('#toggle-chat-monitor').addEventListener('click',()=>action(()=>{const current=chats.find(c=>c.id===chatId);if(current)return saveChatMonitoring(accountId,chatId,!current.enabled);}));
     $('#search-chat-messages').addEventListener('click',()=>action(async()=>{switchTab('archive');await archive.open(accountId,chatId);}));
     $('#refresh-messages').addEventListener('click',()=>action(readMessages));
     $('#chat-info').addEventListener('click',()=>{chatInfoOpen=!chatInfoOpen;$('#chat-info-panel').hidden=!chatInfoOpen;$('#chat-info').setAttribute('aria-expanded',String(chatInfoOpen));});

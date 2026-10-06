@@ -24,12 +24,13 @@ function fixture(){
     if(!nodes.has(selector)){
       let html='';
       nodes.set(selector,{
-        textContent:'',value:'',focused:false,writes:0,listeners:{},
+        textContent:'',value:'',focused:false,writes:0,listeners:{},attributes:{},
         classList:{add(){},remove(){},toggle(){}},
         get innerHTML(){return html;},set innerHTML(value){html=value;this.writes++;},
         matches(value){return value===':focus'&&this.focused;},
         querySelectorAll(){return [];},
         addEventListener(type,handler){this.listeners[type]=handler;},
+        setAttribute(name,value){this.attributes[name]=value;},
         focus(){this.focused=true;}
       });
     }
@@ -44,7 +45,7 @@ function fixture(){
   const context={
     state,selectedAccount:account.id,selectedChat:oldChat.id,chats:[oldChat],
     currentPage:'accounts',chatFilter:'all',chatAiFilter:'monitored',chatSearch:'',refreshRunning:false,reading:false,sending:false,startupChecked:false,
-    chatListRefreshPending:false,observedDiscoveries:new Map(),observedSequences:new Map([[account.id,1]]),
+    chatListRefreshPending:false,observedDiscoveries:new Map(),observedSequences:new Map([[account.id,1]]),savingChatMonitoring:new Set(),
     sendAttempt:{key:'synthetic-intent'},$:node,
     document:{body:{dataset:{}},querySelectorAll(){return [];},querySelector(){return null;}},
     api:async(path,options)=>{requests.push({path,options});if(path==='/state')return state;if(path===`/accounts/${account.id}/chats`)return next;throw new Error('Unexpected request: '+path);},
@@ -151,6 +152,59 @@ test('clearing filters exposes unchecked chats and discovery refreshes monitorin
   assert.equal(f.context.chatAiFilter,'all');assert.equal(f.context.chatFilter,'all');
   assert.match(f.node('#chat-list').innerHTML,/Unchecked room/);
   assertReaderUnchanged(f);
+});
+
+test('chat monitoring saves once, updates controls and filters, and preserves the open conversation',async()=>{
+  const f=fixture(),toggle=f.node('#toggle-chat-monitor'),draft=f.node('#send-form textarea');
+  let finish;
+  f.context.api=(path,options)=>{f.requests.push({path,options});return new Promise(resolve=>{finish=resolve;});};
+  f.context.refresh=async()=>{};f.context.toast=()=>{};
+  const saving=f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,false);
+  assert.equal(toggle.disabled,true);
+  assert.match(f.node('#chat-list').innerHTML,/data-designate="synthetic-old"[^>]*disabled/);
+  await f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,false);
+  assert.equal(f.requests.length,1,'Repeated clicks cannot race an in-flight save');
+  assert.equal(f.requests[0].path,`/accounts/${f.account.id}/chats/synthetic-old`);
+  assert.equal(f.requests[0].options.method,'PATCH');
+  assert.deepEqual(JSON.parse(f.requests[0].options.body),{enabled:false});
+  finish({ok:true});await saving;
+  assert.equal(toggle.disabled,false);assert.equal(toggle.attributes['aria-checked'],'false');
+  assert.equal(f.node('#chat-monitor-status').textContent,'AI未監控');
+  assert.doesNotMatch(f.node('#chat-list').innerHTML,/data-chat="synthetic-old"/,'The monitored filter removes the room');
+  assert.equal(f.node('.chat-tools .badge').textContent,'AI · 0');
+  assert.equal(f.node('#reader').writes,1);assert.equal(f.node('#send-form textarea'),draft);
+  assert.equal(draft.value,'Unsent synthetic draft');assert.equal(f.context.sendAttempt.key,'synthetic-intent');
+  f.context.chatAiFilter='all';f.context.renderChatList();
+  assert.match(f.node('#chat-list').innerHTML,/<span>未監控<\/span>/);
+  f.context.api=async()=>({ok:true});
+  await f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,true);
+  assert.equal(toggle.attributes['aria-checked'],'true');assert.equal(f.node('#chat-monitor-status').textContent,'AI監控中');
+  assert.match(f.node('#chat-list').innerHTML,/<span>AI<\/span>/);
+  assert.equal(f.node('.chat-tools .badge').textContent,'AI · 1');
+});
+
+test('a failed monitoring save restores usable controls and the persisted state',async()=>{
+  const f=fixture();f.context.chats[0].enabled=0;f.context.chatAiFilter='all';
+  f.context.api=async()=>{throw new Error('Save failed');};
+  await assert.rejects(f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,true),/Save failed/);
+  assert.equal(f.node('#toggle-chat-monitor').disabled,false);
+  assert.equal(f.node('#toggle-chat-monitor').attributes['aria-checked'],'false');
+  assert.equal(f.node('#chat-monitor-status').textContent,'AI未監控');
+  assert.match(f.node('#chat-list').innerHTML,/<span>未監控<\/span>/);
+  assert.doesNotMatch(f.node('#chat-list').innerHTML,/data-designate="synthetic-old"[^>]*disabled/);
+  assertReaderUnchanged(f);
+});
+
+test('a monitoring save finishing after an account switch leaves the new account untouched',async()=>{
+  const f=fixture();let finish;
+  f.context.api=()=>new Promise(resolve=>{finish=resolve;});f.context.refresh=async()=>{};f.context.toast=()=>{};
+  const saving=f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,false);
+  f.context.selectedAccount='another-account';
+  f.context.chats=[{id:f.context.selectedChat,name:'Another account room',enabled:1}];
+  f.node('#chat-monitor-status').textContent='Another account status';
+  finish({ok:true});await saving;
+  assert.equal(f.context.chats[0].enabled,1);assert.equal(f.node('#chat-monitor-status').textContent,'Another account status');
+  assert.equal(f.context.savingChatMonitoring.size,0);assert.equal(f.node('#reader').writes,1);
 });
 
 test('first successful startup opens setup once for an empty account list; saved accounts land on the dashboard',()=>{
