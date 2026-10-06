@@ -11,6 +11,7 @@ import { openapi } from './openapi.mjs';
 import {Cloudflare,CALLBACK} from './cloudflare.mjs';
 import {VERSION} from './version.mjs';
 import {LocalSetup} from './local-setup.mjs';
+import {ChatAccess} from './chat-access.mjs';
 
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 function freshQuery(req){if(req.query.fresh===undefined)return false;if(!['true','false'].includes(req.query.fresh))fail(400,'invalid_input','fresh must be true or false.');return req.query.fresh==='true';}
@@ -51,6 +52,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
   }));
   const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
+  const chatAccess=new ChatAccess(localSetup,{authentication});
   admin.get('/admin/discovery',(req,res)=>res.json({version:VERSION,instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},gatewayEnabled:hub.store.setting('aiEnabled',true),profiles:localSetup.discover()}));
   admin.get('/admin/state',asyncRoute(async(req,res)=>{
     const startedAt=Date.now();
@@ -81,7 +83,11 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.get('/admin/accounts/:id/chats',(req,res)=>res.json(hub.chats(adminActor,req.params.id)));
   admin.post('/admin/accounts/:id/discover',asyncRoute(async(req,res)=>res.json(await hub.discover(req.params.id))));
   admin.post('/admin/accounts/:id/chats',(req,res)=>res.status(201).json(hub.addChat(req.params.id,req.body)));
-  admin.patch('/admin/accounts/:id/chats/:chatId',(req,res)=>{hub.designate(req.params.id,req.params.chatId,req.body.enabled);res.json({ok:true});});
+  admin.get('/admin/accounts/:id/chats/:chatId/access',(req,res)=>res.json(chatAccess.preview(req.params.id,req.params.chatId)));
+  admin.patch('/admin/accounts/:id/chats/:chatId',asyncRoute(async(req,res)=>{
+    const controller=new AbortController(),cancel=()=>{if(!res.writableEnded)controller.abort();};res.once('close',cancel);
+    try{res.json(await chatAccess.apply(req.params.id,req.params.chatId,req.body,{signal:controller.signal}));}finally{res.off('close',cancel);}
+  }));
   admin.get('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(adminActor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor,freshQuery(req)))));
   admin.post('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(adminActor,req.params.id,req.params.chatId,req.body.text,req.body.idempotencyKey))));
   admin.post('/admin/tokens',(req,res)=>res.status(201).json(hub.createToken(req.body)));

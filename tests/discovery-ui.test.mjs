@@ -58,6 +58,12 @@ function fixture(){
     nice:value=>({group:'群組',direct:'一對一',openchat:'OpenChat'}[value]??value),
     chatName:chat=>chat.name
   };
+  // This DOM harness mocks the permission controller boundary. Its real
+  // confirmation, deadlines and HTTP reconciliation are tested in chat-access.
+  context.toggleChatAccess=async({accountId,chatId,enabled,onState})=>{
+    await context.api(`/accounts/${accountId}/chats/${chatId}`,{method:'PATCH',body:JSON.stringify({enabled})});
+    const saved={chat:{enabled}};onState(saved);return {saved:true,state:saved};
+  };
   node('#reader').innerHTML='Existing conversation';
   node('#send-form textarea').value='Unsent synthetic draft';
   node('#chat-filter').options=['all','group','direct','openchat'].map(value=>({value,textContent:''}));

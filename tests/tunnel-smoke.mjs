@@ -1,5 +1,6 @@
 // Explicit live Cloudflare smoke check. Uses a disposable, synthetic-only database.
 import assert from 'node:assert/strict';
+import {seedSyntheticMonitor} from './synthetic-monitor-fixture.mjs';
 import {spawn} from 'node:child_process';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -39,7 +40,7 @@ try {
   const page=await fetch(admin),cookie=page.headers.get('set-cookie').split(';')[0];
   call=async(path,method='GET',value)=>{const res=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});const result=await res.json();assert.equal(res.ok,true,JSON.stringify(result));return result;};
   const account=await call('/accounts','POST',{label:'synthetic tunnel check',kind:'demo'});
-  await call(`/accounts/${account.id}/chats/demo-group`,'PATCH',{enabled:true});await call(`/accounts/${account.id}/monitor`,'POST',{enabled:true});
+  seedSyntheticMonitor(data,account.id);await call(`/accounts/${account.id}/monitor`,'POST',{enabled:true});
   await call(`/accounts/${account.id}/chats/demo-group/messages`,'POST',{text:'tunnel multilingual 會議 مرحبا 🦜',idempotencyKey:'tunnel-synthetic-0001'});
   const token=await call('/tokens','POST',{name:'synthetic reader',days:1,grants:[{accountId:account.id,read:true,send:false}]});
   await call('/tunnel','PUT',{provider:'cloudflare_quick'});
