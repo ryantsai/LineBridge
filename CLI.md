@@ -33,7 +33,9 @@ Limits and gaps:
   100 upstream messages for the envelope and use SDK E2EE decryption when needed;
   missing old envelopes return `media_history_unavailable`. No new keys are
   registered; attempted missing-key registration returns `media_key_unavailable`.
-  Credentials/chunks are never included in public media metadata.
+  The SDK's media HMAC is verified before decryption; corruption returns
+  `media_integrity_failed` without exposing an image. Credentials/chunks are
+  never included in public media metadata.
 - Basic sticker IDs resolve to a fixed LINE CDN static PNG preview, without
   sending account credentials. Animation/sound are not interpreted. Custom text
   or option-bearing stickers fail with `sticker_unsupported` instead of presenting
@@ -68,7 +70,8 @@ Flex requires explicit user authorization for destination/content, send scope an
 a stable idempotency key. **Flex is transport-encrypted, not Letter Sealed**;
 `acknowledgeTransportSecurity:true` is mandatory per payload. Existing text
 encryption and account settings are unchanged. Personal Talk direct/group chats
-use the pinned SDK wire contract; live acceptance/rendering remain unverified.
+use the pinned SDK wire contract with its automatic E2EE retry disabled;
+live acceptance/rendering remain unverified.
 OpenChat fails with `flex_transport_unsupported` before any send. No LIFF fallback,
 automatic consent, official-account creation or grant expansion occurs.
 

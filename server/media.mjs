@@ -1,8 +1,19 @@
-import {createHash} from 'node:crypto';
+import {createHash,createHmac,timingSafeEqual} from 'node:crypto';
 import {fail} from './errors.mjs';
 
 export const MEDIA_MAX_BYTES=1024*1024;
 export const MEDIA_TIMEOUT_MS=25000;
+// Pinned SDK encryptByKeyMaterial appends HMAC-SHA256(ciphertext, macKey),
+// but its decrypt helper never verifies it. Authenticate before decrypting.
+export async function decryptAuthenticatedMedia(e2ee,input,keyMaterial){
+  const bytes=Buffer.from(input);
+  const key=typeof keyMaterial==='string'?Buffer.from(keyMaterial,'base64'):Buffer.from(keyMaterial??[]);
+  if(bytes.length<=32||bytes.length>MEDIA_MAX_BYTES||key.length!==32)fail(502,'media_integrity_failed','Encrypted media integrity could not be verified.');
+  const keys=await e2ee.deriveKeyMaterial(key),ciphertext=bytes.subarray(0,-32),mac=bytes.subarray(-32);
+  const expected=createHmac('sha256',keys.macKey).update(ciphertext).digest();
+  if(!timingSafeEqual(mac,expected))fail(502,'media_integrity_failed','Encrypted media integrity could not be verified.');
+  return Buffer.from(await e2ee.___decryptAESCTR(keys.encKey,keys.nonce,ciphertext));
+}
 export function mediaDescriptor(raw){
   const type=String(raw.contentType),m=raw.contentMetadata??{};
   if(type==='IMAGE'||type==='1')return {kind:'image',encrypted:!!raw.chunks?.length};

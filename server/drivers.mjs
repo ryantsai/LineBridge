@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { fail, SendRejectedError } from './errors.mjs';
 import {AliasResolver,contactName} from './aliases.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
-import {mediaDescriptor,imageResult,boundedResponse,MEDIA_TIMEOUT_MS} from './media.mjs';
+import {mediaDescriptor,imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_TIMEOUT_MS} from './media.mjs';
 import {assertFlexTransport,validateFlex} from './flex.mjs';
 
 export function discoveryErrorCode(error) {
@@ -164,6 +164,7 @@ export class LineDriver {
       // keys or mutate the shared client's encryption behavior.
       const readE2ee=Object.create(this.client.e2ee);
       readE2ee.tryRegisterE2EEGroupKey=readE2ee.registerE2EEKeyPair=()=>fail(409,'media_key_unavailable','An existing decryption key is required; media reads never register keys.');
+      readE2ee.decryptByKeyMaterial=(bytes,key)=>decryptAuthenticatedMedia(readE2ee,bytes,key);
       const obs=new this.client.obs.constructor({authToken:this.client.authToken,request:this.client.request,e2ee:readE2ee,fetch:async(info,init)=>{
         const req=new Request(info,init),url=new URL(req.url);
         if(url.origin!=='https://obs.line-apps.com'||!/^\/r\/(?:talk|g2)\/[A-Za-z0-9_./-]+$/.test(url.pathname)||url.search||url.hash||url.username||url.password||req.method!=='GET')fail(415,'media_unsupported','Unsupported media resource.');
@@ -192,7 +193,8 @@ export class LineDriver {
     try{
       // Same Talk wire contract as pinned SDK LineClient.sendFlex. Flex is
       // natively transport-only; never change account or text E2EE settings.
-      message=await this.client.talk.sendMessage({to:chat.id,contentType:'FLEX',contentMetadata:{ALTTEXT:payload.altText,FLEXCONTAINER:JSON.stringify(payload.contents)}});
+      // Explicit false also disables the SDK's automatic E2EE retry branch.
+      message=await this.client.talk.sendMessage({to:chat.id,e2ee:false,contentType:'FLEX',contentMetadata:{ALTTEXT:payload.altText,FLEXCONTAINER:JSON.stringify(payload.contents)}});
     }catch(error){const code=discoveryErrorCode(error);if(error?.name==='RequestError'&&code!=='protocol_error'&&code!=='UNKNOWN')throw new SendRejectedError(502,'line_send_rejected',`LINE rejected Flex (${code}). No fallback was attempted.`);throw error;}
     if(!message?.id)fail(502,'send_unconfirmed','LINE did not return a message ID. Delivery is unknown; inspect the chat before sending again.');
     return {messageId:String(message.id),timestamp:normalizeMessage(message).timestamp,delivery:'accepted_by_line',protection:'line_transport',notice:'Flex is not Letter Sealed. Acceptance does not prove client rendering or recipient interaction.'};

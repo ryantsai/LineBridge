@@ -7,6 +7,7 @@ const errors = {
   media_too_large:'Image exceeds the 1 MiB limit.', media_unavailable:'LINE media is unavailable, expired, or access was rejected.',
   media_history_unavailable:'Personal image is outside the latest 100 upstream messages.', invalid_message_id:'Invalid archived message ID.',
   media_key_unavailable:'Existing decryption keys are unavailable; no key registration was attempted.',
+  media_integrity_failed:'Encrypted media integrity verification failed; no image was returned.',
   unauthorized:'A scoped Bearer token is required or invalid.', invalid_token:'The token has expired or been revoked.',
   scope_denied:'The token lacks the required account permission.', chat_not_designated:'The chat is not designated for this client.',
   cloudflare_access_required:'Cloudflare Access authentication is also required.', invalid_access_assertion:'Cloudflare Access authentication failed.',

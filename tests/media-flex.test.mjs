@@ -10,7 +10,8 @@ import {Store} from '../server/store.mjs';
 import {Vault} from '../server/vault.mjs';
 import {Hub,localActor} from '../server/hub.mjs';
 import {LineDriver,normalizeMessage} from '../server/drivers.mjs';
-import {imageResult,boundedResponse,MEDIA_MAX_BYTES} from '../server/media.mjs';
+import {imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_MAX_BYTES} from '../server/media.mjs';
+import {InternalError} from '../node_modules/lineclientbot/dist/esm/base/core/utils/error.js';
 import {validateFlex} from '../server/flex.mjs';
 import {runCli} from '../client/cli.mjs';
 import {createApps} from '../server/app.mjs';
@@ -80,6 +81,21 @@ test('Talk Flex serializes the pinned SDK format without E2EE changes or fallbac
   assert.equal(result.protection,'line_transport');assert.equal(options.contentType,'FLEX');assert.deepEqual(JSON.parse(options.contentMetadata.FLEXCONTAINER),payload().contents);
   await assert.rejects(driver.sendFlex({id:'m-synthetic',kind:'openchat'},payload()),{code:'flex_transport_unsupported'});
 });
+test('actual pinned Talk SDK does not automatically retry Flex on an E2EE error',async t=>{
+  const driver=new LineDriver({device:'IOSIPAD'},{},{qr(){},pin(){},fault(){}});t.after(()=>driver.stop());let calls=0;
+  driver.client.getReqseq=async()=>1;
+  driver.client.request.request=async()=>{calls++;throw new InternalError('RequestError','synthetic rejection',{code:'E2EE_RETRY_ENCRYPT'});};
+  await assert.rejects(driver.sendFlex({id:'u-synthetic',kind:'direct'},payload()),{code:'line_send_rejected'});assert.equal(calls,1);
+});
+test('SDK-produced encrypted media authenticates before decryption and rejects corrupted ciphertext/MAC',async t=>{
+  const driver=new LineDriver({device:'IOSIPAD'},{},{qr(){},pin(){},fault(){}});t.after(()=>driver.stop());
+  const e2ee=driver.client.e2ee,{keyMaterial,encryptedData}=await e2ee.encryptByKeyMaterial(png,Buffer.alloc(32,7));
+  const decrypt=e2ee.___decryptAESCTR.bind(e2ee);let calls=0;e2ee.___decryptAESCTR=async(...args)=>{calls++;return decrypt(...args);};
+  assert.deepEqual(await decryptAuthenticatedMedia(e2ee,encryptedData,keyMaterial),png);assert.equal(calls,1);
+  for(const offset of [0,encryptedData.length-1]){const bad=Buffer.from(encryptedData);bad[offset]^=1;await assert.rejects(decryptAuthenticatedMedia(e2ee,bad,keyMaterial),{code:'media_integrity_failed'});}
+  await assert.rejects(decryptAuthenticatedMedia(e2ee,Buffer.alloc(32),keyMaterial),{code:'media_integrity_failed'});
+  await assert.rejects(decryptAuthenticatedMedia(e2ee,encryptedData,'invalid-key'),{code:'media_integrity_failed'});assert.equal(calls,1);
+});
 test('SDK OBS media path uses authenticated bounded requests without redirects and rejects custom stickers',async t=>{
   const driver=new LineDriver({device:'IOSIPAD'},{},{qr(){},pin(){},fault(){}});driver.client.authToken='synthetic-only';
   const original=globalThis.fetch;const calls=[];t.after(()=>{globalThis.fetch=original;driver.stop();});
@@ -92,15 +108,16 @@ test('SDK OBS media path uses authenticated bounded requests without redirects a
 test('personal image re-fetches its scoped envelope and uses SDK E2EE with validated locator; never plaintext fallback',async t=>{
   const driver=new LineDriver({device:'IOSIPAD'},{},{qr(){},pin(){},fault(){}});driver.client.authToken='synthetic';
   const raw={id:'123',to:'u-synthetic',from:'u-other',contentType:'IMAGE',chunks:['synthetic-envelope'],contentMetadata:{OID:'object-123',SID:'emi'}};
-  let envelope,decoded=false;driver.client.thrift.rename_thrift=(_,item)=>item;
+  let envelope;driver.client.thrift.rename_thrift=(_,item)=>item;
   driver.client.request.request=async(fields,method)=>{assert.equal(fields[0][2],'u-synthetic');assert.equal(fields[1][2],100);assert.equal(method,'getRecentMessagesV2');return [raw];};
   driver.client.request.getHeader=()=>({'x-line-access':'synthetic'});
-  driver.client.e2ee.decryptE2EEDataMessage=async message=>{envelope=message;return {keyMaterial:'synthetic-key',fileName:'../../unsafe.png'};};
-  driver.client.e2ee.decryptByKeyMaterial=async(bytes,key)=>{assert.equal(key,'synthetic-key');decoded=true;return png;};
+  const {keyMaterial,encryptedData}=await driver.client.e2ee.encryptByKeyMaterial(png,Buffer.alloc(32,9));
+  driver.client.e2ee.decryptE2EEDataMessage=async message=>{envelope=message;return {keyMaterial,fileName:'../../unsafe.png'};};
+  driver.client.e2ee.decryptByKeyMaterial=()=>assert.fail('Unauthenticated SDK decrypt helper must not be used');
   const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original;driver.stop();});let calls=0;
-  globalThis.fetch=async request=>{calls++;const req=new Request(request);assert.equal(req.url,'https://obs.line-apps.com/r/talk/emi/object-123');assert.equal(req.redirect,'error');return new Response('synthetic-cipher');};
+  globalThis.fetch=async request=>{calls++;const req=new Request(request);assert.equal(req.url,'https://obs.line-apps.com/r/talk/emi/object-123');assert.equal(req.redirect,'error');return new Response(encryptedData);};
   const result=await driver.media({id:'u-synthetic',kind:'direct'},{id:'123',media:{kind:'image',encrypted:true}});
-  assert.equal(result.mimeType,'image/png');assert.equal(envelope,raw);assert.ok(decoded);assert.equal(calls,1);
+  assert.equal(result.mimeType,'image/png');assert.equal(envelope,raw);assert.equal(result.data,png.toString('base64'));assert.equal(calls,1);
   driver.client.e2ee.decryptE2EEDataMessage=async()=>{throw new Error('synthetic-decrypt-failure');};
   await assert.rejects(driver.media({id:'u-synthetic',kind:'direct'},{id:'123',media:{kind:'image'}}));assert.equal(calls,1);
   driver.client.e2ee.tryRegisterE2EEGroupKey=()=>assert.fail('Must not register group keys');
