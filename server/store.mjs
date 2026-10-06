@@ -18,6 +18,8 @@ export class Store {
       CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(terms,content='',contentless_delete=1,detail=none,tokenize='ascii');
       CREATE TRIGGER IF NOT EXISTS messages_search_delete AFTER DELETE ON messages BEGIN DELETE FROM message_search WHERE rowid=old.seq; END;`);
     if(!this.db.prepare('PRAGMA table_info(audit)').all().some(column=>column.name==='details'))this.db.exec('ALTER TABLE audit ADD COLUMN details TEXT');
+    if(!this.db.prepare('PRAGMA table_info(messages)').all().some(column=>column.name==='message_time'))this.db.exec('ALTER TABLE messages ADD COLUMN message_time INTEGER');
+    this.db.exec('CREATE INDEX IF NOT EXISTS messages_time ON messages(account_id,message_time,seq)');
     // A process crash after dispatch leaves an unknown outcome; never resend it automatically.
     this.db.prepare("UPDATE sends SET state='unknown' WHERE state='pending'").run();
   }

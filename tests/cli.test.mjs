@@ -16,6 +16,17 @@ async function cli(args,{input='',env={},fetchImpl=async()=>new Response('{}'),s
   const code=await runCli(args,{env:{LINE_BRIDGE_TOKEN:token,...env},stdin:Readable.from([Buffer.from(input)]),stdout:{write:s=>{stdout+=s;}},stderr:{write:s=>{stderr+=s;}},fetchImpl,store});
   return {code,stdout,stderr,json:JSON.parse(stdout)};
 }
+test('search time flags preserve explicit offsets across pages and reject invalid ranges before I/O',async()=>{
+  const calls=[],fetchImpl=async(url,options)=>{calls.push(JSON.parse(options.body));return new Response('{"results":[],"hasMore":true,"nextBefore":42}');};
+  const bounds=['--start-time','2026-10-06T08:00:00+08:00','--end-time','2026-10-07T00:00:00Z'];
+  for(const flags of [bounds,[...bounds,'--before','42'],bounds.slice(0,2),bounds.slice(2)])assert.equal((await cli(['search','--query','q',...flags],{fetchImpl})).code,0);
+  assert.equal(calls[0].startTime,'2026-10-06T08:00:00+08:00');assert.equal(calls[1].before,42);assert.equal(calls[1].endTime,calls[0].endTime);
+  assert.equal(calls[2].endTime,undefined);assert.equal(calls[3].startTime,undefined);
+  for(const flags of [['--start-time','2026-10-06'],['--end-time','2026-10-06T00:00:00'],['--start-time','2026-02-30T00:00:00Z'],['--start-time','2026-10-07T00:00:00Z','--end-time','2026-10-06T00:00:00Z'],['--start-time','2026-10-06T00:00:00Z','--end-time','2026-10-06T08:00:00+08:00']]){
+    assert.equal((await cli(['search','--query','q',...flags],{fetchImpl:()=>assert.fail('No invalid request'),store:{get:()=>assert.fail('No credential access')}})).code,2);
+  }
+  const help=await cli(['search','--help']);assert.match(help.stderr,/--start-time/);assert.match(help.stderr,/start inclusive, end exclusive/);
+});
 test('data help stays parseable and malformed options never echo input or touch credentials/network',async()=>{
   const help=await cli(['read','--help']);assert.equal(help.code,0);assert.ok(help.json.commands.includes('send'));assert.match(help.stderr,/--cursor/);
   for(const args of [

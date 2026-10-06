@@ -7,7 +7,7 @@ import {join,resolve,sep} from 'node:path';
 import {Store} from '../server/store.mjs';
 import {Vault} from '../server/vault.mjs';
 import {Hub,adminActor} from '../server/hub.mjs';
-import {initializeSearch} from '../server/search.mjs';
+import {initializeSearch,searchInput} from '../server/search.mjs';
 
 async function setup(t,path=':memory:'){
   const store=new Store(path),vault=new Vault(randomBytes(32),'test'),hub=new Hub(store,vault);
@@ -89,4 +89,75 @@ test('the SQLite database, WAL and contentless index contain no message plaintex
   assert.equal(hub.search(adminActor,{query:'UniquePlaintext'}).results.length,1);
   assert.equal(store.db.prepare('SELECT terms FROM message_search').get().terms,null);
   for(const suffix of ['', '-wal'])assert.equal(readFileSync(path+suffix).includes(Buffer.from(text)),false);
+});
+
+test('time ranges use message instants, inclusive start/exclusive end, and preserve archive ordering',async t=>{
+  const {hub,store,id}=await setup(t);
+  const dates=['2026-10-05T23:59:59.999Z','2026-10-06T00:00:00Z','2026-10-06T08:30:00+08:00','2026-10-06T00:59:59.999Z','2026-10-06T01:00:00Z',undefined,'invalid'];
+  dates.forEach((timestamp,i)=>hub.capture(id,'demo-group',{id:`time-${i}`,text:'range fixture',timestamp}));
+  const ids=input=>hub.search(adminActor,{query:'range fixture',...input}).results.map(r=>r.message.id);
+  const range={startTime:'2026-10-06T08:00:00+08:00',endTime:'2026-10-05T21:00:00-04:00'};
+  assert.deepEqual(ids(range),['time-3','time-2','time-1']);
+  assert.deepEqual(ids({startTime:range.startTime}),['time-4','time-3','time-2','time-1']);
+  assert.deepEqual(ids({endTime:range.endTime}),['time-3','time-2','time-1','time-0']);
+  assert.equal(ids({}).length,7);
+  const first=hub.search(adminActor,{query:'range fixture',...range,limit:1});
+  const second=hub.search(adminActor,{query:'range fixture',...range,limit:2,before:first.nextBefore});
+  assert.equal(first.hasMore,true);assert.equal(second.hasMore,false);assert.equal(second.nextBefore,null);
+  assert.deepEqual([...first.results,...second.results].map(r=>r.message.id),ids(range));
+  // Received-at is deliberately outside the requested range, and is not the filter.
+  store.db.prepare("UPDATE messages SET at='2000-01-01T00:00:00Z'").run();assert.equal(ids(range).length,3);
+});
+
+test('time filters precede the bounded candidate page and preserve empty-page continuation',async t=>{
+  const {hub,id}=await setup(t);let n=0;
+  const add=(text,timestamp)=>hub.capture(id,'demo-group',{id:`bounded-${n++}`,text,timestamp});
+  add('abcdef','2026-10-06T00:00:00Z');
+  for(let i=0;i<502;i++)add('abc bcd cde def','2026-10-06T00:00:00Z');
+  for(let i=0;i<510;i++)add('abcdef','2026-10-07T00:00:00Z');
+  const input={query:'abcdef',startTime:'2026-10-06T00:00:00Z',endTime:'2026-10-07T00:00:00Z',limit:1};
+  const first=hub.search(adminActor,input);assert.equal(first.scanned,500);assert.equal(first.results.length,0);assert.equal(first.hasMore,true);
+  const second=hub.search(adminActor,{...input,before:first.nextBefore});assert.equal(second.results.length,1);assert.equal(second.scanned,3);assert.equal(second.hasMore,false);
+  assert.ok(second.results[0].sequence<first.nextBefore);
+});
+
+test('time range validation rejects ambiguous, impossible, reversed and equal bounds',()=>{
+  for(const value of ['',null,0,'2026-10-06','2026-10-06T00:00:00','2026-02-29T00:00:00Z','2026-04-31T00:00:00Z','2026-10-06T24:00:00Z','2026-10-06T00:00:60Z','2026-10-06T00:00:00.0001Z','2026-10-06T00:00:00+14:01','2026-10-06T00:00:00-00:00','0000-01-01T00:00:00Z']){
+    for(const side of ['startTime','endTime'])assert.equal(searchInput.safeParse({query:'x',[side]:value}).success,false,String(value));
+  }
+  for(const endTime of ['2026-10-05T23:59:59Z','2026-10-06T08:00:00+08:00'])assert.equal(searchInput.safeParse({query:'x',startTime:'2026-10-06T00:00:00Z',endTime}).success,false);
+  for(const value of ['2024-02-29T00:00:00.001Z','1970-01-01T00:00:00Z','2026-10-06T00:00:00-03:30'])assert.equal(searchInput.safeParse({query:'x',startTime:value}).success,true);
+});
+
+test('time bounds retain account/chat permissions and legacy timestamp backfill is local and durable',async t=>{
+  const {hub,store,vault,id}=await setup(t),time='2026-10-06T00:00:00Z';
+  for(const chat of ['demo-group','demo-openchat']){hub.designate(id,chat,true);hub.capture(id,chat,{id:chat,text:'scope range',timestamp:time});}
+  const reader=hub.createToken({name:'Time reader',grants:[{accountId:id,read:true,send:false,chatIds:['demo-group']}]}),actor=hub.authenticate(reader.token);
+  const input={query:'scope range',startTime:time};
+  assert.equal(hub.search(actor,input).results.length,1);
+  assert.throws(()=>hub.search(actor,{...input,accountId:id,chatId:'demo-openchat'}),{code:'scope_denied'});
+  const other=await hub.addAccount({label:'Other time fixture',kind:'demo'});
+  assert.throws(()=>hub.search(actor,{...input,accountId:other.id}),{code:'scope_denied'});
+  const sender=hub.createToken({name:'Send only',grants:[{accountId:id,read:false,send:true}]});assert.equal(hub.search(hub.authenticate(sender.token),input).results.length,0);
+  hub.designate(id,'demo-group',false);assert.equal(hub.search(actor,input).results.length,0);hub.designate(id,'demo-group',true);
+  store.setSetting('aiEnabled',false);assert.throws(()=>hub.search(actor,input),{code:'gateway_paused'});store.setSetting('aiEnabled',true);
+  store.revoke(reader.id);assert.throws(()=>hub.search(actor,input),{code:'invalid_token'});
+  const before=store.db.prepare('SELECT seq,cipher FROM messages ORDER BY seq').all();
+  store.db.exec('UPDATE messages SET message_time=NULL');store.setSetting('messageSearchVersion',1);
+  hub.driver(id).read=()=>assert.fail('Backfill must not query LINE');initializeSearch(store,vault);
+  assert.equal(store.setting('messageSearchVersion'),2);assert.equal(hub.search(adminActor,input).results.length,2);
+  assert.deepEqual(store.db.prepare('SELECT seq,cipher FROM messages ORDER BY seq').all(),before);
+  initializeSearch(store,vault);assert.equal(hub.search(adminActor,input).results.length,2);
+  assert.equal(store.db.prepare('SELECT count(*) n FROM messages WHERE message_time=?').get(Date.parse(time)).n,2);
+});
+
+test('failed timestamp backfill rolls back index changes and version marker before retry',async t=>{
+  const {store,vault,add,hub}=await setup(t);add('backfill retry');
+  store.setSetting('messageSearchVersion',1);store.db.exec('UPDATE messages SET message_time=NULL');
+  const prepare=store.db.prepare.bind(store.db);
+  store.db.prepare=sql=>{if(sql.startsWith('UPDATE messages SET message_time='))throw new Error('synthetic timestamp write failure');return prepare(sql);};
+  assert.throws(()=>initializeSearch(store,vault),/synthetic timestamp write failure/);store.db.prepare=prepare;
+  assert.equal(store.setting('messageSearchVersion'),1);assert.equal(store.db.prepare('SELECT count(*) n FROM message_search').get().n,1);
+  initializeSearch(store,vault);assert.equal(store.setting('messageSearchVersion'),2);
+  assert.equal(hub.search(adminActor,{query:'backfill retry',startTime:'2000-01-01T00:00:00Z'}).results.length,1);
 });

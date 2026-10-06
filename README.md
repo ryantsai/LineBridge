@@ -144,6 +144,8 @@ nohup "$bundle/linebridge" serve --require-token \
 
 以下 `CLI_COMMAND` 代表經 `discover` 找到或已明確提供的既有執行方式，`PROFILE_NAME` 是選定的既有 profile。`ACCOUNT_ID`、`CHAT_ID` 必須取自前兩個查詢；先替換佔位文字，再依使用者需求執行。
 
+搜尋可用 `--start-time`（包含）與 `--end-time`（不包含）指定訊息日期時間，兩側可各自省略；CLI 必須帶 `Z` 或明確 UTC 偏移。網頁搜尋提供同樣的起訖欄位與可見的 UTC 偏移，預設 `+00:00`，台灣可改為 `+08:00`。分頁時保留相同範圍；請先確認已安裝版本的 help 支援這些參數。[日期時間規則](SEARCH.md#date-and-time-ranges)。
+
 ```sh
 CLI_COMMAND accounts --profile PROFILE_NAME
 CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID

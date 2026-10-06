@@ -96,6 +96,13 @@
           <label class="sr-only" for="archive-chat">聊天室</label>
           <select id="archive-chat" class="compact" name="chatId" disabled><option value="">所有聊天室</option></select>
         </div>
+        <div class="search-filters search-time" aria-describedby="archive-time-help">
+          <label for="archive-start">開始時間（包含）<input id="archive-start" name="startTime" type="datetime-local" step="0.001"></label>
+          <label for="archive-end">結束時間（不包含）<input id="archive-end" name="endTime" type="datetime-local" step="0.001"></label>
+          <label for="archive-offset">時區：UTC 偏移<input id="archive-offset" name="timeOffset" type="text" value="+00:00" maxlength="6" placeholder="+08:00" aria-describedby="archive-time-help"></label>
+          <button class="btn" id="archive-clear-time" type="button">清除時間</button>
+          <p id="archive-time-help">依訊息時間篩選，可只填開始或結束。預設 UTC +00:00；請明確填寫偏移（例如台灣 +08:00），不會自動套用夏令時間。</p>
+        </div>
       </form>
       <p class="search-status" id="archive-status" role="status" aria-live="polite"></p>
       <div class="results" id="archive-results">

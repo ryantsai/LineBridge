@@ -141,6 +141,8 @@ The dedicated profile is limited to the same local gateway and confirmed chats. 
 
 `CLI_COMMAND` below is the existing invocation found through `discover` or supplied explicitly; `PROFILE_NAME` is the selected existing profile. Obtain `ACCOUNT_ID` and `CHAT_ID` from the first two queries. Substitute placeholders before running commands requested by the user.
 
+Search supports optional `--start-time` (inclusive) and `--end-time` (exclusive) message-time bounds with explicit `Z` or UTC offset. The web search has matching fields and a visible UTC offset, initially `+00:00`. Preserve all filters across pages and check installed-version help before using the new flags. See [date/time rules](SEARCH.md#date-and-time-ranges).
+
 ```sh
 CLI_COMMAND accounts --profile PROFILE_NAME
 CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID

@@ -1286,7 +1286,7 @@
       "post": {
         "operationId": "searchMessages",
         "summary": "Search the persistent message archive in any language",
-        "description": "Literal Unicode substrings, mixed scripts and emoji. Case-insensitive NFKC normalization; no language dictionary or stemming. all matches each whitespace-separated term; phrase matches the entire normalized query. Results newest first. Supply nextBefore as before while hasMore is true, even for an empty page. Searches only saved message text; no LINE RPC or read receipt. Query text is not logged.",
+        "description": "Literal Unicode substrings, mixed scripts and emoji. Case-insensitive NFKC normalization; no language dictionary or stemming. all matches each whitespace-separated term; phrase matches the entire normalized query. Time bounds filter message timestamps before pagination, excluding missing/invalid timestamps only when bounded. Either bound may be omitted. Results remain in descending archive sequence. Preserve query and all filters across pages. Supply nextBefore as before while hasMore is true, even for an empty page. Searches only saved message text; no LINE RPC or read receipt. Query text is not logged.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1318,6 +1318,16 @@
                   "chatId": {
                     "type": "string",
                     "description": "Requires accountId."
+                  },
+                  "startTime": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Inclusive message timestamp lower bound. YYYY-MM-DDTHH:mm:ss[.SSS] with Z or explicit UTC offset, maximum ±14:00; unknown -00:00 is rejected."
+                  },
+                  "endTime": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Exclusive message timestamp upper bound, same format as startTime. Must be later than startTime when both are supplied."
                   },
                   "before": {
                     "type": "integer",

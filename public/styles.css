@@ -497,6 +497,11 @@ body:has(dialog[open]){overflow:hidden}
 .search-field .btn{height:40px;margin-right:2px;padding:0 18px}
 .search-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;padding:8px 4px 2px;border-top:1px solid var(--border)}
 .search-status{min-height:22px;margin:16px 4px 10px;color:var(--text-3);font-size:13px}
+.search-time{align-items:end;padding:12px 8px 8px}
+.search-time label{display:grid;gap:5px;max-width:100%;font-size:12px;color:var(--text-2)}
+.search-time input{min-width:0;width:100%;font-size:14px}
+.search-time input[name=timeOffset]{width:110px}
+.search-time p{flex-basis:100%;margin:2px 0 0;color:var(--text-3);font-size:12px}
 .results{display:grid;gap:10px}
 .results>.empty{min-height:260px}
 .result{padding:15px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);transition:border-color .2s,box-shadow .25s}
