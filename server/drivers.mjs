@@ -9,6 +9,7 @@ import {mediaDescriptor,imageResult,boundedResponse,decryptAuthenticatedMedia,ME
 import {assertFlexTransport,validateFlex} from './flex.mjs';
 import {officialAccountCapability,OA_NOTICE} from './official-account.mjs';
 import {prepareText} from './send-preparation.mjs';
+import {dispatchText} from './send-dispatch.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -259,12 +260,9 @@ export class LineDriver {
         }
       }
     }
-    await beforeDispatch();
     let response;
     try {
-      response=chat.kind==='openchat'
-        ? await this.client.square.sendMessage({squareChatMid:chat.id,text})
-        : await this.client.talk.sendMessage(options);
+      response=await dispatchText(this.client,chat,chat.kind==='openchat'?{squareChatMid:chat.id,text}:options,beforeDispatch);
     } catch(error) {
       const code=discoveryErrorCode(error);
       if(error?.name==='RequestError' && code!=='protocol_error' && code!=='UNKNOWN') {

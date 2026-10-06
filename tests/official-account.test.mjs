@@ -31,7 +31,7 @@ function fixture(t){
     if(method==='sendMessage'){if(f.response instanceof Error)throw f.response;return f.response;}
     assert.fail('Unexpected RPC '+method);
   };
-  const send=client.talk.sendMessage.bind(client.talk);client.talk.sendMessage=options=>{f.options=options;return send(options);};
+  const send=client.talk.sendMessage;client.talk.sendMessage=function(options){f.options=options;return send.call(this,options);};
   f.sends=()=>f.calls.filter(c=>c[1]==='sendMessage').length;return f;
 }
 
@@ -109,6 +109,34 @@ test('worker dispatch permission handshake denies expired requests and rechecks 
   worker.pending.set('read',{method:'read',beforeDispatch:()=>assert.fail('Not a send')});
   for(const id of ['allowed','revoked','expired','read'])worker.handle({type:'authorize_send',id});
   assert.deepEqual(replies.map(r=>r.ok),[true,false,false,false]);assert.equal(checks,1);
+});
+
+test('revocation or expiry while the real SDK waits for reqseq persistence prevents dispatch',async t=>{
+  for(const change of ['revoke','expire']){
+    const f=await hubFixture(t);delete f.client.getReqseq;
+    let entered,release;const writing=new Promise(r=>entered=r),acknowledged=new Promise(r=>release=r);
+    const originalSet=f.client.storage.set;
+    f.client.storage.set=async(key,value)=>{if(key==='reqseq'){entered();await acknowledged;}return originalSet(key,value);};
+    const sending=f.hub.send(f.actor,f.id,direct.id,'synthetic',`reqseq-${change}`,'text',ack);
+    const rejected=assert.rejects(sending,{code:'send_authorization_revoked'});
+    await writing;assert.equal(f.sends(),0);
+    if(change==='revoke')f.store.revoke(f.token.id);
+    else f.store.db.prepare('UPDATE tokens SET expires_at=? WHERE id=?').run('2000-01-01T00:00:00Z',f.token.id);
+    release();await rejected;assert.equal(f.sends(),0);assert.equal(f.store.send(f.actor.id,`reqseq-${change}`).state,'rejected');
+  }
+});
+
+test('per-send authorization runs after real reqseq storage and leaves concurrent unrelated RPCs unchanged',async t=>{
+  const f=fixture(t);delete f.client.getReqseq;
+  let entered,release,checks=0;const writing=new Promise(r=>entered=r),acknowledged=new Promise(r=>release=r);
+  const originalSet=f.client.storage.set,originalRequest=f.client.request.request,originalTalk=f.client.talk;
+  f.client.storage.set=async(key,value)=>{if(key==='reqseq'){entered();await acknowledged;}return originalSet(key,value);};
+  f.client.request.request=async(...args)=>args[1]==='getProfile'?{mid:'synthetic-profile'}:originalRequest(...args);
+  const request=f.client.request.request;
+  const sending=f.driver.send(direct,'synthetic',ack,()=>{checks++;assert.ok(f.values.has('reqseq'));});
+  await writing;assert.equal(checks,0);assert.equal((await f.client.talk.getProfile()).mid,'synthetic-profile');assert.equal(checks,0);
+  release();assert.equal((await sending).messageId,'synthetic-accepted');assert.equal(checks,1);assert.equal(f.sends(),1);
+  assert.equal(f.client.request.request,request);assert.equal(f.client.talk,originalTalk);
 });
 
 test('UI confirmation happens before reserving intent; cancellation sends nothing; uncertain intent stays unchanged',async()=>{

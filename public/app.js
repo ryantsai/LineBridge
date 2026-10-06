@@ -369,9 +369,11 @@ async function readMessages(){
     textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();$('#send-form').requestSubmit();}});
     $('#send-form').addEventListener('submit',event=>{
       event.preventDefault();const form=event.currentTarget;
+      if(sending)return;
+      sending=true;
       action(async()=>{
         const text=form.elements.text.value,button=form.querySelector('button'),feedback=$('#send-feedback');
-        sending=true;button.disabled=true;button.classList.add('sending');feedback.hidden=true;
+        button.disabled=true;button.classList.add('sending');feedback.hidden=true;
         try{
           const intent=await prepareSendIntent(sendAttempt,accountId,chatId,text,{
             capability:()=>demo||chat.kind!=='direct'?Promise.resolve({officialAccount:false}):api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}/text-capability`),
