@@ -10,6 +10,7 @@ import {writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {validateFlex} from '../server/flex.mjs';
 import {imageResult} from '../server/media.mjs';
+import {validateTimeRange} from '../public/search-time.js';
 
 export const DATA_COMMANDS = ['discover','version','accounts','chats','read','refresh','search','events','send','send-flex','media','auth'];
 const common = ['profile','url','timeout-ms','credential-stdin'];
@@ -17,7 +18,7 @@ const commandOptions = {
   discover:['data-dir'],
   version:[],
   accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
-  search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
+  search:['query','query-file','query-stdin','account','chat','mode','before','limit','start-time','end-time'],
   send:['account','chat','key','text','text-file','stdin','acknowledge-oa-transport'],
   'send-flex':['account','chat','key','payload','payload-file','stdin'],
   media:['account','chat','message','output'],
@@ -35,6 +36,7 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
   linebridge events --account ACCOUNT [--after 0] [--limit 100]
   linebridge search --query QUERY [--account ACCOUNT] [--chat CHAT]
                     [--mode all|phrase] [--before SEQUENCE] [--limit 30]
+                    [--start-time TIMESTAMP] [--end-time TIMESTAMP]
   linebridge send --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
                   (--text TEXT | --text-file UTF8_FILE | --stdin) [--acknowledge-oa-transport]
   linebridge auth enroll --url GATEWAY (--token-stdin | --credential-stdin)
@@ -50,6 +52,9 @@ profiles and the running CLI paths, without credentials or changing any setup.
 Then use accounts --profile NAME and chats --profile NAME --account ACCOUNT.
 Version checks the connected gateway app; --version prints the installed CLI version.
 Search also accepts --query-file UTF8_FILE or --query-stdin instead of --query.
+Search time bounds use message timestamps: start inclusive, end exclusive.
+Use YYYY-MM-DDTHH:mm:ss[.SSS] with Z or an explicit UTC offset (e.g. +08:00).
+Either bound may be omitted; keep the same time bounds on every page.
 Refresh immediately reads the latest upstream messages for one permitted chat,
 bypassing the automatic refresh interval. Upstream failures return errors,
 not a cached-only result. It does not start monitoring.
@@ -175,11 +180,12 @@ async function execute(argv,context) {
     request={path:`${base}/chats/${encodeURIComponent(chat)}/messages?${params}`};
   }
   if(command==='search') {
+    let timeRange;try{timeRange=validateTimeRange({startTime:values['start-time'],endTime:values['end-time']});}catch(error){usage(error.message);}
     if(values.mode!==undefined && !['all','phrase'].includes(values.mode))usage('Search mode must be all or phrase.');
     const before=integer(values.before,undefined,1,Number.MAX_SAFE_INTEGER,'before');
     const query=await inputText(values,['query','query-file','query-stdin'],context,800);
     if(!query.trim() || query.trim().length>200)usage('Search queries need 1-200 characters.');
-    request={path:'/api/v1/messages/search',method:'POST',body:{query,mode:values.mode || 'all',limit,...(account?{accountId:account}:{}),...(chat?{chatId:chat}:{}),...(before===undefined?{}:{before})}};
+    request={path:'/api/v1/messages/search',method:'POST',body:{query,mode:values.mode || 'all',limit,...timeRange,...(account?{accountId:account}:{}),...(chat?{chatId:chat}:{}),...(before===undefined?{}:{before})}};
   }
   if(command==='send') {
     if(typeof values.key!=='string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(values.key))usage('Supply --key with 8-128 letters, digits, dots, underscores, colons or hyphens. Keep the same key for the same request.');

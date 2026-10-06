@@ -194,6 +194,13 @@ For events, persist the returned nonnegative safe-integer `cursor`, then pass it
 
 Search accepts exactly one of `--query`, `--query-file UTF8_FILE` or `--query-stdin`. Queries need 1-200 characters with the gateway's `all`/`phrase` semantics. See [archive search](SEARCH.md).
 
+Optional `--start-time` (inclusive) and `--end-time` (exclusive) filter the message timestamp, before server-side pagination. Supply either or both in `YYYY-MM-DDTHH:mm:ss[.SSS]Z` or with an explicit UTC offset such as `+08:00`; date-only/zoneless, impossible and equal/reversed ranges fail locally with exit 2 before credential/network access. Keep the bounds unchanged with `--before` on every page, including empty pages with `hasMore: true`. Unfiltered search is unchanged. Missing/invalid message timestamps are excluded only when a bound is present. See [exact formats, timezone and web controls](SEARCH.md#date-and-time-ranges).
+
+```sh
+linebridge search --profile work --query "meeting" --start-time "2026-10-06T00:00:00+08:00" --end-time "2026-10-07T00:00:00+08:00" --limit 30
+linebridge search --profile work --query "meeting" --end-time "2026-10-07T00:00:00Z" --limit 30
+```
+
 ## Explicit sends
 
 Sending requires the user's explicit authorization, send permission, a designated chat, an explicit account/chat and a caller-supplied idempotency key. There is no implicit destination, auto-generated key, retry or batch send.

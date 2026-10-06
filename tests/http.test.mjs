@@ -79,6 +79,25 @@ async function localGateway(t,requireToken=false){
   t.after(()=>{hub.close();tunnels.close();for(const s of [admin,gateway]){s.closeAllConnections();s.close();}store.close();});
   return {store,hub,base:`http://127.0.0.1:${gatewayPort}`,adminBase:`http://127.0.0.1:${adminPort}`};
 }
+
+test('HTTP, admin search and MCP apply validated message time bounds with read scope',async t=>{
+  const {hub,base,adminBase}=await localGateway(t,true);
+  const account=await hub.addAccount({label:'Time fixture',kind:'demo'});hub.designate(account.id,'demo-group',true);await hub.monitor(account.id,true);
+  for(const [id,timestamp] of [['start','2026-10-06T00:00:00Z'],['end','2026-10-07T00:00:00Z']])hub.capture(account.id,'demo-group',{id,text:'time needle',timestamp});
+  const reader=hub.createToken({name:'Range reader',grants:[{accountId:account.id,read:true,send:false}]}),headers={Authorization:`Bearer ${reader.token}`,'Content-Type':'application/json'};
+  const input={query:'needle',startTime:'2026-10-06T08:00:00+08:00',endTime:'2026-10-07T00:00:00Z'};
+  const post=(body,requestHeaders=headers)=>fetch(`${base}/api/v1/messages/search`,{method:'POST',headers:requestHeaders,body:JSON.stringify(body)});
+  const result=await post(input);assert.equal(result.status,200);assert.deepEqual((await result.json()).results.map(r=>r.message.id),['start']);
+  for(const bad of [{startTime:'2026-10-06'},{endTime:'2026-02-30T00:00:00Z'},{startTime:input.endTime,endTime:input.startTime}])assert.equal((await post({...input,...bad})).status,400);
+  const sender=hub.createToken({name:'No read',grants:[{accountId:account.id,read:false,send:true}]});assert.equal((await post({...input,accountId:account.id},{...headers,Authorization:`Bearer ${sender.token}`})).status,403);
+  const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];
+  const adminResult=await fetch(`${adminBase}/admin/messages/search`,{method:'POST',headers:{Cookie:cookie,Origin:adminBase,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body:JSON.stringify(input)});
+  assert.equal(adminResult.status,200);assert.equal((await adminResult.json()).results.length,1);
+  const client=new Client({name:'time-fixture',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`),{requestInit:{headers}}));t.after(()=>client.close());
+  const mcp=await client.callTool({name:'line_search_messages',arguments:input});assert.equal(JSON.parse(mcp.content[0].text).results[0].message.id,'start');
+  const invalid=await client.callTool({name:'line_search_messages',arguments:{...input,startTime:'2026-10-06'}});assert.equal(invalid.isError,true);
+  const reversed=await client.callTool({name:'line_search_messages',arguments:{...input,startTime:input.endTime}});assert.equal(reversed.isError,true);
+});
 test('only the local admin can save refresh settings, with strict bounds and state round-trip',async t=>{
   const {hub,base,adminBase}=await localGateway(t,true);
   const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];

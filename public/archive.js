@@ -1,5 +1,6 @@
 import {accountName} from './names.js';
 import {icon} from './icons.js';
+import {formTimeRange} from './search-time.js';
 
 export function createArchive({api,action,escape,when,short,getState,openChat}){
   const $=s=>document.querySelector(s),form=$('#archive-form');
@@ -34,9 +35,12 @@ export function createArchive({api,action,escape,when,short,getState,openChat}){
   }
   async function search(more=false){
     if(busy)return;
+    if(more&&(!criteria||before===null))return;
     if(!more){
-      const f=form.elements;criteria={query:f.query.value.trim(),mode:f.mode.value,limit:30,...(f.accountId.value?{accountId:f.accountId.value}:{}),...(f.chatId.value?{chatId:f.chatId.value}:{})};
-      if(!criteria.query)return;before=null;results=[];$('#archive-results').replaceChildren();
+      const f=form.elements;
+      let timeRange;try{timeRange=formTimeRange(f.startTime.value,f.endTime.value,f.timeOffset.value);}catch(error){$('#archive-status').textContent=error.message;throw error;}
+      criteria={query:f.query.value.trim(),mode:f.mode.value,limit:30,...timeRange,...(f.accountId.value?{accountId:f.accountId.value}:{}),...(f.chatId.value?{chatId:f.chatId.value}:{})};
+      if(!criteria.query)return;before=null;results=[];$('#archive-results').replaceChildren();$('#archive-more').hidden=true;
     }
     const requestGeneration=++searchGeneration,shown=results.length;
     busy=true;$('#archive-submit').disabled=true;$('#archive-more').disabled=true;$('#archive-status').textContent='搜尋中…';
@@ -50,15 +54,19 @@ export function createArchive({api,action,escape,when,short,getState,openChat}){
     }catch(error){if(requestGeneration!==searchGeneration)return;$('#archive-status').textContent='搜尋未完成，請重試。';throw error;}
     finally{busy=false;$('#archive-submit').disabled=false;$('#archive-more').disabled=false;}
   }
-  form.addEventListener('submit',event=>{event.preventDefault();action(()=>search());});
+  form.addEventListener('submit',event=>{event.preventDefault();return action(()=>search());});
   form.elements.accountId.addEventListener('change',()=>action(chats));
-  form.addEventListener('input',()=>{$('#archive-more').hidden=true;});
+  function invalidate(){++searchGeneration;criteria=null;before=null;$('#archive-more').hidden=true;$('#archive-status').textContent='條件已變更，請重新搜尋。';}
+  form.addEventListener('input',invalidate);
+  form.addEventListener('change',invalidate);
+  $('#archive-clear-time').addEventListener('click',()=>{form.elements.startTime.value='';form.elements.endTime.value='';invalidate();$('#archive-status').textContent='已清除時間範圍，請重新搜尋。';});
   $('#archive-more').addEventListener('click',()=>action(()=>search(true)));
   return {render,async open(accountId,chatId){
     ++searchGeneration;
     render();form.elements.accountId.value=accountId;await chats();
     if(form.elements.accountId.value!==accountId)return;
     form.elements.chatId.value=chatId;before=null;criteria=null;results=[];
+    form.elements.startTime.value='';form.elements.endTime.value='';
     $('#archive-results').replaceChildren();$('#archive-more').hidden=true;
     $('#archive-status').textContent='輸入關鍵字，搜尋這個聊天室的封存。';
     form.elements.query.focus();

@@ -133,6 +133,8 @@ nohup "$bundle/linebridge" serve --require-token \
 
 以下の `CLI_COMMAND` は `discover` で取得した、または明示された既存の実行方法、`PROFILE_NAME` は選択した既存のプロファイルです。`ACCOUNT_ID`、`CHAT_ID` は最初の 2 つの問い合わせから取得します。プレースホルダーを置き換えて、ユーザーが依頼した操作を実行してください。
 
+検索では `--start-time`（含む）と `--end-time`（含まない）でメッセージ時刻を指定できます。片側だけでも指定でき、CLI は `Z` または UTC オフセットが必須です。Web 検索にも開始・終了と明示的な UTC オフセット（初期値 `+00:00`）があります。ページ間で同じ条件を維持し、インストール済みバージョンの help を確認してください。[日時の規則](SEARCH.md#date-and-time-ranges)。
+
 ```sh
 CLI_COMMAND accounts --profile PROFILE_NAME
 CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID

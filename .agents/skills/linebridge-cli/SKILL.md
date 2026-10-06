@@ -64,6 +64,7 @@ Page only as far as the user's request requires. Keep all original filters uncha
 - For OpenChat `read`, pass the returned opaque `cursor` to the next `--cursor` request.
 - For `events`, persist the returned nonnegative safe-integer `cursor` and pass it to the next `--after` request.
 - For `search`, while `hasMore` is true, pass `nextBefore` to `--before` with the same query, mode, account, and chat. Continue through an empty match page when `hasMore` remains true.
+- Optional `--start-time` (inclusive) and `--end-time` (exclusive) filter message timestamps; preserve both across pages. Use an explicit `Z` or UTC offset and confirm the user's intended timezone when ambiguous. For a full local day, use midnight through the next midnight, with the appropriate offset at each boundary. Never assume the execution host's timezone. Check installed-version help before using these flags; older releases do not support them. See [time ranges](../../../SEARCH.md#date-and-time-ranges).
 
 Stop when the gateway reports no more results, the requested bound is satisfied, or a cursor repeats. Do not invent a background watcher or recurring task.
 
