@@ -22,6 +22,10 @@ try {
   delete env.LINE_BRIDGE_TOKEN;delete env.CF_ACCESS_CLIENT_ID;delete env.CF_ACCESS_CLIENT_SECRET;delete env.LINE_BRIDGE_URL;
   const help=execFileSync(process.execPath,[bin,'accounts','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
   assert.ok(JSON.parse(help).commands.includes('send'));
+  for(const command of ['media','send-flex']){
+    const result=execFileSync(process.execPath,[bin,command,'--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
+    assert.ok(JSON.parse(result).commands.includes(command));
+  }
   const invalid=spawnSync(process.execPath,[bin,'send','--text','synthetic'],{cwd:directory,env,encoding:'utf8',windowsHide:true});
   assert.equal(invalid.status,2);assert.equal(JSON.parse(invalid.stdout).error,'invalid_input');
   // The public npm bin shim must be present on each platform.

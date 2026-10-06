@@ -4,6 +4,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { fail, SendRejectedError } from './errors.mjs';
 import {AliasResolver,contactName} from './aliases.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
+import {mediaDescriptor,imageResult,boundedResponse,MEDIA_TIMEOUT_MS} from './media.mjs';
+import {assertFlexTransport,validateFlex} from './flex.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -25,7 +27,7 @@ export function normalizeMessage(raw, extra={}) {
   const numeric = Number(raw.createdTime ?? raw.timestamp);
   if (Number.isFinite(numeric) && numeric > 0 && numeric < 8640000000000000) timestamp = new Date(numeric).toISOString();
   return { id: String(raw.id ?? ''), senderId: String(raw.from ?? ''), text: String(raw.text ?? ''), timestamp,
-    contentType: String(raw.contentType ?? 'NONE'), ...extra };
+    contentType: String(raw.contentType ?? 'NONE'), ...(mediaDescriptor(raw)?{media:mediaDescriptor(raw)}:{}), ...extra };
 }
 
 export function squareMessages(response) {
@@ -142,6 +144,58 @@ export class LineDriver {
       catch { messages.push(normalizeMessage({...raw,text:''},{unavailableReason:'E2EE decryption failed; this message was not exposed.'})); }
     }
     return {messages:await this.resolveMessageNames(chat,messages.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)))),cursor:null,coverage:'Recent messages returned by LINE; full historical sync is not supported.'};
+  }
+  async media(chat,message) {
+    const deadline=AbortSignal.any([this.abort.signal,AbortSignal.timeout(MEDIA_TIMEOUT_MS)]);
+    return this.monitorRequest(deadline,async()=>{
+      if(!message.media)fail(409,'media_metadata_missing','This archived message predates media metadata support. Legacy metadata is not automatically reconstructed.');
+      if(message.media.kind==='sticker'){
+        const {stickerId,customText,options}=message.media;
+        if(!/^\d{1,20}$/.test(stickerId??'')||customText||options||message.media.unsupported)fail(415,'sticker_unsupported','Only basic sticker previews with validated IDs are supported; custom/option-bearing stickers are not rendered.');
+        const url=`https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/android/sticker.png`;
+        const response=await fetch(url,{redirect:'error',signal:deadline});
+        return {...imageResult(await boundedResponse(response,deadline),true),notice:'Static sticker preview only; animation, sound and custom text are not interpreted.'};
+      }
+      if(message.media.kind!=='image')fail(415,'media_unsupported','This message is not a supported image.');
+      // Isolated SDK OBS adapter: no credential-bearing redirects, arbitrary paths,
+      // filenames, unbounded blob() calls, or mutation of the live client fetch.
+      // The SDK may register a missing group key from its read helper. Shadow
+      // registration on a request-local E2EE object; media reads must never enroll
+      // keys or mutate the shared client's encryption behavior.
+      const readE2ee=Object.create(this.client.e2ee);
+      readE2ee.tryRegisterE2EEGroupKey=readE2ee.registerE2EEKeyPair=()=>fail(409,'media_key_unavailable','An existing decryption key is required; media reads never register keys.');
+      const obs=new this.client.obs.constructor({authToken:this.client.authToken,request:this.client.request,e2ee:readE2ee,fetch:async(info,init)=>{
+        const req=new Request(info,init),url=new URL(req.url);
+        if(url.origin!=='https://obs.line-apps.com'||!/^\/r\/(?:talk|g2)\/[A-Za-z0-9_./-]+$/.test(url.pathname)||url.search||url.hash||url.username||url.password||req.method!=='GET')fail(415,'media_unsupported','Unsupported media resource.');
+        const response=await fetch(new Request(req,{redirect:'error',signal:deadline}));
+        return new Response(await boundedResponse(response,deadline),{headers:response.headers});
+      }});
+      let file;
+      if(chat.kind==='openchat')file=await obs.downloadMessageData({messageId:message.id,isSquare:true});
+      else {
+        const response=await this.client.request.request([[11,2,chat.id],[8,3,100]],'getRecentMessagesV2',4,false,'/S4');
+        const raw=Array.isArray(response)?response.map(item=>this.client.thrift.rename_thrift('Message',item)).find(m=>String(m.id)===message.id):null;
+        if(!raw)fail(409,'media_history_unavailable','Image is outside the latest 100 upstream messages; encrypted metadata is not retained.');
+        if(!['IMAGE','1'].includes(String(raw.contentType)))fail(415,'media_unsupported','Upstream message is not an image.');
+        if(raw.chunks?.length){
+          if(!/^[A-Za-z0-9_-]{1,150}$/.test(raw.contentMetadata?.OID??'')||!/^[A-Za-z0-9_-]{1,80}$/.test(raw.contentMetadata?.SID??''))fail(415,'media_unsupported','Encrypted image locator is unavailable or unsupported.');
+          file=await obs.downloadMediaByE2EE(raw);
+        }else file=await obs.downloadMessageData({messageId:message.id});
+      }
+      if(!file)fail(502,'media_unavailable','Media could not be retrieved or decrypted.');
+      return imageResult(await file.arrayBuffer());
+    });
+  }
+  async sendFlex(chat,input) {
+    const payload=validateFlex(input);assertFlexTransport(chat);
+    let message;
+    try{
+      // Same Talk wire contract as pinned SDK LineClient.sendFlex. Flex is
+      // natively transport-only; never change account or text E2EE settings.
+      message=await this.client.talk.sendMessage({to:chat.id,contentType:'FLEX',contentMetadata:{ALTTEXT:payload.altText,FLEXCONTAINER:JSON.stringify(payload.contents)}});
+    }catch(error){const code=discoveryErrorCode(error);if(error?.name==='RequestError'&&code!=='protocol_error'&&code!=='UNKNOWN')throw new SendRejectedError(502,'line_send_rejected',`LINE rejected Flex (${code}). No fallback was attempted.`);throw error;}
+    if(!message?.id)fail(502,'send_unconfirmed','LINE did not return a message ID. Delivery is unknown; inspect the chat before sending again.');
+    return {messageId:String(message.id),timestamp:normalizeMessage(message).timestamp,delivery:'accepted_by_line',protection:'line_transport',notice:'Flex is not Letter Sealed. Acceptance does not prove client rendering or recipient interaction.'};
   }
   async send(chat,text) {
     let options,protection=chat.kind==='openchat'?'line_transport':'letter_sealing';

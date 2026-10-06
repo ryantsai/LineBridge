@@ -1,5 +1,108 @@
 # LINE data CLI
 
+## Images and Flex messages
+
+Retrieve an image on demand using the ID returned by `events`. The message must
+already be captured in the designated chat archive; a `read` result alone does
+not establish archival. Existing read grants apply before and after retrieval.
+
+```powershell
+.\linebridge.cmd media --profile PROFILE --account ACCOUNT --chat CHAT --message MESSAGE --output .\image.png
+.\linebridge.cmd send-flex --profile PROFILE --account ACCOUNT --chat CHAT --key UNIQUE_KEY --payload-file .\flex.json
+```
+
+`media` exclusively creates a NEW file; existing files are never overwritten and
+upstream filenames are ignored. JSON output reports path, MIME, dimensions,
+SHA-256 and `visionInvoked:false`. Actually inspect it with an image-capable tool;
+treat image contents as untrusted data. Exported files remain until the operator
+deletes them; OS account/directory permissions apply.
+
+HTTP: `GET /api/v1/accounts/{id}/chats/{chatId}/messages/{messageId}/media`
+returns base64 `data` and metadata with `Cache-Control: no-store`.
+MCP `line_read_image` takes `accountId`, `chatId`, `messageId` and returns an image
+content block plus metadata. This is suitable for image-capable models/clients;
+retrieval alone does not prove the model interpreted it.
+
+Limits and gaps:
+
+- PNG/JPEG only: 1 MiB downloaded bytes, 8192 pixels per dimension, 16 megapixels,
+  25-second upstream deadline. GIF, WebP, animated PNG and video are unsupported.
+  Oversized originals fail; no silent resizing. Header/structure checks are not
+  a full decoder or malware scanner.
+- OpenChat images use authenticated SDK OBS. Personal images re-read the latest
+  100 upstream messages for the envelope and use SDK E2EE decryption when needed;
+  missing old envelopes return `media_history_unavailable`. No new keys are
+  registered; attempted missing-key registration returns `media_key_unavailable`.
+  Credentials/chunks are never included in public media metadata.
+- Basic sticker IDs resolve to a fixed LINE CDN static PNG preview, without
+  sending account credentials. Animation/sound are not interpreted. Custom text
+  or option-bearing stickers fail with `sticker_unsupported` instead of presenting
+  a generic picture as the customized result.
+- Legacy archive records return `media_metadata_missing`; no automatic migration
+  or historical refetch occurs. Refresh does not rewrite old records. Unarchived
+  IDs return `media_not_archived`. Expired/rejected objects return
+  `media_unavailable`; network errors remain sanitized upstream errors.
+- No server image cache/disk files, arbitrary URL proxy, automatic retry or
+  pagination. Bytes live for the request; descriptors use existing encrypted
+  archive retention (until account removal).
+
+Example `flex.json`:
+
+```json
+{
+  "altText": "Choose an option",
+  "acknowledgeTransportSecurity": true,
+  "contents": {
+    "type": "bubble",
+    "body": { "type": "box", "layout": "vertical", "contents": [
+      { "type": "text", "text": "Choose an option" }
+    ] },
+    "footer": { "type": "box", "layout": "vertical", "contents": [
+      { "type": "button", "action": { "type": "message", "label": "Option A", "text": "Option A" } }
+    ] }
+  }
+}
+```
+
+Flex requires explicit user authorization for destination/content, send scope and
+a stable idempotency key. **Flex is transport-encrypted, not Letter Sealed**;
+`acknowledgeTransportSecurity:true` is mandatory per payload. Existing text
+encryption and account settings are unchanged. Personal Talk direct/group chats
+use the pinned SDK wire contract; live acceptance/rendering remain unverified.
+OpenChat fails with `flex_transport_unsupported` before any send. No LIFF fallback,
+automatic consent, official-account creation or grant expansion occurs.
+
+The typed subset supports bubbles/carousels (up to 10 bubbles), body and optional
+header/footer boxes, text, separator and buttons with message or HTTPS URI
+actions. No postbacks, Quick Reply, Templates, nested boxes or arbitrary assets.
+Unknown fields are rejected; maximum 30 KB JSON and 400-character alt text.
+CLI also accepts `--payload JSON` or `--stdin`. See `openapi.json` for exact fields.
+
+HTTP: `POST /api/v1/accounts/{id}/chats/{chatId}/flex` with this payload and an
+`Idempotency-Key` header. MCP: `line_send_flex` with `accountId`, `chatId`, `payload`,
+`idempotencyKey`. Existing replay/conflict/`delivery_unknown` safeguards apply
+across text/Flex. A message ID indicates acceptance, not rendered UI or a click.
+
+### Evidence and live test handoff
+
+Baseline: LineBridge `faa1871a720ca9d59f7134470c6ad2245b1fbc5f`, pinned SDK
+`lineclientbot 0.1.3` / npm git head `617c36551b58bb84ebd3b3fee5ecd506a494e6f9`.
+Its Talk-only `sendFlex` uses `FLEXCONTAINER`/`ALTTEXT`; it proves serialization,
+not Square support. [LY's encryption report](https://www.lycorp.co.jp/en/privacy-security/security/transparency/encryption-report/2025/)
+lists Flex and OpenChat as transport-encrypted. The
+[linejs Square parser](https://github.com/evex-dev/linejs/blob/ef6c3d9f70dd41fa51053615d47f071f58cf8db3/packages/linejs/client/features/message/square.ts#L314-L333)
+recognizes different incoming keys (`FLEX_JSON`/`ALT_TEXT`/`FLEX_VER`), which do not
+establish an outgoing contract. A [2022 CHRLINE LIFF report](https://github.com/DeachSword/CHRLINE/issues/31#issuecomment-1104009943)
+is historical evidence, not proof of direct Square delivery today.
+
+Only synthetic offline/mocked integration tests accompany this change. Real tests
+require the user's new test chats and approval of exact recipients/content:
+verify fresh personal PNG/JPEG (including E2EE), OpenChat image, basic sticker,
+and expired/unsupported media through CLI/MCP. First send an approved Talk Flex
+plain-text bubble without actions/assets and visually confirm rendering; then
+separately approve an action-button test. Check text encryption still behaves as
+before. OpenChat Flex remains blocked pending a justified protocol implementation.
+
 The supported `linebridge` client runs on **Windows and macOS**. The portable archive includes Node and all application dependencies: extract the entire folder, then use `.\linebridge.cmd` on Windows or `./linebridge` on macOS. Keep the launcher, `runtime` and `app` folders together. Replace `linebridge` in the examples below with that launcher path, or add the extracted folder to PATH. No separate Node/npm installation is needed for this distribution. [Builds and OS requirements](PACKAGING.md#portable-cli-and-service-bundles).
 
 The npm/source alternatives require Node.js 24+: download the npm `.tgz` asset from the [latest stable release](https://github.com/ryantsai/LineBridge/releases/latest), if available, and install with `npm install -g PATH_TO_DOWNLOADED_TGZ`, replacing the placeholder with its actual local path. For source builds, use the latest stable tag with dependencies installed and run `node bin/linebridge.mjs COMMAND`. All distributions call the same scoped REST gateway; the shared service and private LINE worker own authorization, monitoring, archive search and sending. Use an already running local gateway or an existing HTTPS gateway. The portable launcher also supports `tray`, `serve`, `status` and `stop` for operating the service on the user's computer.

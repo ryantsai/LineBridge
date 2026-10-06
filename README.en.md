@@ -8,6 +8,12 @@ For ongoing CLI operations, also read the repository's [LineBridge CLI skill](ht
 
 ## Discover existing local AI access
 
+For on-demand archived images/basic sticker previews and personal Talk Flex sends,
+see [images and Flex](CLI.md#images-and-flex-messages). Flex is not Letter Sealed
+and requires an explicit security acknowledgment. OpenChat Flex is blocked pending
+protocol verification; no LIFF fallback or automatic consent is used. These new
+paths have synthetic test coverage, with real test-chat validation still pending.
+
 **AI agents: after the user has paired LINE and confirmed access, discover the existing setup yourself. Do not require the user to copy the wizard's handoff, profile name, or monitored chatroom list.** Use the existing installation under the same OS user. `CLI_COMMAND` below means its launcher: `.\linebridge.cmd` on Windows, `./linebridge` on macOS, or the launcher's absolute path. A prepared source checkout can use `node bin/linebridge.mjs` with Node 24+ and dependencies installed.
 
 ```sh

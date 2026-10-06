@@ -1,6 +1,12 @@
 import {ClientError, EXIT, unknownDelivery} from './errors.mjs';
 
 const errors = {
+  invalid_flex:'Invalid Flex payload or missing transport-security acknowledgment.', flex_transport_unsupported:'OpenChat Flex is not verified and is blocked; no fallback was used.',
+  media_metadata_missing:'Legacy message has no media metadata.', media_not_archived:'Message is not in this scoped chat archive.',
+  media_unsupported:'Unsupported image type or dimensions.', sticker_unsupported:'Custom or option-bearing stickers are not supported.',
+  media_too_large:'Image exceeds the 1 MiB limit.', media_unavailable:'LINE media is unavailable, expired, or access was rejected.',
+  media_history_unavailable:'Personal image is outside the latest 100 upstream messages.', invalid_message_id:'Invalid archived message ID.',
+  media_key_unavailable:'Existing decryption keys are unavailable; no key registration was attempted.',
   unauthorized:'A scoped Bearer token is required or invalid.', invalid_token:'The token has expired or been revoked.',
   scope_denied:'The token lacks the required account permission.', chat_not_designated:'The chat is not designated for this client.',
   cloudflare_access_required:'Cloudflare Access authentication is also required.', invalid_access_assertion:'Cloudflare Access authentication failed.',
