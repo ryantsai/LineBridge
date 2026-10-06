@@ -6,8 +6,12 @@ import {ClientError, EXIT, usage} from './errors.mjs';
 import {gatewayRequest} from './request.mjs';
 import {VERSION} from '../server/version.mjs';
 import {discoverLocal} from './discovery.mjs';
+import {writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {validateFlex} from '../server/flex.mjs';
+import {imageResult} from '../server/media.mjs';
 
-export const DATA_COMMANDS = ['discover','version','accounts','chats','read','refresh','search','events','send','auth'];
+export const DATA_COMMANDS = ['discover','version','accounts','chats','read','refresh','search','events','send','send-flex','media','auth'];
 const common = ['profile','url','timeout-ms','credential-stdin'];
 const commandOptions = {
   discover:['data-dir'],
@@ -15,6 +19,8 @@ const commandOptions = {
   accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
   search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
   send:['account','chat','key','text','text-file','stdin'],
+  'send-flex':['account','chat','key','payload','payload-file','stdin'],
+  media:['account','chat','message','output'],
   auth:['token-stdin']
 };
 const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
@@ -32,6 +38,9 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
   linebridge send --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
                   (--text TEXT | --text-file UTF8_FILE | --stdin)
   linebridge auth enroll --url GATEWAY (--token-stdin | --credential-stdin)
+  linebridge media --account ACCOUNT --chat CHAT --message MESSAGE --output FILE
+  linebridge send-flex --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
+                       --payload-file JSON_FILE
   linebridge auth forget [--profile NAME]
 
 Common: --profile NAME (default: default), --url GATEWAY, --timeout-ms 45000,
@@ -53,6 +62,9 @@ Enrollment stores an EXISTING scoped token using OS protection. It does not
 create tokens, expand grants, log in to LINE, or set up a persistent service.
 Sends require explicit user authorization. Unknown delivery exits 8 and must
 be inspected before any further send. See CLI.md for exit codes and examples.
+Media writes a NEW local PNG/JPEG file; it never overwrites files or invokes vision.
+Flex requires acknowledgeTransportSecurity:true in its JSON payload: Flex is not
+Letter Sealed. Personal Talk only; OpenChat Flex is blocked pending verification.
 `;
 
 function parse(argv) {
@@ -144,8 +156,8 @@ async function execute(argv,context) {
   if(values['credential-stdin'] && (values.stdin || values['query-stdin']))usage('Credentials and message/query text cannot both consume stdin. Use an enrolled profile or transient environment credentials.');
   if(values['credential-stdin'] && values.profile!==undefined)usage('Choose an enrolled profile or transient credential stdin, not both.');
   const account=values.account===undefined?undefined:identifier(values.account,'account'),chat=values.chat===undefined?undefined:identifier(values.chat,'chat');
-  if(['chats','read','refresh','events','send'].includes(command) && !account)usage('Supply --account with an explicit account ID.');
-  if(['read','refresh','send'].includes(command) && !chat)usage('Supply --chat with an explicit chat ID.');
+  if(['chats','read','refresh','events','send','send-flex','media'].includes(command) && !account)usage('Supply --account with an explicit account ID.');
+  if(['read','refresh','send','send-flex','media'].includes(command) && !chat)usage('Supply --chat with an explicit chat ID.');
   if(chat && !account)usage('--chat requires --account.');
   const base=account?`/api/v1/accounts/${encodeURIComponent(account)}`:undefined;
   const limit=integer(values.limit,command==='events'?100:30,1,100,'limit');
@@ -173,8 +185,26 @@ async function execute(argv,context) {
     if(!text.trim() || text.length>5000)usage('Message text needs 1-5000 characters.');
     request={path:`${base}/chats/${encodeURIComponent(chat)}/messages`,method:'POST',body:{text},key:values.key,send:true};
   }
+  if(command==='send-flex'){
+    if(typeof values.key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(values.key))usage('Supply a valid explicit --key.');
+    const input=await inputText(values,['payload','payload-file','stdin'],context,30000);
+    let payload;try{payload=validateFlex(JSON.parse(input));}catch{usage('Invalid Flex JSON: use the documented typed subset and acknowledgeTransportSecurity:true.');}
+    request={path:`${base}/chats/${encodeURIComponent(chat)}/flex`,method:'POST',body:payload,key:values.key,send:true};
+  }
+  if(command==='media'){
+    if(!values.output||/[\x00-\x1f]/.test(values.output))usage('Supply --output with a new local file path.');
+    if(!/^[A-Za-z0-9_-]{1,150}$/.test(values.message??''))usage('Supply --message with a valid archived message ID.');
+    request={path:`${base}/chats/${encodeURIComponent(chat)}/messages/${encodeURIComponent(values.message)}/media`};
+  }
   const selected=await credentials(values,context);
-  return gatewayRequest({...request,url:selected.url,credentials:selected,timeoutMs:context.timeoutMs,fetchImpl:context.fetchImpl});
+  const result=await gatewayRequest({...request,url:selected.url,credentials:selected,timeoutMs:context.timeoutMs,fetchImpl:context.fetchImpl});
+  if(command==='media'){
+    let checked;try{checked=imageResult(Buffer.from(result.data??'','base64'),result.preview===true);if(checked.sha256!==result.sha256||checked.mimeType!==result.mimeType)throw new Error();}catch{throw new ClientError('invalid_media','Gateway returned invalid image data.',EXIT.transport);}
+    const output=resolve(values.output);
+    try{await writeFile(output,Buffer.from(checked.data,'base64'),{flag:'wx',mode:0o600});}catch{throw new ClientError('output_failed','Could not create the output file. Existing files are never overwritten.',EXIT.usage);}
+    const {data,...metadata}=checked;return {...metadata,path:output,visionInvoked:false,notice:'Local image file created. Read it with an image-capable tool to inspect its contents; delete it when no longer needed.'};
+  }
+  return result;
 }
 export async function runCli(argv,{env=process.env,stdin=process.stdin,stdout=process.stdout,stderr=process.stderr,store=new CredentialStore({directory:configDirectory(env),env}),fetchImpl=fetch} = {}) {
   try {

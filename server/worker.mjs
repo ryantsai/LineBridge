@@ -76,6 +76,8 @@ export class ProtocolWorker {
       async login(qr){const profile=await worker.call('connect',{accountId:id,account,storage:storage.getAll(),qr},240000);this.ready=true;return profile;},
       check:signal=>worker.call('check',{accountId:id},ACCOUNT_CHECK_TIMEOUT_MS+5000,signal),discover:()=>call('discover'),
       read:(chat,limit,cursor)=>call('read',{chat,limit,cursor}),
+      media:(chat,message)=>call('media',{chat,message}),
+      sendFlex:(chat,input)=>call('send_flex',{chat,input}),
       send:(chat,text)=>call('send',{chat,text}),
       resolveMessageNames:(chat,messages)=>call('resolve_names',{chat,messages}),
       startMonitor:(chats,reset,refreshIntervalMs)=>call('monitor_start',{chats,reset,refreshIntervalMs}),
