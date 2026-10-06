@@ -1636,6 +1636,11 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 5000
+                  },
+                  "acknowledgeOaTransport": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Explicit per-message approval for verified Official Account transport encryption, without Letter Sealing. Never enables downgrade for normal or unknown recipients."
                   }
                 },
                 "additionalProperties": false

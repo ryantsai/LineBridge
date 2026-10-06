@@ -38,6 +38,13 @@ export class ProtocolWorker {
       clearTimeout(request.timer);this.pending.delete(message.id);
       if(message.error){const e=message.error;request.reject(request.method==='check'?accountCheckError(e):new (e.rejected_send?SendRejectedError:HubError)(e.status||502,e.code||'upstream_unavailable',e.message||'LINE operation failed.'));}
       else request.resolve(message.result);
+    }else if(message.type==='authorize_send'){
+      const request=this.pending.get(message.id);
+      let ok=false;
+      // Bind authorization to a still-pending send; expired/cancelled operations
+      // cannot dispatch later. The callback rechecks current parent-owned scope.
+      if(request?.method==='send'&&request.beforeDispatch){try{request.beforeDispatch();ok=true;}catch{}}
+      this.write({type:'authorize_send_ack',id:message.id,ok});
     }else if(message.type==='event'){
       const emit=this.events.get(message.accountId);if(message.event==='monitor_status')emit?.monitor?.(message.value);else emit?.[message.event]?.(message.value);
     }else if(message.type==='storage'||message.type==='capture'){
@@ -56,14 +63,14 @@ export class ProtocolWorker {
       this.write({type:message.type==='capture'?'capture_ack':'storage_ack',id:message.id,ok});
     }
   }
-  call(method,params={},timeout=40000,signal){
+  call(method,params={},timeout=40000,signal,beforeDispatch){
     if(signal?.aborted)return Promise.reject(signal.reason);
     this.start();const id=randomUUID();
     return new Promise((resolve,reject)=>{
       const finish=(callback,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',cancel);this.pending.delete(id);callback(value);};
       const cancel=()=>finish(reject,signal.reason);
       const timer=setTimeout(()=>finish(reject,method==='check'?accountCheckError({name:'TimeoutError'}):new HubError(502,'upstream_unavailable','The LINE operation timed out.')),timeout);
-      this.pending.set(id,{method,resolve:value=>finish(resolve,value),reject:error=>finish(reject,error),timer});
+      this.pending.set(id,{method,beforeDispatch,resolve:value=>finish(resolve,value),reject:error=>finish(reject,error),timer});
       signal?.addEventListener('abort',cancel,{once:true});this.write({id,method,params});
     });
   }
@@ -78,7 +85,8 @@ export class ProtocolWorker {
       read:(chat,limit,cursor)=>call('read',{chat,limit,cursor}),
       media:(chat,message)=>call('media',{chat,message}),
       sendFlex:(chat,input)=>call('send_flex',{chat,input}),
-      send:(chat,text)=>call('send',{chat,text}),
+      textCapability:chat=>call('text_capability',{chat}),
+      send:(chat,text,options,beforeDispatch)=>worker.call('send',{accountId:id,chat,text,options},40000,undefined,beforeDispatch),
       resolveMessageNames:(chat,messages)=>call('resolve_names',{chat,messages}),
       startMonitor:(chats,reset,refreshIntervalMs)=>call('monitor_start',{chats,reset,refreshIntervalMs}),
       setRefreshInterval:refreshIntervalMs=>call('monitor_interval',{refreshIntervalMs}),

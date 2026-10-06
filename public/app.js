@@ -1,6 +1,6 @@
 import {toggleChatAccess} from './chat-access.js';
 import {createConnections,providerName} from './connections.js';
-import { sendIntent } from './send-intent.js';
+import { prepareSendIntent } from './send-intent.js';
 import {label,errorText,coverage} from './locale.js';
 import {icon,hydrateIcons} from './icons.js';
 import {accountName,chatName,senderName} from './names.js';
@@ -369,14 +369,29 @@ async function readMessages(){
     textarea.addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();$('#send-form').requestSubmit();}});
     $('#send-form').addEventListener('submit',event=>{
       event.preventDefault();const form=event.currentTarget;
+      if(sending)return;
+      sending=true;
       action(async()=>{
         const text=form.elements.text.value,button=form.querySelector('button'),feedback=$('#send-feedback');
-        sending=true;button.disabled=true;button.classList.add('sending');feedback.hidden=true;sendAttempt=sendIntent(sendAttempt,accountId,chatId,text);
+        button.disabled=true;button.classList.add('sending');feedback.hidden=true;
         try{
-          const result=await api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}/messages`,{method:'POST',body:JSON.stringify({text,idempotencyKey:sendAttempt.key})});
+          const intent=await prepareSendIntent(sendAttempt,accountId,chatId,text,{
+            capability:()=>demo||chat.kind!=='direct'?Promise.resolve({officialAccount:false}):api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}/text-capability`),
+            confirm:()=>accountId===selectedAccount&&chatId===selectedChat&&form.elements.text.value===text&&window.confirm(`這是 LINE 官方帳號。此則訊息僅使用傳輸加密，不使用 Letter Sealing（端對端加密）。
+
+收件者：${chatName(chat)}
+${chatId}
+
+${text}
+
+同意傳送這一則訊息？`)
+          });
+          if(!intent||accountId!==selectedAccount||chatId!==selectedChat||form.elements.text.value!==text)return;
+          sendAttempt=intent;
+          const result=await api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}/messages`,{method:'POST',body:JSON.stringify({text,idempotencyKey:sendAttempt.key,...(sendAttempt.acknowledgeOaTransport?{acknowledgeOaTransport:true}:{})})});
           sendAttempt=null;form.elements.text.value='';toast(result.delivery==='sandbox_only'?'已傳送到沙盒':'已送出');await readMessages();await refresh();
         }catch(error){
-          if(['send_preparation_failed','line_send_rejected'].includes(error.code))sendAttempt=null;
+          if(['send_preparation_failed','line_send_rejected','oa_transport_acknowledgment_required','send_authorization_revoked'].includes(error.code))sendAttempt=null;
           feedback.textContent=error.message;feedback.hidden=false;throw error;
         }finally{button.disabled=false;button.classList.remove('sending');sending=false;flushDiscoveredChats();}
       });

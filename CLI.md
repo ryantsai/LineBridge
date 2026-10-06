@@ -214,7 +214,36 @@ Choose exactly one text source. File/stdin input must be UTF-8; Unicode, embedde
 
 **`delivery_unknown` exits 8 and is never automatically resent.** Send network failures, timeouts, unusable responses, a missing message-ID acknowledgement and server errors conservatively report unknown delivery. Inspect the chat before any further send. Never automatically generate a replacement key or turn exit 8 into a retry loop. An explicit repetition with the same key remains subject to the server's saved state, which also refuses to re-dispatch an unknown send.
 
+One explicit exception is `send_preparation_failed` with a validated preparation
+diagnostic: the gateway rejected the operation before dispatch, so the CLI exits
+6 and preserves the safe stage/cause code, even when HTTP status is 502. Older
+or malformed diagnostic responses remain conservatively unknown. Neither case
+triggers retries. A repeated idempotency key retains the saved rejection.
+
+Normal Talk text preparation reports a finite diagnostic such as
+`SELF_KEY_LOOKUP_SELF_KEY_MISSING`,
+`RECIPIENT_KEY_NEGOTIATION_E2EE_UNSUPPORTED`,
+`GROUP_KEY_LOOKUP_NOT_FOUND`, or `ENCRYPTION_SDK_TYPE_ERROR`. These distinguish
+local key lookup, recipient/group negotiation and encryption; they do not contain
+keys, chat IDs, message text, raw exception messages or arbitrary upstream codes.
+Use the stage to investigate before changing account state. An unsupported peer
+or generic preparation error does not authorize disabling Letter Sealing,
+registering replacement keys or falling back to standard messaging. Only LINE's
+explicit `E2EE_RETRY_PLAIN` response retains the existing standard-send fallback.
+
 Credentials and text cannot share stdin. For `send --stdin` or `search --query-stdin`, use a profile or transient environment credentials. Credential stdin can accompany `--text-file`/`--query-file`.
+
+## Text to Official Accounts
+
+Sending **from a personal account to a LINE Official Account** is supported only after authenticated capability checks: the exact recipient's Buddy record must identify a business account with a known Official Account bot type, and its E2EE negotiation must explicitly report `specVersion: -1` without a public key. Display names, contact categories, missing keys, network errors and that version value alone cannot establish an Official Account. Incomplete or contradictory evidence fails closed.
+
+Official Account text is **transport-encrypted, not Letter Sealed**. Obtain explicit approval for the destination and exact text, explaining this limitation, then pass `--acknowledge-oa-transport` to `send`. REST and MCP `line_send_message` use the optional boolean `acknowledgeOaTransport: true`. The dashboard checks capability and asks for confirmation before creating the send intent. This acknowledgment applies only to that message; it creates no grant, persistent encryption preference, OA channel credential or LIFF permission. Normal recipients still use Letter Sealing even if the flag is supplied.
+
+The acknowledgment is part of the idempotency fingerprint. Reusing a key with a different acknowledgment returns `idempotency_conflict`. A missing acknowledgment returns `oa_transport_acknowledgment_required` (CLI exit 6) before dispatch. After user approval, deliberately create a new intent/key; never automate this transition. Unknown delivery retains its original key and acknowledgment and is never automatically retried. LINE acceptance is not recipient receipt or a read confirmation.
+
+Capability checks have a 15-second transport deadline and are repeated for each new send; a dashboard preview is not authorization or cached evidence. Current send scope is checked at the send RPC boundary, after the SDK finishes persisting its request sequence. Concurrent dashboard submissions are blocked while capability lookup, confirmation or sending is pending. Ordinary and unknown recipients never take the new OA path. The existing explicit LINE `E2EE_RETRY_PLAIN` handling is unchanged; group `NOT_FOUND` is not an OA signal and does not justify weakening encryption or resetting keys.
+
+Validation uses the pinned SDK with synthetic keys and RPC responses. It covers OA acceptance, missing approval, normal-recipient encryption, malformed/timeout negotiation, missing group keys, permission revocation and unknown-delivery replay. It does not establish live OA delivery. No real messages or account key registrations were performed to validate this change.
 
 ## Deadlines and exits
 

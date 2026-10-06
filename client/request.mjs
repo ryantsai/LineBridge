@@ -1,6 +1,9 @@
 import {ClientError, EXIT, unknownDelivery} from './errors.mjs';
+import {preparationDiagnostic} from './send-diagnostic.mjs';
 
 const errors = {
+  oa_transport_acknowledgment_required:'Official Account messages are transport-encrypted, not Letter Sealed. Obtain explicit approval for this recipient and message, then use --acknowledge-oa-transport. No message was sent; do not retry automatically.',
+  send_authorization_revoked:'Send permission expired or changed during preparation. No message was sent.',
   invalid_flex:'Invalid Flex payload or missing transport-security acknowledgment.', flex_transport_unsupported:'OpenChat Flex is not verified and is blocked; no fallback was used.',
   media_metadata_missing:'Legacy message has no media metadata.', media_not_archived:'Message is not in this scoped chat archive.',
   media_unsupported:'Unsupported image type or dimensions.', sticker_unsupported:'Custom or option-bearing stickers are not supported.',
@@ -50,6 +53,10 @@ export async function gatewayRequest({url,credentials,path,method='GET',body,key
     throw new ClientError(timeout?'request_timeout':'transport_error',timeout?'The request timed out. No retry was made.':'The gateway did not return a usable JSON response. Check its URL, availability and TLS configuration. No retry was made.',EXIT.transport);
   }
   if(!response.ok) {
+    if(send&&result.error==='send_preparation_failed'){
+      const diagnostic=preparationDiagnostic(result.message);
+      if(diagnostic)throw new ClientError('send_preparation_failed',`Message preparation failed (${diagnostic}). No message was sent. No retry was made.`,EXIT.remote,response.status);
+    }
     if(send && response.status>=500)throw unknownDelivery(response.status);
     throw remoteError(response.status,result);
   }

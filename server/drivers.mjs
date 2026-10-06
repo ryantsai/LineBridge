@@ -7,6 +7,9 @@ import {AliasResolver,contactName} from './aliases.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError,accountDiagnostic} from './account-health.mjs';
 import {mediaDescriptor,imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_TIMEOUT_MS} from './media.mjs';
 import {assertFlexTransport,validateFlex} from './flex.mjs';
+import {officialAccountCapability,OA_NOTICE} from './official-account.mjs';
+import {prepareText} from './send-preparation.mjs';
+import {dispatchText} from './send-dispatch.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -225,28 +228,41 @@ export class LineDriver {
     if(!message?.id)fail(502,'send_unconfirmed','LINE did not return a message ID. Delivery is unknown; inspect the chat before sending again.');
     return {messageId:String(message.id),timestamp:normalizeMessage(message).timestamp,delivery:'accepted_by_line',protection:'line_transport',notice:'Flex is not Letter Sealed. Acceptance does not prove client rendering or recipient interaction.'};
   }
-  async send(chat,text) {
-    let options,protection=chat.kind==='openchat'?'line_transport':'letter_sealing';
+  async textCapability(chat) {
+    try {
+      const operation=()=>officialAccountCapability(this.client,chat);
+      const capability=await this.monitorRequest(AbortSignal.timeout(15000),operation);
+      return {officialAccount:capability.officialAccount,notice:capability.officialAccount?OA_NOTICE:undefined};
+    }catch(error){throw new SendRejectedError(502,'send_preparation_failed',`Message preparation failed (${error.diagnostic??'MESSAGE_PREPARATION_SDK_ERROR'}). No message was sent.`);}
+  }
+  async send(chat,text,{acknowledgeOaTransport=false}={},beforeDispatch=()=>{}) {
+    let options,officialAccount=false,protection=chat.kind==='openchat'?'line_transport':'letter_sealing';
     if(chat.kind!=='openchat') {
       try {
-        const chunks=await this.client.e2ee.encryptE2EEMessage(chat.id,text,'NONE');
-        options={to:chat.id,chunks,e2ee:true,contentType:'NONE',contentMetadata:{e2eeVersion:'2',contentType:'0',e2eeMark:'2'}};
-      } catch(error) {
+        const capability=chat.kind==='direct'?await this.monitorRequest(AbortSignal.timeout(15000),()=>officialAccountCapability(this.client,chat)):{officialAccount:false};
+        if(capability.officialAccount){
+          officialAccount=true;
+          if(acknowledgeOaTransport!==true)throw new SendRejectedError(409,'oa_transport_acknowledgment_required',OA_NOTICE+' Supply acknowledgeOaTransport:true only after explicit user approval. No message was sent.');
+          options={to:chat.id,text,e2ee:false};protection='line_transport';
+        }else{
+          const chunks=await prepareText(this.client,chat,text,capability.negotiation);
+          options={to:chat.id,chunks,e2ee:true,contentType:'NONE',contentMetadata:{e2eeVersion:'2',contentType:'0',e2eeMark:'2'}};
+        }
+      } catch(preparation) {
+        if(preparation instanceof SendRejectedError)throw preparation;
+        const error=preparation.original??preparation;
         // This explicit LINE response means the chat expects standard messaging.
         // Missing keys, timeouts and other errors must not silently downgrade it.
-        if(error?.name==='RequestError' && discoveryErrorCode(error)==='E2EE_RETRY_PLAIN') {
+        if(error?.name==='RequestError' && !preparation.diagnostic?.startsWith('BUDDY_LOOKUP_') && discoveryErrorCode(error)==='E2EE_RETRY_PLAIN') {
           options={to:chat.id,text,e2ee:false};protection='line_transport';
         } else {
-          const code=discoveryErrorCode(error);
-          throw new SendRejectedError(502,'send_preparation_failed',`Message preparation failed (${code}). No message was sent. Resume or reconnect the account if LINE requires identity verification.`);
+          throw new SendRejectedError(502,'send_preparation_failed',`Message preparation failed (${preparation.diagnostic??'MESSAGE_PREPARATION_SDK_ERROR'}). No message was sent. Review this preparation stage before another attempt; do not reset keys or weaken encryption.`);
         }
       }
     }
     let response;
     try {
-      response=chat.kind==='openchat'
-        ? await this.client.square.sendMessage({squareChatMid:chat.id,text})
-        : await this.client.talk.sendMessage(options);
+      response=await dispatchText(this.client,chat,chat.kind==='openchat'?{squareChatMid:chat.id,text}:options,beforeDispatch);
     } catch(error) {
       const code=discoveryErrorCode(error);
       if(error?.name==='RequestError' && code!=='protocol_error' && code!=='UNKNOWN') {
@@ -256,7 +272,7 @@ export class LineDriver {
     }
     const message=response?.createdSquareMessage?.message ?? response?.squareMessage?.message ?? response;
     if(!message?.id) fail(502,'send_unconfirmed','LINE did not return a message ID. Delivery is unknown; inspect the chat before sending again.');
-    return {messageId:String(message.id),timestamp:normalizeMessage(message).timestamp,delivery:'accepted_by_line',protection};
+    return {messageId:String(message.id),timestamp:normalizeMessage(message).timestamp,delivery:'accepted_by_line',protection,...(officialAccount?{notice:OA_NOTICE}:{})};
   }
 }
 
