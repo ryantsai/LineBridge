@@ -165,3 +165,7 @@ CLI_COMMAND send --profile PROFILE_NAME --account ACCOUNT_ID --chat CHAT_ID --ke
 排錯先核對執行主機、既有服務、profile、grant 到期／撤銷、聊天室指定、AI 暫停狀態與每個串流的成功時間、已去敏的 `lastFailure`。普通逾時不重設帳號、不刪封存；只有明確需要重新 QR 登入時才請使用者配對。回報錯誤代碼、狀態、時間及未就緒項目，不貼原始回應、headers、憑證或聊天內容。不要把服務可達當成 LINE 就緒。LINE 介面非官方，OpenChat 屬實驗性質，可用性受上游變更影響。
 
 本專案採用 [MIT 授權](LICENSE)；第三方相依套件保留各自授權。
+
+## 圖片讀取與 Flex 訊息
+
+可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。目前僅完成合成測試，尚未進行真實傳送或下載測試。

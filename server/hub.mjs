@@ -10,6 +10,8 @@ import {initializeSearch,searchInput,searchArchive} from './search.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,ACCOUNT_CHECK_INTERVAL_MS,accountDiagnostic,accountRetryDelay} from './account-health.mjs';
 import {refreshIntervalSeconds,MIN_REFRESH_INTERVAL_SECONDS,MAX_REFRESH_INTERVAL_SECONDS} from './monitor-policy.mjs';
 import {DebugLogging} from './debug-logging.mjs';
+import {validateFlex,assertFlexTransport} from './flex.mjs';
+import {imageResult} from './media.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
 const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
@@ -284,13 +286,41 @@ export class Hub {
       } catch(error){this.store.audit(actor.id,'messages.read',id,chatId,'failed');if(fresh)this.debug.record('message-refresh','failed',{durationMs:Date.now()-startedAt,failureKind:'service',httpStatus:publicError(error).status},id,chatId);throw error;}
     });
   }
-  async send(actor,id,chatId,text,key) {
+  async media(actor,id,chatId,messageId) {
+    this.authorize(actor,id,'read',chatId);this.limit(actor);
+    if(typeof messageId!=='string'||!/^[A-Za-z0-9_-]{1,150}$/.test(messageId))fail(400,'invalid_message_id','Supply a valid archived message ID.');
+    return this.serialized(id,async()=>{
+      const chat=this.authorize(actor,id,'read',chatId);
+      const row=this.store.db.prepare('SELECT event_id,cipher FROM messages WHERE account_id=? AND chat_id=? AND message_id=?').get(id,chatId,messageId);
+      if(!row)fail(404,'media_not_archived','Media retrieval requires a message captured in this designated chat archive.');
+      const message=this.vault.unseal(row.cipher,`message:${row.event_id}`);
+      if(!message.media)fail(409,'media_metadata_missing','This archived message has no media descriptor; legacy records are not silently refetched.');
+      const driver=this.driver(id);if(!driver.media)fail(415,'media_unsupported','This account adapter does not support media.');
+      try{
+        const result=await driver.media(chat,message);
+        this.authorize(actor,id,'read',chatId);
+        // Validate the private worker boundary as well as upstream bytes.
+        const checked=imageResult(Buffer.from(result.data??'','base64'),result.preview===true);
+        this.store.audit(actor.id,'media.read',id,chatId,'ok');
+        return {accountId:id,chatId,messageId,...checked,...(result.preview?{notice:'Static preview; animation, sound and custom text are not interpreted.'}:{}),retention:'No server image cache; bytes live only for this request.'};
+      }catch(error){this.store.audit(actor.id,'media.read',id,chatId,'failed');throw error;}
+    });
+  }
+  async sendFlex(actor,id,chatId,input,key){
+    this.authorize(actor,id,'send',chatId);
+    const payload=validateFlex(input);assertFlexTransport(this.authorize(actor,id,'send',chatId));
+    return this.send(actor,id,chatId,payload,key,'flex');
+  }
+  async send(actor,id,chatId,text,key,kind='text') {
     this.authorize(actor,id,'send',chatId);this.limit(actor,true);
-    if(typeof text!=='string'||!text.trim()||text.length>5000)fail(400,'invalid_text','A text message of 1–5000 characters is required.');
+    if(!['text','flex'].includes(kind))fail(400,'invalid_input','Unsupported message kind.');
+    if(kind==='text'&&(typeof text!=='string'||!text.trim()||text.length>5000))fail(400,'invalid_text','A text message of 1–5000 characters is required.');
+    if(kind==='flex'){text=validateFlex(text);assertFlexTransport(this.authorize(actor,id,'send',chatId));}
     if(typeof key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(key))fail(400,'idempotency_required','Supply a unique idempotency key of 8–128 letters, digits, dots, underscores, colons or hyphens.');
     return this.serialized(id,async()=>{
       const chat=this.authorize(actor,id,'send',chatId),driver=this.driver(id);
-      const fingerprint=createHmac('sha256',this.vault.key).update(JSON.stringify([id,chatId,text])).digest('hex');
+      if(kind==='flex')assertFlexTransport(chat);
+      const fingerprint=createHmac('sha256',this.vault.key).update(JSON.stringify(kind==='text'?[id,chatId,text]:[id,chatId,'flex',text])).digest('hex');
       const previous=this.store.send(actor.id,key);
       if(previous) {
         if(previous.fingerprint!==fingerprint)fail(409,'idempotency_conflict','This key was already used for a different message.');
@@ -300,9 +330,10 @@ export class Hub {
       }
       this.store.reserve(actor.id,key,fingerprint);
       try {
-        const result={accountId:id,chatId,...await driver.send(chat,text),replayed:false};
+        if(kind==='flex'&&!driver.sendFlex)throw new SendRejectedError(409,'flex_transport_unverified','This adapter does not support Flex sending.');
+        const result={accountId:id,chatId,...await (kind==='flex'?driver.sendFlex(chat,text):driver.send(chat,text)),replayed:false};
         this.store.finishSend(actor.id,key,'sent',result);this.store.audit(actor.id,'messages.send',id,chatId,'ok');
-        if(this.record(id).kind==='demo')try{this.capture(id,chatId,{id:result.messageId,senderId:'synthetic',senderName:'Sample account',text,timestamp:result.timestamp,contentType:'NONE'});}catch{this.store.audit(actor.id,'monitor.capture',id,chatId,'failed');}
+        if(this.record(id).kind==='demo'&&kind==='text')try{this.capture(id,chatId,{id:result.messageId,senderId:'synthetic',senderName:'Sample account',text,timestamp:result.timestamp,contentType:'NONE'});}catch{this.store.audit(actor.id,'monitor.capture',id,chatId,'failed');}
         this.runtime.get(id).lastActivity=new Date().toISOString();return result;
       }catch(error){
         if(error instanceof SendRejectedError) {

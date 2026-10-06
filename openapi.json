@@ -20,6 +20,1220 @@
     }
   },
   "paths": {
+    "/api/v1/accounts/{id}/chats/{chatId}/messages/{messageId}/media": {
+      "get": {
+        "operationId": "readImage",
+        "summary": "Read a scoped archived image or basic sticker preview",
+        "description": "Requires read permission and an archived message with media metadata. Returns PNG/JPEG base64 data, MIME, dimensions, SHA-256 and untrustedContent. 1 MiB, 16 megapixels, 25-second upstream deadline. No disk cache. Personal E2EE media must still appear in the last 100 messages. Custom stickers and unsupported types fail explicitly.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chatId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,150}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}/chats/{chatId}/flex": {
+      "post": {
+        "operationId": "sendFlex",
+        "summary": "Send explicitly authorized transport-encrypted Flex to a personal Talk chat",
+        "description": "Flex is not Letter Sealed. Requires acknowledgeTransportSecurity:true, send scope and an idempotency key. OpenChat is blocked; no LIFF or text fallback. Acceptance does not establish rendering. Never retry delivery_unknown.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chatId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "altText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400
+                  },
+                  "contents": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "bubble"
+                          },
+                          "header": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "box"
+                              },
+                              "layout": {
+                                "type": "string",
+                                "enum": [
+                                  "vertical",
+                                  "horizontal"
+                                ]
+                              },
+                              "contents": {
+                                "minItems": 1,
+                                "maxItems": 20,
+                                "type": "array",
+                                "items": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "text"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        },
+                                        "wrap": {
+                                          "type": "boolean"
+                                        },
+                                        "weight": {
+                                          "type": "string",
+                                          "enum": [
+                                            "regular",
+                                            "bold"
+                                          ]
+                                        },
+                                        "size": {
+                                          "type": "string",
+                                          "enum": [
+                                            "xs",
+                                            "sm",
+                                            "md",
+                                            "lg",
+                                            "xl",
+                                            "xxl"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "text"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "button"
+                                        },
+                                        "action": {
+                                          "oneOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "message"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "text": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 300
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "text"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "uri"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "uri": {
+                                                  "type": "string",
+                                                  "maxLength": 2000
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "uri"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          ]
+                                        },
+                                        "style": {
+                                          "type": "string",
+                                          "enum": [
+                                            "link",
+                                            "primary",
+                                            "secondary"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "action"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "separator"
+                                        }
+                                      },
+                                      "required": [
+                                        "type"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              },
+                              "spacing": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "xs",
+                                  "sm",
+                                  "md",
+                                  "lg",
+                                  "xl",
+                                  "xxl"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "layout",
+                              "contents"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "body": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "box"
+                              },
+                              "layout": {
+                                "type": "string",
+                                "enum": [
+                                  "vertical",
+                                  "horizontal"
+                                ]
+                              },
+                              "contents": {
+                                "minItems": 1,
+                                "maxItems": 20,
+                                "type": "array",
+                                "items": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "text"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        },
+                                        "wrap": {
+                                          "type": "boolean"
+                                        },
+                                        "weight": {
+                                          "type": "string",
+                                          "enum": [
+                                            "regular",
+                                            "bold"
+                                          ]
+                                        },
+                                        "size": {
+                                          "type": "string",
+                                          "enum": [
+                                            "xs",
+                                            "sm",
+                                            "md",
+                                            "lg",
+                                            "xl",
+                                            "xxl"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "text"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "button"
+                                        },
+                                        "action": {
+                                          "oneOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "message"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "text": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 300
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "text"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "uri"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "uri": {
+                                                  "type": "string",
+                                                  "maxLength": 2000
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "uri"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          ]
+                                        },
+                                        "style": {
+                                          "type": "string",
+                                          "enum": [
+                                            "link",
+                                            "primary",
+                                            "secondary"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "action"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "separator"
+                                        }
+                                      },
+                                      "required": [
+                                        "type"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              },
+                              "spacing": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "xs",
+                                  "sm",
+                                  "md",
+                                  "lg",
+                                  "xl",
+                                  "xxl"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "layout",
+                              "contents"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "footer": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "box"
+                              },
+                              "layout": {
+                                "type": "string",
+                                "enum": [
+                                  "vertical",
+                                  "horizontal"
+                                ]
+                              },
+                              "contents": {
+                                "minItems": 1,
+                                "maxItems": 20,
+                                "type": "array",
+                                "items": {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "text"
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2000
+                                        },
+                                        "wrap": {
+                                          "type": "boolean"
+                                        },
+                                        "weight": {
+                                          "type": "string",
+                                          "enum": [
+                                            "regular",
+                                            "bold"
+                                          ]
+                                        },
+                                        "size": {
+                                          "type": "string",
+                                          "enum": [
+                                            "xs",
+                                            "sm",
+                                            "md",
+                                            "lg",
+                                            "xl",
+                                            "xxl"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "text"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "button"
+                                        },
+                                        "action": {
+                                          "oneOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "message"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "text": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 300
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "text"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "type": {
+                                                  "type": "string",
+                                                  "const": "uri"
+                                                },
+                                                "label": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 20
+                                                },
+                                                "uri": {
+                                                  "type": "string",
+                                                  "maxLength": 2000
+                                                }
+                                              },
+                                              "required": [
+                                                "type",
+                                                "label",
+                                                "uri"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          ]
+                                        },
+                                        "style": {
+                                          "type": "string",
+                                          "enum": [
+                                            "link",
+                                            "primary",
+                                            "secondary"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "action"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "const": "separator"
+                                        }
+                                      },
+                                      "required": [
+                                        "type"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              },
+                              "spacing": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "xs",
+                                  "sm",
+                                  "md",
+                                  "lg",
+                                  "xl",
+                                  "xxl"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "layout",
+                              "contents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "body"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "carousel"
+                          },
+                          "contents": {
+                            "minItems": 1,
+                            "maxItems": 10,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "const": "bubble"
+                                },
+                                "header": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "const": "box"
+                                    },
+                                    "layout": {
+                                      "type": "string",
+                                      "enum": [
+                                        "vertical",
+                                        "horizontal"
+                                      ]
+                                    },
+                                    "contents": {
+                                      "minItems": 1,
+                                      "maxItems": 20,
+                                      "type": "array",
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "text"
+                                              },
+                                              "text": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 2000
+                                              },
+                                              "wrap": {
+                                                "type": "boolean"
+                                              },
+                                              "weight": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "regular",
+                                                  "bold"
+                                                ]
+                                              },
+                                              "size": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "xs",
+                                                  "sm",
+                                                  "md",
+                                                  "lg",
+                                                  "xl",
+                                                  "xxl"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "text"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "button"
+                                              },
+                                              "action": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "message"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "text": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 300
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "text"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "uri"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "uri": {
+                                                        "type": "string",
+                                                        "maxLength": 2000
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "uri"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  }
+                                                ]
+                                              },
+                                              "style": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "link",
+                                                  "primary",
+                                                  "secondary"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "action"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "separator"
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "spacing": {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "xs",
+                                        "sm",
+                                        "md",
+                                        "lg",
+                                        "xl",
+                                        "xxl"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "layout",
+                                    "contents"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "body": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "const": "box"
+                                    },
+                                    "layout": {
+                                      "type": "string",
+                                      "enum": [
+                                        "vertical",
+                                        "horizontal"
+                                      ]
+                                    },
+                                    "contents": {
+                                      "minItems": 1,
+                                      "maxItems": 20,
+                                      "type": "array",
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "text"
+                                              },
+                                              "text": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 2000
+                                              },
+                                              "wrap": {
+                                                "type": "boolean"
+                                              },
+                                              "weight": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "regular",
+                                                  "bold"
+                                                ]
+                                              },
+                                              "size": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "xs",
+                                                  "sm",
+                                                  "md",
+                                                  "lg",
+                                                  "xl",
+                                                  "xxl"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "text"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "button"
+                                              },
+                                              "action": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "message"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "text": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 300
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "text"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "uri"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "uri": {
+                                                        "type": "string",
+                                                        "maxLength": 2000
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "uri"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  }
+                                                ]
+                                              },
+                                              "style": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "link",
+                                                  "primary",
+                                                  "secondary"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "action"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "separator"
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "spacing": {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "xs",
+                                        "sm",
+                                        "md",
+                                        "lg",
+                                        "xl",
+                                        "xxl"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "layout",
+                                    "contents"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "footer": {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "const": "box"
+                                    },
+                                    "layout": {
+                                      "type": "string",
+                                      "enum": [
+                                        "vertical",
+                                        "horizontal"
+                                      ]
+                                    },
+                                    "contents": {
+                                      "minItems": 1,
+                                      "maxItems": 20,
+                                      "type": "array",
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "text"
+                                              },
+                                              "text": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 2000
+                                              },
+                                              "wrap": {
+                                                "type": "boolean"
+                                              },
+                                              "weight": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "regular",
+                                                  "bold"
+                                                ]
+                                              },
+                                              "size": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "xs",
+                                                  "sm",
+                                                  "md",
+                                                  "lg",
+                                                  "xl",
+                                                  "xxl"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "text"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "button"
+                                              },
+                                              "action": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "message"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "text": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 300
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "text"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "const": "uri"
+                                                      },
+                                                      "label": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 20
+                                                      },
+                                                      "uri": {
+                                                        "type": "string",
+                                                        "maxLength": 2000
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "label",
+                                                      "uri"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  }
+                                                ]
+                                              },
+                                              "style": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "link",
+                                                  "primary",
+                                                  "secondary"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "action"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "const": "separator"
+                                              }
+                                            },
+                                            "required": [
+                                              "type"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "spacing": {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "xs",
+                                        "sm",
+                                        "md",
+                                        "lg",
+                                        "xl",
+                                        "xxl"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "layout",
+                                    "contents"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "body"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "contents"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "acknowledgeTransportSecurity": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "altText",
+                  "contents",
+                  "acknowledgeTransportSecurity"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Account or chat scope denied"
+          },
+          "409": {
+            "description": "Disconnected account, conflicting key or unknown send outcome"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Upstream error or unknown delivery"
+          }
+        }
+      }
+    },
     "/api/v1/version": {
       "get": {
         "operationId": "getVersion",

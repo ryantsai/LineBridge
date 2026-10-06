@@ -47,6 +47,8 @@ async function handle(request){
         case 'check':result=await driver.check();break;
         case 'discover':result=await driver.discover();break;
         case 'read':result=await driver.read(params.chat,params.limit,params.cursor);break;
+        case 'media':result=await driver.media(params.chat,params.message);break;
+        case 'send_flex':result=await driver.sendFlex(params.chat,params.input);break;
         case 'resolve_names':result=await driver.resolveMessageNames(params.chat,(params.messages ?? []).slice(0,100));break;
         case 'send':result=await driver.send(params.chat,params.text);break;
         case 'monitor_start':{
