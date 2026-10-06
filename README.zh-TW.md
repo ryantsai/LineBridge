@@ -15,6 +15,8 @@ CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID
 
 [繁體中文（預設）](README.md) | [English](README.en.md) | [日本語](README.ja.md)
 
+傳送文字給已驗證的 LINE 官方帳號時，僅有傳輸加密，**沒有 Letter Sealing**。需另行取得使用者對這一則訊息的同意，再加上 `--acknowledge-oa-transport`；一般收件者仍使用端對端加密。詳見[官方帳號文字傳送](CLI.md#text-to-official-accounts)。
+
 ## 圖片讀取與 Flex 訊息
 
 可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。目前僅完成合成測試，尚未進行真實傳送或下載測試。

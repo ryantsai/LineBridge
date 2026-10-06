@@ -96,7 +96,8 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     try{res.json(await chatAccess.apply(req.params.id,req.params.chatId,req.body,{signal:controller.signal}));}finally{res.off('close',cancel);}
   }));
   admin.get('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(adminActor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor,freshQuery(req)))));
-  admin.post('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(adminActor,req.params.id,req.params.chatId,req.body.text,req.body.idempotencyKey))));
+  admin.get('/admin/accounts/:id/chats/:chatId/text-capability',asyncRoute(async(req,res)=>res.json(await hub.textCapability(adminActor,req.params.id,req.params.chatId))));
+  admin.post('/admin/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(adminActor,req.params.id,req.params.chatId,req.body.text,req.body.idempotencyKey,'text',{acknowledgeOaTransport:req.body.acknowledgeOaTransport}))));
   admin.post('/admin/tokens',(req,res)=>res.status(201).json(hub.createToken(req.body)));
   admin.delete('/admin/tokens/:id',(req,res)=>{hub.store.revoke(req.params.id);hub.store.audit('local-admin','token.revoke',null,null,'ok');res.json({ok:true});});
   admin.put('/admin/tunnel',(req,res)=>res.json(tunnels.configure(req.body)));
@@ -154,7 +155,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   gateway.get('/api/v1/accounts/:id/events',(req,res)=>res.json(hub.events(req.actor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));
   gateway.post('/api/v1/messages/search',(req,res)=>res.json(hub.search(req.actor,req.body)));
   gateway.get('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.read(req.actor,req.params.id,req.params.chatId,Number(req.query.limit ?? 30),req.query.cursor,freshQuery(req)))));
-  gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key']))));
+  gateway.post('/api/v1/accounts/:id/chats/:chatId/messages',asyncRoute(async(req,res)=>res.json(await hub.send(req.actor,req.params.id,req.params.chatId,req.body.text,req.headers['idempotency-key'],'text',{acknowledgeOaTransport:req.body.acknowledgeOaTransport}))));
   gateway.get('/openapi.json',(req,res)=>res.json(openapi));
   gateway.get('/api/v1/accounts/:id/chats/:chatId/messages/:messageId/media',asyncRoute(async(req,res)=>{res.set('Cache-Control','no-store');res.json(await hub.media(req.actor,req.params.id,req.params.chatId,req.params.messageId));}));
   gateway.post('/api/v1/accounts/:id/chats/:chatId/flex',asyncRoute(async(req,res)=>res.json(await hub.sendFlex(req.actor,req.params.id,req.params.chatId,req.body,req.headers['idempotency-key']))));

@@ -15,7 +15,7 @@ export class PreparationFailure extends Error {
 
 // Per-operation views preserve SDK behavior and shared live clients. Do not
 // monkeypatch the live SDK, add key registration, retry, or change encryption.
-export async function prepareText(client,chat,text){
+export async function prepareText(client,chat,text,negotiation){
   let stage='MESSAGE_PREPARATION';
   const failures=new WeakMap();
   const e2ee=Object.create(client.e2ee),view=Object.create(client),talk=Object.create(client.talk);
@@ -33,6 +33,7 @@ export async function prepareText(client,chat,text){
   for(const name of ['getE2EESelfKeyData','getE2EESelfKeyDataByKeyId'])wrap(e2ee,client.e2ee,name,'SELF_KEY_LOOKUP');
   wrap(e2ee,client.e2ee,'getE2EELocalPublicKey',chat.kind==='group'?'GROUP_KEY_LOOKUP':'RECIPIENT_KEY_NEGOTIATION');
   wrap(talk,client.talk,'negotiateE2EEPublicKey','RECIPIENT_KEY_NEGOTIATION',client.talk);
+  if(negotiation!==undefined)talk.negotiateE2EEPublicKey=async()=>{stage='RECIPIENT_KEY_NEGOTIATION';return negotiation;};
   wrap(talk,client.talk,'getLastE2EEGroupSharedKey','GROUP_KEY_LOOKUP',client.talk);
   wrap(e2ee,client.e2ee,'encryptE2EETextMessage','ENCRYPTION');
   try{return await e2ee.encryptE2EEMessage(chat.id,text,'NONE');}

@@ -11,6 +11,14 @@ import {accountCheckError} from '../server/account-health.mjs';
 console.log=()=>{};console.error=()=>{};
 const drivers=new Map(),writes=new Map(),monitors=new Map();
 const emit=value=>process.stdout.write(JSON.stringify(value,(_,v)=>typeof v==='bigint'?{$bigint:String(v)}:v)+'\n');
+function authorizeDispatch(id){
+  return new Promise((resolve,reject)=>{
+    const denied=()=>reject(new SendRejectedError(403,'send_authorization_revoked','Send authorization expired or changed during preparation. No message was sent.'));
+    const timer=setTimeout(()=>{writes.delete(id);denied();},5000);
+    writes.set(id,{resolve:()=>{clearTimeout(timer);resolve();},reject:()=>{clearTimeout(timer);denied();}});
+    emit({type:'authorize_send',id});
+  });
+}
 class PipeStorage extends BaseStorage {
   constructor(accountId,initial){super();this.accountId=accountId;this.data=new Map(Object.entries(initial));}
   async get(key){return this.data.get(key);}
@@ -50,7 +58,8 @@ async function handle(request){
         case 'media':result=await driver.media(params.chat,params.message);break;
         case 'send_flex':result=await driver.sendFlex(params.chat,params.input);break;
         case 'resolve_names':result=await driver.resolveMessageNames(params.chat,(params.messages ?? []).slice(0,100));break;
-        case 'send':result=await driver.send(params.chat,params.text);break;
+        case 'text_capability':result=await driver.textCapability(params.chat);break;
+        case 'send':result=await driver.send(params.chat,params.text,params.options,()=>authorizeDispatch(id));break;
         case 'monitor_start':{
           monitors.get(accountId)?.stop();
           if(params.reset)for(const key of Object.keys(driver.storage.getAll()))if(key.startsWith('monitor.'))await driver.storage.delete(key);
@@ -78,7 +87,7 @@ const input=createInterface({input:process.stdin,crlfDelay:Infinity});
 input.on('line',line=>{
   if(line.length>2_000_000){process.exit(2);return;}
   try{const message=JSON.parse(line,(_,v)=>v&&typeof v==='object'&&'$bigint'in v?BigInt(v.$bigint):v);
-    if(['storage_ack','capture_ack'].includes(message.type)){const pending=writes.get(message.id);writes.delete(message.id);message.ok?pending?.resolve():pending?.reject();}
+    if(['storage_ack','capture_ack','authorize_send_ack'].includes(message.type)){const pending=writes.get(message.id);writes.delete(message.id);message.ok?pending?.resolve():pending?.reject();}
     else void handle(message);
   }catch{process.exit(2);}
 });

@@ -18,12 +18,12 @@ const commandOptions = {
   version:[],
   accounts:[], chats:['account'], read:['account','chat','limit','cursor'], refresh:['account','chat','limit'], events:['account','after','limit'],
   search:['query','query-file','query-stdin','account','chat','mode','before','limit'],
-  send:['account','chat','key','text','text-file','stdin'],
+  send:['account','chat','key','text','text-file','stdin','acknowledge-oa-transport'],
   'send-flex':['account','chat','key','payload','payload-file','stdin'],
   media:['account','chat','message','output'],
   auth:['token-stdin']
 };
-const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin']);
+const booleans = new Set(['help','credential-stdin','token-stdin','query-stdin','stdin','acknowledge-oa-transport']);
 export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/macOS)
 
   linebridge discover [--data-dir DIR] [--timeout-ms 7000]
@@ -36,7 +36,7 @@ export const HELP = `LineBridge ${VERSION} data client (Node.js 24+, Windows/mac
   linebridge search --query QUERY [--account ACCOUNT] [--chat CHAT]
                     [--mode all|phrase] [--before SEQUENCE] [--limit 30]
   linebridge send --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
-                  (--text TEXT | --text-file UTF8_FILE | --stdin)
+                  (--text TEXT | --text-file UTF8_FILE | --stdin) [--acknowledge-oa-transport]
   linebridge auth enroll --url GATEWAY (--token-stdin | --credential-stdin)
   linebridge media --account ACCOUNT --chat CHAT --message MESSAGE --output FILE
   linebridge send-flex --account ACCOUNT --chat CHAT --key IDEMPOTENCY_KEY
@@ -55,6 +55,8 @@ bypassing the automatic refresh interval. Upstream failures return errors,
 not a cached-only result. It does not start monitoring.
 Limits: 1-100 records per page; deadline 1-120000 ms. No automatic pagination,
 redirects or retries. Pass returned cursor/nextBefore explicitly to continue.
+OA text requires explicit --acknowledge-oa-transport approval: transport-encrypted,
+not Letter Sealed. Verified OA recipients only; normal chats still use E2EE.
 Credentials are never accepted as command-line arguments or printed.
 Environment: LINE_BRIDGE_URL, LINE_BRIDGE_TOKEN, CF_ACCESS_CLIENT_ID,
              CF_ACCESS_CLIENT_SECRET, LINE_BRIDGE_CLIENT_CONFIG.
@@ -183,7 +185,7 @@ async function execute(argv,context) {
     if(typeof values.key!=='string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(values.key))usage('Supply --key with 8-128 letters, digits, dots, underscores, colons or hyphens. Keep the same key for the same request.');
     const text=await inputText(values,['text','text-file','stdin'],context,20000);
     if(!text.trim() || text.length>5000)usage('Message text needs 1-5000 characters.');
-    request={path:`${base}/chats/${encodeURIComponent(chat)}/messages`,method:'POST',body:{text},key:values.key,send:true};
+    request={path:`${base}/chats/${encodeURIComponent(chat)}/messages`,method:'POST',body:{text,...(values['acknowledge-oa-transport']?{acknowledgeOaTransport:true}:{})},key:values.key,send:true};
   }
   if(command==='send-flex'){
     if(typeof values.key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(values.key))usage('Supply a valid explicit --key.');

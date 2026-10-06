@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes} from 'node:crypto';
 import {BaseClient} from 'lineclientbot';
@@ -20,7 +21,7 @@ function fixture(){
   client.talk.negotiateE2EEPublicKey=async()=>({specVersion:2,publicKey:{keyId:456,keyData:Buffer.from(receiver.pubKey,'base64')}});
   client.e2ee.getE2EELocalPublicKey=async()=>receiver;
   let sends=0;client.talk.sendMessage=async()=>{sends++;return {id:'synthetic-ack'};};
-  const driver=Object.create(LineDriver.prototype);driver.client=client;
+  const driver=Object.create(LineDriver.prototype);driver.client=client;driver.requestSignal=new AsyncLocalStorage();client.request.request=async()=>({});
   return {client,driver,values,sends:()=>sends};
 }
 const direct={id:'u'+'2'.repeat(32),kind:'direct'},group={id:'c'+'3'.repeat(32),kind:'group'};

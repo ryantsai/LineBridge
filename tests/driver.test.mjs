@@ -64,7 +64,8 @@ test('personal history uses the bounded Talk RPC and never exposes undecrypted c
 });
 test('Letter Sealing sends contain only encrypted chunks and require a message ID',async()=>{
   const d=Object.create(LineDriver.prototype);let options;
-  d.client={e2ee:{encryptE2EEMessage:async()=>['cipher']},talk:{sendMessage:async o=>{options=o;return {id:'accepted'};}}};
+  d.monitorRequest=(_signal,operation)=>operation();
+  d.client={e2ee:{encryptE2EEMessage:async()=>['cipher']},talk:{negotiateE2EEPublicKey:async()=>({specVersion:2}),sendMessage:async o=>{options=o;return {id:'accepted'};}}};
   assert.equal((await d.send({id:'u123',kind:'direct'},'hello')).messageId,'accepted');assert.equal(options.e2ee,true);
   assert.equal(options.text,undefined);assert.deepEqual(options.chunks,['cipher']);
   d.client.talk.sendMessage=async()=>({});await assert.rejects(d.send({id:'u123',kind:'direct'},'hello'),{code:'send_unconfirmed'});

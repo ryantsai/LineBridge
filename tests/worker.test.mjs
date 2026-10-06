@@ -6,6 +6,8 @@ import {Vault,VaultStorage} from '../server/vault.mjs';
 import {ProtocolWorker} from '../server/worker.mjs';
 import {capture} from '../server/inbox.mjs';
 import {SendRejectedError} from '../server/errors.mjs';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
 
 test('private worker RPC returns bounded sanitized errors and stops cleanly',async t=>{
   const store=new Store(':memory:'),worker=new ProtocolWorker(store,new Vault(randomBytes(32),'test'),()=>{});t.after(()=>{worker.close();store.close();});
@@ -32,4 +34,24 @@ test('worker preserves preparation-rejected sends and rejects pending jobs when 
   const worker=new ProtocolWorker(null,null,null);let error;worker.pending.set('send',{timer:setTimeout(()=>{},5000),reject:e=>{error=e;}});
   worker.handle({type:'result',id:'send',error:{status:502,code:'send_preparation_failed',message:'No message was sent.',rejected_send:true}});assert.ok(error instanceof SendRejectedError);
   worker.pending.set('read',{timer:setTimeout(()=>{},5000),reject:e=>{error=e;}});worker.close();assert.equal(error.code,'upstream_unavailable');assert.equal(worker.pending.size,0);
+});
+
+test('real private pipe waits for parent dispatch authorization and rejects late or revoked sends',async t=>{
+  // Exercise the actual protocol loop with an in-child synthetic adapter. No
+  // auth token, keys, live account, network or persistent storage is provided.
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    let dispatches=0;
+    LineDriver.prototype.login=async()=>({mid:'synthetic'});
+    LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await new Promise(r=>setTimeout(r,30));await beforeDispatch();dispatches++;return {messageId:'synthetic'};};
+    LineDriver.prototype.read=async()=>({dispatches});
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
+  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));
+  t.after(()=>{input.close();worker.close();});
+  await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
+  const params={accountId:'synthetic',chat:{id:'synthetic',kind:'direct'},text:'synthetic',options:{acknowledgeOaTransport:true}};
+  let checks=0;assert.equal((await worker.call('send',params,1000,undefined,()=>{checks++;})).messageId,'synthetic');assert.equal(checks,1);
+  await assert.rejects(worker.call('send',params,1000,undefined,()=>{throw new Error('revoked');}),{code:'send_authorization_revoked'});
+  await assert.rejects(worker.call('send',params,5,undefined,()=>assert.fail('Expired call must not authorize')),{code:'upstream_unavailable'});
+  await new Promise(r=>setTimeout(r,70));assert.equal((await worker.call('read',{accountId:'synthetic'})).dispatches,1);
 });

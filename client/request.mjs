@@ -2,6 +2,8 @@ import {ClientError, EXIT, unknownDelivery} from './errors.mjs';
 import {preparationDiagnostic} from './send-diagnostic.mjs';
 
 const errors = {
+  oa_transport_acknowledgment_required:'Official Account messages are transport-encrypted, not Letter Sealed. Obtain explicit approval for this recipient and message, then use --acknowledge-oa-transport. No message was sent; do not retry automatically.',
+  send_authorization_revoked:'Send permission expired or changed during preparation. No message was sent.',
   invalid_flex:'Invalid Flex payload or missing transport-security acknowledgment.', flex_transport_unsupported:'OpenChat Flex is not verified and is blocked; no fallback was used.',
   media_metadata_missing:'Legacy message has no media metadata.', media_not_archived:'Message is not in this scoped chat archive.',
   media_unsupported:'Unsupported image type or dimensions.', sticker_unsupported:'Custom or option-bearing stickers are not supported.',
