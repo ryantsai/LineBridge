@@ -1,3 +1,4 @@
+import {toggleChatAccess} from './chat-access.js';
 import {createConnections,providerName} from './connections.js';
 import { sendIntent } from './send-intent.js';
 import {label,errorText,coverage} from './locale.js';
@@ -246,12 +247,10 @@ async function saveChatMonitoring(accountId,chatId,enabled){
   savingChatMonitoring.add(key);
   if(accountId===selectedAccount){renderChatList();renderChatMonitoring();}
   try{
-    await api(`/accounts/${accountId}/chats/${encodeURIComponent(chatId)}`,{method:'PATCH',body:JSON.stringify({enabled})});
-    if(accountId===selectedAccount){
-      const chat=chats.find(c=>c.id===chatId);if(chat)chat.enabled=enabled?1:0;
-      renderChatList();renderChatMonitoring();
-    }
-    toast(enabled?'已啟用 AI 監控':'已停用 AI 監控');await refresh();
+    const result=await toggleChatAccess({accountId,chatId,enabled,onState:saved=>{
+      if(accountId===selectedAccount){const chat=chats.find(c=>c.id===chatId);if(chat)chat.enabled=saved.chat.enabled?1:0;renderChatList();renderChatMonitoring();}
+    }});
+    if(result.saved)toast('監控與本機 AI 授權已儲存；LINE 接收狀態請另看監控健康度。');
   }finally{
     savingChatMonitoring.delete(key);
     if(accountId===selectedAccount){renderChatList();renderChatMonitoring();}

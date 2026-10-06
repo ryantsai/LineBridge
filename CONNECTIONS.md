@@ -1,5 +1,31 @@
 # Cloud connections
 
+## Chat toggles and managed local AI access
+
+After enabling Local AI setup, a chat's AI toggle asks you to confirm the chat
+name/ID, existing profile, and resulting read/send scope. ON atomically adds that
+chat to monitoring and the existing managed local-only profile; OFF removes it.
+Turning off the final chat leaves an explicit empty scope. The credential, token
+expiry, and unrelated clients' grant definitions are preserved. OFF also blocks
+other clients from that chat because monitoring selection is a shared gate.
+
+ON requires an active, matching protected profile. Missing, revoked, expired, or
+locked setup produces an actionable Connections error, never automatic enrollment
+or replacement credentials. If enabling a previously disabled chat would also
+grant it to a manual/remote token or token-free local client, the toggle stops;
+review those clients' scopes first. OFF remains available with missing or locked
+credentials. Existing manual-only configurations must explicitly enable managed
+Local AI setup before using ON in this dashboard flow.
+
+Saved authorization and LINE receiver health are separate. A saved toggle does
+not prove live reception; consult each monitor stream's fresh success/error
+evidence. The permission request has a deadline and does not wait for LINE polls.
+After a lost response, the UI rereads saved scope without automatically retrying
+the change. Concurrent or stale confirmations must be reviewed again. Restart
+uses the committed scope. The dashboard-only PATCH requires `confirmed: true`
+and the current snapshot from the chat's `/access` endpoint; the old bare
+`{enabled: true}` request is rejected.
+
 LineBridge runs on your computer and reaches LINE here. An AI controlling this computer's terminal can use the loopback gateway; a remote cloud AI needs a reachable gateway. The portable bundle includes Node and a Windows/macOS tray launcher. Tunnel helpers are optional separate installations available through the dashboard. Scoped, expiring Bearer tokens are required by default, including localhost. Create one under **AI 存取**; read grants include archive search, while send grants are independent.
 
 For portable installs, put the chosen official connector on PATH before starting LineBridge, or set its absolute path using `LINE_BRIDGE_CLOUDFLARED`, `LINE_BRIDGE_TAILSCALE` or `LINE_BRIDGE_NGROK`. The ngrok preparation button can also install its verified binary into the data directory. Account binding and local CLI use do not require a connector.

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {seedSyntheticMonitor} from './synthetic-monitor-fixture.mjs';
 import {spawn} from 'node:child_process';
 import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -15,7 +16,7 @@ try{
   const page=await fetch(admin),cookie=page.headers.get('set-cookie').split(';')[0];assert.equal(page.status,200);assert.match(await page.text(),/LineBridge/);
   const call=async(path,method='GET',value)=>{const response=await fetch(`${admin}/admin${path}`,{method,headers:{Cookie:cookie,Origin:admin,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});const data=await response.json();assert.equal(response.ok,true,JSON.stringify(data));return data;};
   const account=await call('/accounts','POST',{label:'migration test',kind:'demo'}),id=account.id;
-  await call(`/accounts/${id}/chats/demo-group`,'PATCH',{enabled:true});await call(`/accounts/${id}/monitor`,'POST',{enabled:true});
+  seedSyntheticMonitor(data,id);await call(`/accounts/${id}/monitor`,'POST',{enabled:true});
   client=new Client({name:'LineBridge integration check',version:'1.0'});
   await client.connect(new StreamableHTTPClientTransport(new URL(`${gateway}/mcp`)));
   assert.equal((await call('/state')).tokens.length,0);

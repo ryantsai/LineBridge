@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {seedSyntheticMonitor} from './synthetic-monitor-fixture.mjs';
 import {execFileSync,spawn} from 'node:child_process';
 import {mkdir,mkdtemp,readFile,writeFile,readdir,copyFile} from 'node:fs/promises';
 import {join,basename} from 'node:path';
@@ -129,7 +130,7 @@ try{
   assert.equal((await fetch(`${gateway}/api/v1/accounts`)).status,401);
   assert.equal((await json(['status','--data-dir',data])).status,'running');
   const account=await call('/accounts','POST',{label:'Portable synthetic sandbox',kind:'demo'});
-  await call(`/accounts/${account.id}/chats/demo-group`,'PATCH',{enabled:true});
+  seedSyntheticMonitor(data,account.id);
   await call(`/accounts/${account.id}/monitor`,'POST',{enabled:true});
   const token=await call('/tokens','POST',{name:'Portable synthetic token',days:1,grants:[{accountId:account.id,read:true,send:true}]});
   const credentials={LINE_BRIDGE_TOKEN:token.token,LINE_BRIDGE_URL:gateway};

@@ -38,14 +38,14 @@ export class Store {
   chats(id) { return this.db.prepare('SELECT * FROM chats WHERE account_id=? ORDER BY name').all(id); }
   chat(account,id) { return this.db.prepare('SELECT * FROM chats WHERE account_id=? AND id=?').get(account,id); }
   putChat(account,chat) { this.db.prepare('INSERT INTO chats(account_id,id,name,kind) VALUES(?,?,?,?) ON CONFLICT(account_id,id) DO UPDATE SET name=excluded.name,kind=excluded.kind').run(account,chat.id,chat.name,chat.kind); }
-  designate(account,id,enabled) { this.db.prepare('UPDATE chats SET enabled=? WHERE account_id=? AND id=?').run(enabled ? 1 : 0,account,id); }
+  designate(account,id,enabled) { this.db.prepare('UPDATE chats SET enabled=? WHERE account_id=? AND id=?').run(enabled ? 1 : 0,account,id);this.setSetting(`chatScopeRevision:${account}`,this.setting(`chatScopeRevision:${account}`,0)+1); }
   addToken(name,hash,grants,days) {
     const id = randomUUID(), at = new Date();
     this.db.prepare('INSERT INTO tokens(id,name,hash,grants,created_at,expires_at) VALUES(?,?,?,?,?,?)').run(id,name,hash,JSON.stringify(grants),at.toISOString(),new Date(+at+days*86400000).toISOString());
     return this.token(id);
   }
   token(id) { const r = this.db.prepare('SELECT * FROM tokens WHERE id=?').get(id); return r && { ...r, grants: JSON.parse(r.grants) }; }
-  setTokenGrants(id,grants) { this.db.prepare('UPDATE tokens SET grants=? WHERE id=?').run(JSON.stringify(grants),id); }
+  setTokenGrants(id,grants) { this.db.prepare('UPDATE tokens SET grants=? WHERE id=?').run(JSON.stringify(grants),id);this.setSetting(`tokenGrantRevision:${id}`,this.setting(`tokenGrantRevision:${id}`,0)+1); }
   tokenByHash(hash) { const r = this.db.prepare('SELECT id FROM tokens WHERE hash=?').get(hash); return r && this.token(r.id); }
   tokens() { return this.db.prepare('SELECT id FROM tokens ORDER BY created_at DESC').all().map(r => this.token(r.id)); }
   revoke(id) { this.db.prepare('UPDATE tokens SET revoked=1 WHERE id=?').run(id);this.setSetting(`tokenRevocation:${id}`,this.setting(`tokenRevocation:${id}`,0)+1); }
@@ -59,7 +59,7 @@ export class Store {
   reserve(actor,key,fingerprint) { this.db.prepare("INSERT INTO sends VALUES(?,?,?,'pending',NULL,?)").run(actor,key,fingerprint,new Date().toISOString()); }
   finishSend(actor,key,state,result) { this.db.prepare('UPDATE sends SET state=?,result=? WHERE actor=? AND key=?').run(state,result ? JSON.stringify(result) : null,actor,key); }
   setting(key,defaultValue) { const r=this.db.prepare('SELECT value FROM settings WHERE key=?').get(key); return r ? JSON.parse(r.value) : defaultValue; }
-  setSetting(key,value) { this.db.prepare('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value)); }
+  setSetting(key,value) { this.db.prepare('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(value));if(key.startsWith('localSetup:')){const revision=`localSetupRevision:${key.slice('localSetup:'.length)}`;this.setSetting(revision,this.setting(revision,0)+1);} }
   transaction(job){this.db.exec('BEGIN IMMEDIATE');try{const result=job();this.db.exec('COMMIT');return result;}catch(error){this.db.exec('ROLLBACK');throw error;}}
   close() { this.db.close(); }
 }
