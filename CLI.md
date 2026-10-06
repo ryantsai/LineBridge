@@ -214,6 +214,23 @@ Choose exactly one text source. File/stdin input must be UTF-8; Unicode, embedde
 
 **`delivery_unknown` exits 8 and is never automatically resent.** Send network failures, timeouts, unusable responses, a missing message-ID acknowledgement and server errors conservatively report unknown delivery. Inspect the chat before any further send. Never automatically generate a replacement key or turn exit 8 into a retry loop. An explicit repetition with the same key remains subject to the server's saved state, which also refuses to re-dispatch an unknown send.
 
+One explicit exception is `send_preparation_failed` with a validated preparation
+diagnostic: the gateway rejected the operation before dispatch, so the CLI exits
+6 and preserves the safe stage/cause code, even when HTTP status is 502. Older
+or malformed diagnostic responses remain conservatively unknown. Neither case
+triggers retries. A repeated idempotency key retains the saved rejection.
+
+Normal Talk text preparation reports a finite diagnostic such as
+`SELF_KEY_LOOKUP_SELF_KEY_MISSING`,
+`RECIPIENT_KEY_NEGOTIATION_E2EE_UNSUPPORTED`,
+`GROUP_KEY_LOOKUP_NOT_FOUND`, or `ENCRYPTION_SDK_TYPE_ERROR`. These distinguish
+local key lookup, recipient/group negotiation and encryption; they do not contain
+keys, chat IDs, message text, raw exception messages or arbitrary upstream codes.
+Use the stage to investigate before changing account state. An unsupported peer
+or generic preparation error does not authorize disabling Letter Sealing,
+registering replacement keys or falling back to standard messaging. Only LINE's
+explicit `E2EE_RETRY_PLAIN` response retains the existing standard-send fallback.
+
 Credentials and text cannot share stdin. For `send --stdin` or `search --query-stdin`, use a profile or transient environment credentials. Credential stdin can accompany `--text-file`/`--query-file`.
 
 ## Deadlines and exits

@@ -7,6 +7,7 @@ import {AliasResolver,contactName} from './aliases.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError,accountDiagnostic} from './account-health.mjs';
 import {mediaDescriptor,imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_TIMEOUT_MS} from './media.mjs';
 import {assertFlexTransport,validateFlex} from './flex.mjs';
+import {prepareText} from './send-preparation.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -229,16 +230,16 @@ export class LineDriver {
     let options,protection=chat.kind==='openchat'?'line_transport':'letter_sealing';
     if(chat.kind!=='openchat') {
       try {
-        const chunks=await this.client.e2ee.encryptE2EEMessage(chat.id,text,'NONE');
+        const chunks=await prepareText(this.client,chat,text);
         options={to:chat.id,chunks,e2ee:true,contentType:'NONE',contentMetadata:{e2eeVersion:'2',contentType:'0',e2eeMark:'2'}};
-      } catch(error) {
+      } catch(preparation) {
+        const error=preparation.original??preparation;
         // This explicit LINE response means the chat expects standard messaging.
         // Missing keys, timeouts and other errors must not silently downgrade it.
         if(error?.name==='RequestError' && discoveryErrorCode(error)==='E2EE_RETRY_PLAIN') {
           options={to:chat.id,text,e2ee:false};protection='line_transport';
         } else {
-          const code=discoveryErrorCode(error);
-          throw new SendRejectedError(502,'send_preparation_failed',`Message preparation failed (${code}). No message was sent. Resume or reconnect the account if LINE requires identity verification.`);
+          throw new SendRejectedError(502,'send_preparation_failed',`Message preparation failed (${preparation.diagnostic??'MESSAGE_PREPARATION_SDK_ERROR'}). No message was sent. Review this preparation stage before another attempt; do not reset keys or weaken encryption.`);
         }
       }
     }

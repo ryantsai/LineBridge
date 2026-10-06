@@ -1,4 +1,5 @@
 import {ClientError, EXIT, unknownDelivery} from './errors.mjs';
+import {preparationDiagnostic} from './send-diagnostic.mjs';
 
 const errors = {
   invalid_flex:'Invalid Flex payload or missing transport-security acknowledgment.', flex_transport_unsupported:'OpenChat Flex is not verified and is blocked; no fallback was used.',
@@ -50,6 +51,10 @@ export async function gatewayRequest({url,credentials,path,method='GET',body,key
     throw new ClientError(timeout?'request_timeout':'transport_error',timeout?'The request timed out. No retry was made.':'The gateway did not return a usable JSON response. Check its URL, availability and TLS configuration. No retry was made.',EXIT.transport);
   }
   if(!response.ok) {
+    if(send&&result.error==='send_preparation_failed'){
+      const diagnostic=preparationDiagnostic(result.message);
+      if(diagnostic)throw new ClientError('send_preparation_failed',`Message preparation failed (${diagnostic}). No message was sent. No retry was made.`,EXIT.remote,response.status);
+    }
     if(send && response.status>=500)throw unknownDelivery(response.status);
     throw remoteError(response.status,result);
   }
