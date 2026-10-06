@@ -54,6 +54,26 @@ test('normal recipients retain real E2EE even with the OA acknowledgment; groups
   await assert.rejects(f.driver.send({id:'c'+'3'.repeat(32),kind:'group'},'synthetic',ack),/GROUP_KEY_LOOKUP_NOT_FOUND/);assert.equal(f.sends(),1);
 });
 
+test('observed LINE_AT with businessAccount false requires acknowledgment and matching authenticated MID',async t=>{
+  for(const botType of ['LINE_AT',3]){
+    const f=fixture(t);f.buddy={mid:direct.id,businessAccount:false,botType,botActiveStatus:'ACTIVE'};
+    assert.equal((await f.driver.textCapability(direct)).officialAccount,true);
+    await assert.rejects(f.driver.send(direct,'synthetic'),{code:'oa_transport_acknowledgment_required'});assert.equal(f.sends(),0);
+    const result=await f.driver.send(direct,'synthetic',ack);assert.equal(result.protection,'line_transport');assert.equal(f.sends(),1);
+    assert.deepEqual(f.options,{to:direct.id,text:'synthetic',e2ee:false});
+    f.negotiation=f.peer;assert.equal((await f.driver.send(direct,'synthetic',ack)).protection,'letter_sealing');assert.equal(f.options.e2ee,true);
+    f.negotiation={specVersion:-1,publicKey:{}};assert.equal((await f.driver.textCapability(direct)).officialAccount,false);
+    await assert.rejects(f.driver.send(direct,'synthetic',ack),{code:'send_preparation_failed'});assert.equal(f.sends(),2);
+  }
+});
+
+test('LINE_AT exception rejects wrong MID, malformed business flag, LINE_AT_0, personal and unknown types',async t=>{
+  const f=fixture(t),observed={mid:direct.id,businessAccount:false,botType:'LINE_AT'};
+  const cases=[{...observed,mid:'u-other'},...['LINE_AT_0',2,'OFFICIAL',1,'RESERVED',0,99,'3','LINE_AT ',true,{},null].map(botType=>({...observed,botType})),...[undefined,null,0,1,'false','true',{}].map(businessAccount=>({...observed,businessAccount}))];
+  for(const buddy of cases){f.buddy=buddy;assert.equal((await f.driver.textCapability(direct)).officialAccount,false);await assert.rejects(f.driver.send(direct,'synthetic',ack),{code:'send_preparation_failed'});}
+  assert.equal(f.sends(),0);
+});
+
 test('unknown identity, contradictory capability, malformed metadata and timeouts cannot enable OA transport',async t=>{
   const f=fixture(t);
   for(const buddy of [{},{...f.buddy,mid:'u-other'},{...f.buddy,businessAccount:false},{...f.buddy,botType:'RESERVED'},{...f.buddy,botType:99}]){
