@@ -202,3 +202,22 @@ test('dashboard combined setup enrolls privately; local profiles reject browsers
   await fetch(route,{method:'DELETE',headers});assert.equal(items.size,0);
   assert.equal((await fetch(route,{method:'PATCH',headers,body:policy})).status,409);
 });
+
+test('the status probe reports service identity without the protected store, tunnel checks or debug records',async t=>{
+  const {LocalSetup}=await import('../server/local-setup.mjs');
+  const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'synthetic'),hub=new Hub(store,vault),adminPort=await freePort(),items=new Map();let reads=0,tunnelChecks=0;
+  const credentials={protection:'synthetic',create:async(profile,url,value)=>{items.set(profile,{url,...value});},get:async profile=>{reads++;return items.get(profile);},forget:async profile=>{items.delete(profile);}};
+  const localSetup=new LocalSetup(hub,{credentials}),tunnels={config:()=>({provider:'local'}),status:async()=>{tunnelChecks++;return {provider:'local',connected:true};}};
+  const apps=createApps({hub,tunnels,root:resolve('.'),adminPort,instance:'synthetic-instance',localSetup}),admin=apps.admin.listen(adminPort,'127.0.0.1');
+  t.after(()=>{hub.close();admin.closeAllConnections();admin.close();store.close();});
+  const a=await hub.addAccount({label:'Status sandbox',kind:'demo'});await localSetup.enable(a.id,{chatIds:['demo-group'],read:true,send:true,confirmed:true});
+  const base=`http://127.0.0.1:${adminPort}`;
+  assert.equal((await fetch(`${base}/admin/status`)).status,401);
+  const cookie=(await fetch(base)).headers.getSetCookie()[0].split(';')[0];hub.debug.configure({enabled:true});reads=0;const audits=store.audits(3000).length;
+  const status=await (await fetch(`${base}/admin/status`,{headers:{Cookie:cookie}})).json();
+  assert.deepEqual(status,{version:VERSION,backend:'node',instance:'synthetic-instance',authentication:'token',gatewayEnabled:true,accounts:1});
+  assert.equal(reads,0);assert.equal(tunnelChecks,0);assert.equal(store.audits(3000).length,audits);
+  // The full dashboard state still verifies the profile and records its refresh.
+  await (await fetch(`${base}/admin/state`,{headers:{Cookie:cookie}})).json();
+  assert.ok(reads>0);assert.equal(tunnelChecks,1);assert.equal(store.audits(3000).length,audits+1);
+});

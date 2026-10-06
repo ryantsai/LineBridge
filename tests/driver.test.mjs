@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { Agent } from 'undici';
 import { LineDriver, squareMessages, joinedSquareRooms, discoveryErrorCode } from '../server/drivers.mjs';
 test('monitor cancellation scopes SDK fetches and preserves request deadlines and concurrent account RPCs',async t=>{
-  const requests=[];t.mock.method(globalThis,'fetch',async request=>{requests.push(request);return new Response();});
-  const driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}});t.after(()=>driver.stop());
+  const requests=[];
+  const driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}},{fetch:async(url,init)=>{requests.push(init);return new Response();}});t.after(()=>driver.stop());
   const receiver=new AbortController(),deadline=new AbortController(),other=new AbortController();
   await driver.monitorRequest(receiver.signal,async()=>{await new Promise(resolve=>setImmediate(resolve));await driver.client.fetch(new Request('https://synthetic.invalid/poll',{signal:deadline.signal}));});
   await driver.client.fetch(new Request('https://synthetic.invalid/profile',{signal:other.signal}));
@@ -13,11 +15,40 @@ test('monitor cancellation scopes SDK fetches and preserves request deadlines an
   deadline.abort(new DOMException('synthetic deadline','TimeoutError'));assert.equal(requests[2].signal.reason.name,'TimeoutError');assert.equal(requests[1].signal.aborted,false);
   driver.stop();assert.equal(requests[1].signal.aborted,true);
 });
+test('LINE RPCs use a private HTTP/1.1 pool, so a held long-poll cannot stall other calls',async t=>{
+  // Node 26's shared fetch would multiplex these onto one HTTP/2 connection.
+  t.mock.method(globalThis,'fetch',async()=>assert.fail('LINE RPCs must not use the shared global fetch'));
+  const held=[],sockets=new Set(),server=createServer((req,res)=>{
+    sockets.add(req.socket.remotePort);let body='';req.on('data',chunk=>body+=chunk);
+    req.on('end',()=>{if(req.url==='/long')held.push(res);else res.end(JSON.stringify({version:req.httpVersion,body,application:req.headers['x-line-application']}));});
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{server.closeAllConnections();server.close();});
+  const base=`http://127.0.0.1:${server.address().port}`,driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}});t.after(()=>driver.stop());
+  assert.ok(driver.dispatcher instanceof Agent);
+  const long=driver.client.fetch(new Request(`${base}/long`,{method:'POST',body:'long-poll'}));
+  while(!held.length)await new Promise(resolve=>setTimeout(resolve,5));
+  const short=await driver.client.fetch(new Request(`${base}/short`,{method:'POST',body:'thrift',headers:{'x-line-application':'synthetic'}}));
+  assert.deepEqual(await short.json(),{version:'1.1',body:'thrift',application:'synthetic'});assert.equal(sockets.size,2);
+  driver.stop();await assert.rejects(long,{name:'AbortError'});
+});
+test('token refresh is shared by concurrent calls and keeps LINE’s rotated refresh token',async t=>{
+  const saved=new Map([['refreshToken','issued-at-login']]),storage={get:async key=>saved.get(key),set:async(key,value)=>{saved.set(key,value);},delete:async key=>{saved.delete(key);}};
+  const driver=new LineDriver({device:'IOSIPAD'},storage,{fault:()=>{}},{fetch:async()=>assert.fail('No network in this test')});t.after(()=>driver.stop());
+  const spent=[];let release;const gate=new Promise(resolve=>release=resolve);
+  driver.client.auth.refresh=async({request})=>{spent.push(request.refreshToken);await gate;return {accessToken:`access-${spent.length}`,refreshToken:`rotated-${spent.length}`,tokenIssueTimeEpochSec:1000n,durationUntilRefreshInSec:60n};};
+  const concurrent=[1,2,3].map(()=>driver.client.auth.tryRefreshToken());release();await Promise.all(concurrent);
+  assert.deepEqual(spent,['issued-at-login']);assert.equal(driver.client.authToken,'access-1');
+  assert.equal(saved.get('refreshToken'),'rotated-1');assert.equal(saved.get('expire'),1060n);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(saved.get('bridge.authToken'),'access-1');
+  await driver.client.auth.tryRefreshToken();assert.deepEqual(spent,['issued-at-login','rotated-1']);assert.equal(saved.get('refreshToken'),'rotated-2');
+  saved.delete('refreshToken');await assert.rejects(driver.client.auth.tryRefreshToken(),{name:'RefreshError'});assert.equal(spent.length,2);
+});
 test('expired device authorization requires QR login, while transient failures remain retryable',async()=>{
   const d=Object.create(LineDriver.prototype),error=Object.assign(new Error('private upstream details'),{name:'RequestError',data:{errorCode:'NOT_AUTHORIZED_DEVICE'}});
   d.storage={get:async()=> 'synthetic-token'};d.client={loginProcess:{login:async()=>{throw error;}}};
   await assert.rejects(d.login(false),{code:'login_required'});
-  error.data.errorCode='INTERNAL_ERROR';await assert.rejects(d.login(false),e=>e===error);
+  for(const code of ['AUTHENTICATION_FAILED',1]){error.data={code};await assert.rejects(d.login(false),{code:'login_required'});}
+  error.data={errorCode:'INTERNAL_ERROR'};await assert.rejects(d.login(false),e=>e===error);
 });
 test('Square receive and send event envelopes are normalized and deduplicated',()=>{
   const message={id:'message-01',from:'member-01',text:'sample',createdTime:1750000000000};

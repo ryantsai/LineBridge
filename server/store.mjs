@@ -52,7 +52,10 @@ export class Store {
   touchToken(id) { this.db.prepare('UPDATE tokens SET last_used=? WHERE id=?').run(new Date().toISOString(),id); }
   audit(actor,action,account,chat,outcome,details=null) {
     this.db.prepare('INSERT INTO audit(id,at,actor,action,account_id,chat_id,outcome,details) VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),new Date().toISOString(),actor,action,account ?? null,chat ?? null,outcome,details===null?null:JSON.stringify(details));
-    this.db.exec('DELETE FROM audit WHERE id IN (SELECT id FROM audit ORDER BY at DESC,rowid DESC LIMIT -1 OFFSET 2000)');
+    // System debug records arrive every few seconds; cap them separately so they
+    // never evict the security trail (logins, grants, setup changes, revocations).
+    const debug=actor==='system'&&action.startsWith('debug.');
+    this.db.exec(`DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE ${debug?'':'NOT '}(actor='system' AND action LIKE 'debug.%') ORDER BY at DESC,rowid DESC LIMIT -1 OFFSET 2000)`);
   }
   audits(limit=80) { return this.db.prepare('SELECT * FROM audit ORDER BY at DESC,rowid DESC LIMIT ?').all(limit).map(({details,...row})=>({...row,...(details?{details:JSON.parse(details)}:{})})); }
   send(actor,key) { return this.db.prepare('SELECT * FROM sends WHERE actor=? AND key=?').get(actor,key); }

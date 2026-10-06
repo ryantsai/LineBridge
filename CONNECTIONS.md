@@ -10,12 +10,24 @@ expiry, and unrelated clients' grant definitions are preserved. OFF also blocks
 other clients from that chat because monitoring selection is a shared gate.
 
 ON requires an active, matching protected profile. Missing, revoked, expired, or
-locked setup produces an actionable Connections error, never automatic enrollment
-or replacement credentials. If enabling a previously disabled chat would also
-grant it to a manual/remote token or token-free local client, the toggle stops;
-review those clients' scopes first. OFF remains available with missing or locked
-credentials. Existing manual-only configurations must explicitly enable managed
-Local AI setup before using ON in this dashboard flow.
+locked setup produces an actionable error and opens the setup wizard, never
+automatic enrollment or replacement credentials. If enabling a previously
+disabled chat would also grant it to a manual/remote token or token-free local
+client, the toggle stops; review those clients' scopes under **AI 存取** first.
+OFF remains available with missing or locked credentials. Existing manual-only
+configurations must explicitly enable managed Local AI setup before using ON in
+this dashboard flow.
+
+To change several chats at once, reopen the setup wizard: an active setup offers
+**更新範圍**, which replaces the confirmed scope in place (`PUT
+/admin/accounts/:id/local-setup/scope` with `chatIds`, the `currentChatIds` it
+was reviewed against, `autoMonitorNewChats` and `confirmed: true`). The profile
+name, bearer and expiry stay the same, so local AI clients keep working without
+re-enrolling. The confirmation lists newly added chats and every chat whose
+monitoring and AI access will stop. Chats monitored outside the managed scope
+(possible with releases before 0.7.6) start selected in the wizard, so one
+confirmation reconciles them. The same ownership, conflict and stale-scope checks
+as a single toggle apply; narrowing never waits on a locked profile.
 
 Saved authorization and LINE receiver health are separate. A saved toggle does
 not prove live reception; consult each monitor stream's fresh success/error

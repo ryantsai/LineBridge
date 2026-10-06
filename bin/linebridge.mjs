@@ -66,11 +66,16 @@ async function main(){
   const request=(path,options={})=>fetch(`${base}${path}`,{...options,headers:{Connection:'close',...options.headers},redirect:'error',signal:AbortSignal.timeout(7000)});
   let cookie,state;
   try{
-    const index=await request('/');cookie=index.headers.getSetCookie()[0]?.split(';')[0];if(!index.ok||!cookie)throw new Error('No dashboard session.');
-    const response=await request('/admin/state',{headers:{Cookie:cookie}});if(!response.ok)throw new Error('No service state.');state=await response.json();
+    const index=await request('/');cookie=index.headers.getSetCookie()[0]?.split(';')[0];await index.body?.cancel();if(!index.ok||!cookie)throw new Error('No dashboard session.');
+    let response=await request('/admin/status',{headers:{Cookie:cookie}});
+    if(response.status===404){
+      // Older services expose only the full dashboard state.
+      await response.body?.cancel();response=await request('/admin/state',{headers:{Cookie:cookie}});if(!response.ok)throw new Error('No service state.');
+      const full=await response.json();state={version:full.version,backend:full.backend,instance:full.instance,authentication:full.gateway?.authentication,accounts:full.accounts?.length};
+    }else{if(!response.ok)throw new Error('No service state.');state=await response.json();}
   }catch{console.log(JSON.stringify({status:'unavailable',dataDir,pid:m.pid}));process.exitCode=1;return;}
   if(state.instance!==m.instance)throw new Error('The service instance has changed. Refusing to stop an unrelated process.');
-  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,authentication:state.gateway.authentication,mcpUrl:`http://127.0.0.1:${m.gatewayPort}/mcp`,apiUrl:`http://127.0.0.1:${m.gatewayPort}/api/v1`,dashboardUrl:base,accounts:state.accounts.length}));return;}
+  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,authentication:state.authentication,mcpUrl:`http://127.0.0.1:${m.gatewayPort}/mcp`,apiUrl:`http://127.0.0.1:${m.gatewayPort}/api/v1`,dashboardUrl:base,accounts:state.accounts}));return;}
   const response=await request('/admin/shutdown',{method:'POST',headers:{Cookie:cookie,Origin:base,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body:JSON.stringify({instance:m.instance})});
   if(!response.ok)throw new Error('The service could not be stopped.');
   console.log(JSON.stringify({status:'stopping',dataDir}));

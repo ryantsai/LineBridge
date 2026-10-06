@@ -41,6 +41,21 @@ test('debug logging defaults off, validates settings and migrates old records wi
   }finally{store.close();}
 });
 
+test('frequent debug records are capped separately and never evict the security audit trail',()=>{
+  const store=new Store(':memory:');
+  try{
+    store.audit('local-admin','local-setup.enable','account',null,'ok');
+    const debug=new DebugLogging(store);debug.configure({enabled:true});
+    for(let i=0;i<2100;i++)debug.record('refresh','ok',{durationMs:i});
+    const rows=store.db.prepare("SELECT action,COUNT(*) AS count FROM audit GROUP BY action").all();
+    assert.deepEqual(Object.fromEntries(rows.map(row=>[row.action,row.count])),{'debug.refresh':2000,'debug.toggle':1,'local-setup.enable':1});
+    for(let i=0;i<2005;i++)store.audit('local-admin','chat.access','account','chat','ok');
+    const debugRows="actor='system' AND action LIKE 'debug.%'";
+    assert.equal(store.db.prepare(`SELECT COUNT(*) AS count FROM audit WHERE NOT (${debugRows})`).get().count,2000);
+    assert.equal(store.db.prepare(`SELECT COUNT(*) AS count FROM audit WHERE ${debugRows}`).get().count,2000);
+  }finally{store.close();}
+});
+
 test('every poll start, empty success, baseline and failure is recorded once through the real hub event handler',async t=>{
   const {hub,store,account,emit}=await fixture(t);
   const started={channel:'talk',status:'polling',lastPoll:'2026-10-05T00:00:00.000Z',lastAttemptAt:'2026-10-05T00:00:00.000Z',pollTimeoutMs:180000};
@@ -89,6 +104,7 @@ test('high-frequency debug records retain only the newest 2000 entries, includin
   try{
     debug.configure({enabled:true});
     for(let i=0;i<2005;i++)debug.record('refresh','ok',{messages:i});
-    const rows=store.audits(3000);assert.equal(rows.length,2000);assert.equal(rows[0].details.messages,2004);assert.equal(rows.at(-1).details.messages,5);
+    const rows=store.audits(3000).filter(row=>row.action==='debug.refresh');assert.equal(rows.length,2000);assert.equal(rows[0].details.messages,2004);assert.equal(rows.at(-1).details.messages,5);
+    assert.ok(store.audits(3000).some(row=>row.action==='debug.toggle'),'The admin toggle stays in the security trail');
   }finally{store.close();}
 });

@@ -6,6 +6,7 @@ import {join,resolve,sep} from 'node:path';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createServer} from 'node:net';
+import {createServer as createHttpServer} from 'node:http';
 import {once} from 'node:events';
 import {Store} from '../server/store.mjs';
 import {Vault} from '../server/vault.mjs';
@@ -42,4 +43,28 @@ test('CLI locks the data directory, backs up an existing SQLite store, persists 
   const strictPage=await fetch(base),strictCookie=strictPage.headers.getSetCookie()[0].split(';')[0],strictState=await (await fetch(`${base}/admin/state`,{headers:{Cookie:strictCookie}})).json();assert.equal(strictState.tunnel.provider,'local','An upgrade preserves a legacy store with no explicit provider setting.');
   await run(data,'stop');await exit(child);
   assert.ok(!(await readFile(join(data,'bridge.sqlite'))).includes(Buffer.from('persistent synthetic text')));
+});
+
+test('status uses the lightweight probe and still recognizes older services that expose only full state',async t=>{
+  const data=await mkdtemp(join(tmpdir(),'linebridge-service-test-'));
+  t.after(async()=>{const path=resolve(data),base=resolve(tmpdir())+sep;if(!path.startsWith(base)||!path.slice(base.length).startsWith('linebridge-service-test-'))throw new Error('Unsafe cleanup');await rm(path,{recursive:true,force:true});});
+  for(const legacy of [false,true]){
+    const paths=[],server=createHttpServer((req,res)=>{
+      paths.push(req.url);
+      if(req.url==='/'){res.setHeader('Set-Cookie','lb_admin=synthetic-session; HttpOnly');res.end('<!doctype html>');return;}
+      res.setHeader('Content-Type','application/json');
+      if(req.headers.cookie!=='lb_admin=synthetic-session'){res.statusCode=401;res.end('{"error":"dashboard_session_required"}');return;}
+      if(req.url==='/admin/status'&&!legacy)res.end(JSON.stringify({version:'9.9.9',backend:'node',instance:'synthetic-instance',authentication:'token',gatewayEnabled:true,accounts:2}));
+      else if(req.url==='/admin/state'&&legacy)res.end(JSON.stringify({version:'0.7.6',backend:'node',instance:'synthetic-instance',gateway:{authentication:'local'},accounts:[{id:'first'},{id:'second'}]}));
+      else{res.statusCode=404;res.end('{"error":"not_found"}');}
+    });
+    await new Promise(r=>server.listen(0,'127.0.0.1',r));
+    try{
+      const port=server.address().port;
+      await writeFile(join(data,'service.json'),JSON.stringify({runtime:'node',pid:process.pid,instance:'synthetic-instance',adminPort:port,gatewayPort:port+1,dataDir:resolve(data)}));
+      const info=JSON.parse((await run(data,'status')).stdout);
+      assert.equal(info.status,'running');assert.equal(info.accounts,2);assert.equal(info.authentication,legacy?'local':'token');assert.equal(info.version,legacy?'0.7.6':'9.9.9');
+      assert.deepEqual(paths,legacy?['/','/admin/status','/admin/state']:['/','/admin/status'],'The full dashboard state is read only from older services');
+    }finally{server.closeAllConnections();server.close();}
+  }
 });

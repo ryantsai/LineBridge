@@ -108,11 +108,11 @@ test('removing an OpenChat cancels its poll and a late checkpoint cannot overwri
 
 test('the installed SDK receives the long deadline and stop aborts actual Talk/OpenChat fetches without disconnecting the driver',async t=>{
   clock(t);const requests=[];
-  t.mock.method(globalThis,'fetch',request=>{
-    requests.push(request);
-    return new Promise((_resolve,reject)=>request.signal.addEventListener('abort',()=>reject(request.signal.reason),{once:true}));
-  });
-  const driver=new LineDriver({device:'IOSIPAD'},{get:async key=>key==='monitor.talk'?{revision:1}:undefined},{fault:()=>{}});t.after(()=>driver.stop());
+  const fetch=(url,init)=>{
+    requests.push({url,...init});
+    return new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));
+  };
+  const driver=new LineDriver({device:'IOSIPAD'},{get:async key=>key==='monitor.talk'?{revision:1}:undefined},{fault:()=>{}},{fetch});t.after(()=>driver.stop());
   const request=driver.client.request.request.bind(driver.client.request),rpc=[];
   t.mock.method(driver.client.request,'request',(...args)=>{rpc.push(args);return request(...args);});
   const {monitor,states}=fixture(t,driver,[{id:'chosen',kind:'group'},{id:'room',kind:'openchat'}]);

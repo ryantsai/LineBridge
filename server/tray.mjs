@@ -75,11 +75,12 @@ try{
           }else if(action==='quit'){emit('quit');close();}
         }catch(error){emit('error',error.message);}finally{busy=false;}
       });
+      // Each check spawns the CLI; once a minute is enough for the tray's status line.
       timer=setInterval(async()=>{
         if(busy||closing)return;busy=true;
         try{const current=await command('status');if(!closing)emit('state',current.status==='running'?`Running on port ${current.adminPort}`:'Service unavailable');}
         catch{if(!closing)emit('state','Service unavailable');}finally{busy=false;}
-      },10000);
+      },60000);
     }
   }
 }catch(error){emit('error',error.message);emit('quit');close();process.exitCode=1;}

@@ -54,6 +54,9 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   const authentication=()=>!requireToken&&tunnels.config().provider==='local'?'local':'token';
   const chatAccess=new ChatAccess(localSetup,{authentication});
   admin.get('/admin/discovery',(req,res)=>res.json({version:VERSION,instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},gatewayEnabled:hub.store.setting('aiEnabled',true),profiles:localSetup.discover()}));
+  // Service identity for `linebridge status`, `stop` and the tray. Unlike /state it
+  // never opens the protected credential store, queries tunnels or writes debug logs.
+  admin.get('/admin/status',(req,res)=>res.json({version:VERSION,backend:'node',instance,authentication:authentication(),gatewayEnabled:hub.store.setting('aiEnabled',true),accounts:hub.store.accounts().length}));
   admin.get('/admin/state',asyncRoute(async(req,res)=>{
     const startedAt=Date.now();
     try{
@@ -76,6 +79,10 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.post('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.enable(req.params.id,req.body))));
   admin.patch('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.updateSettings(req.params.id,req.body))));
   admin.delete('/admin/accounts/:id/local-setup',asyncRoute(async(req,res)=>res.json(await localSetup.revoke(req.params.id))));
+  admin.put('/admin/accounts/:id/local-setup/scope',asyncRoute(async(req,res)=>{
+    const controller=new AbortController(),cancel=()=>{if(!res.writableEnded)controller.abort();};res.once('close',cancel);
+    try{res.json(await chatAccess.applyScope(req.params.id,req.body,{signal:controller.signal}));}finally{res.off('close',cancel);}
+  }));
   admin.post('/admin/accounts/:id/monitor',asyncRoute(async(req,res)=>res.json(await hub.monitor(req.params.id,req.body.enabled))));
   admin.put('/admin/accounts/:id/local-access',(req,res)=>res.json(hub.setLocalAccess(req.params.id,req.body)));
   admin.get('/admin/accounts/:id/events',(req,res)=>res.json(hub.events(adminActor,req.params.id,Number(req.query.after??0),Number(req.query.limit??100))));

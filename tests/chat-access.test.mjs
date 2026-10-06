@@ -108,6 +108,72 @@ test('HTTP toggle requires dashboard session, origin, explicit confirmation and 
   assert.equal((await fetch(base+path,{method:'PATCH',headers,body})).status,409);
 });
 
+const scope=(f,chatIds,extra={})=>f.access.applyScope(f.id,{chatIds,currentChatIds:f.setup.record(f.id)?.chatIds??[],autoMonitorNewChats:false,confirmed:true,...extra});
+
+test('wizard scope updates replace the managed scope in place and keep the existing credential',async t=>{
+  const f=await fixture(t),record=f.setup.record(f.id),credential=await f.credentials.get(record.profile),token=f.store.token(record.tokenId),actor=f.hub.authenticate(credential.token);
+  const widened=await scope(f,['demo-group','demo-openchat']);
+  assert.equal(widened.profile,record.profile);assert.equal(widened.grantActive,true);assert.equal(widened.selectionChanged,false);assert.deepEqual(widened.chatIds,['demo-group','demo-openchat']);
+  assert.deepEqual(f.hub.chats(actor,f.id).map(c=>c.id).sort(),['demo-group','demo-openchat']);
+  assert.equal(f.credentials.creates,1);assert.equal(f.store.token(record.tokenId).hash,token.hash);assert.equal(f.store.token(record.tokenId).expires_at,token.expires_at);
+  const narrowed=await scope(f,['demo-openchat'],{autoMonitorNewChats:true});
+  assert.deepEqual(narrowed.chatIds,['demo-openchat']);assert.equal(narrowed.autoMonitorNewChats,true);assert.equal(f.store.chat(f.id,'demo-group').enabled,0);
+  await assert.rejects(f.hub.read(actor,f.id,'demo-group'),{code:'chat_not_designated'});
+  assert.equal(f.store.audits().filter(a=>a.action==='local-setup.scope').length,2);assert.doesNotMatch(JSON.stringify(f.store.audits()),new RegExp(credential.token));
+});
+
+test('chats monitored outside the managed scope stay hidden from the AI until a scope update confirms them',async t=>{
+  const f=await fixture(t),record=f.setup.record(f.id),actor=f.hub.authenticate((await f.credentials.get(record.profile)).token);
+  // Older releases could designate a chat without adding it to the managed grant.
+  f.hub.designate(f.id,'demo-openchat',true);
+  assert.equal((await f.setup.status(f.id)).selectionChanged,true);assert.deepEqual(f.hub.chats(actor,f.id).map(c=>c.id),['demo-group']);
+  const reconciled=await scope(f,['demo-group','demo-openchat']);
+  assert.equal(reconciled.selectionChanged,false);assert.deepEqual(f.hub.chats(actor,f.id).map(c=>c.id).sort(),['demo-group','demo-openchat']);
+});
+
+test('scope updates fail closed on stale, unknown, conflicting, paused, locked or concurrent changes',async t=>{
+  const f=await fixture(t),unchanged=()=>{assert.deepEqual(f.setup.record(f.id).chatIds,['demo-group']);assert.equal(f.store.chat(f.id,'demo-openchat').enabled,0);};
+  await assert.rejects(scope(f,['demo-group','demo-openchat'],{currentChatIds:[]}),{code:'chat_access_changed'});
+  await assert.rejects(scope(f,['demo-group','unknown-room']),{code:'selection_changed'});
+  await assert.rejects(scope(f,['demo-group','demo-group']),{code:'duplicate_chat'});
+  await assert.rejects(f.access.applyScope(f.id,{chatIds:['demo-group'],currentChatIds:['demo-group'],autoMonitorNewChats:false}),/./);
+  const manual=f.hub.createToken({name:'manual',grants:[{accountId:f.id,read:true,send:false}]});
+  await assert.rejects(scope(f,['demo-group','demo-openchat']),{code:'manual_grant_conflict'});f.store.revoke(manual.id);unchanged();
+  f.access.authentication=()=> 'local';await assert.rejects(scope(f,['demo-group','demo-openchat']),{code:'local_access_conflict'});f.access.authentication=()=> 'token';unchanged();
+  f.store.setSetting('aiEnabled',false);await assert.rejects(scope(f,['demo-group','demo-openchat']),{code:'gateway_paused'});unchanged();f.store.setSetting('aiEnabled',true);
+  const get=f.credentials.get;f.credentials.get=async()=>{throw Error('locked');};
+  await assert.rejects(scope(f,['demo-group','demo-openchat']),{code:'managed_profile_unavailable'});unchanged();
+  f.credentials.get=get;await scope(f,['demo-group','demo-openchat']);
+  // Narrowing never waits on the protected store or an unpaused gateway.
+  f.credentials.get=async()=>{throw Error('locked');};f.store.setSetting('aiEnabled',false);
+  await scope(f,['demo-group']);unchanged();f.credentials.get=get;f.store.setSetting('aiEnabled',true);
+  for(const mutate of ['toggle','grantABA','revoke']){
+    const g=await fixture(t),gate=deferred(),r=g.setup.record(g.id),credential=await g.credentials.get(r.profile);
+    g.credentials.get=()=>gate.promise;g.access.ownershipTimeoutMs=1000;
+    const pending=scope(g,['demo-group','demo-openchat']);
+    if(mutate==='toggle')g.store.designate(g.id,'demo-group',false);
+    if(mutate==='grantABA'){const grants=g.store.token(r.tokenId).grants;g.store.setTokenGrants(r.tokenId,[]);g.store.setTokenGrants(r.tokenId,grants);}
+    if(mutate==='revoke')g.store.revoke(r.tokenId);
+    gate.resolve(credential);await assert.rejects(pending,e=>['chat_access_changed','managed_setup_required'].includes(e.code),mutate);
+    assert.equal(g.store.chat(g.id,'demo-openchat').enabled,0,mutate);assert.deepEqual(g.store.token(r.tokenId).grants[0].chatIds,['demo-group'],mutate);
+  }
+  const missing=await fixture(t,{enroll:false});await assert.rejects(scope(missing,['demo-group'],{currentChatIds:[]}),{code:'managed_setup_required'});
+});
+
+test('HTTP scope update requires dashboard session, origin, explicit confirmation and the current scope',async t=>{
+  const portProbe=createServer();await new Promise(r=>portProbe.listen(0,'127.0.0.1',r));const port=portProbe.address().port;await new Promise(r=>portProbe.close(r));
+  const f=await fixture(t),apps=createApps({hub:f.hub,localSetup:f.setup,tunnels:{config:()=>({provider:'local'})},root:resolve('.'),adminPort:port}),server=apps.admin.listen(port,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>{server.closeAllConnections();server.close();});
+  const base=`http://127.0.0.1:${port}`,route=`${base}/admin/accounts/${f.id}/local-setup/scope`,body=JSON.stringify({chatIds:['demo-group','demo-openchat'],currentChatIds:['demo-group'],autoMonitorNewChats:false,confirmed:true});
+  assert.equal((await fetch(route,{method:'PUT',headers:{'Content-Type':'application/json'},body})).status,401);
+  const cookie=(await fetch(base)).headers.get('set-cookie').split(';')[0],headers={Cookie:cookie,'Content-Type':'application/json'};
+  assert.equal((await fetch(route,{method:'PUT',headers,body})).status,403);
+  Object.assign(headers,{Origin:base,'X-Line-Bridge':'dashboard'});
+  assert.equal((await fetch(route,{method:'PUT',headers,body:JSON.stringify({...JSON.parse(body),confirmed:false})})).status,400);
+  const response=await fetch(route,{method:'PUT',headers,body});assert.equal(response.status,200);
+  assert.deepEqual((await response.json()).chatIds,['demo-group','demo-openchat']);
+  assert.equal((await fetch(route,{method:'PUT',headers,body})).status,409,'A stale scope is never overwritten');
+});
+
 test('browser confirms exact scope, cancels without PATCH, and reconciles lost response without retry',async()=>{
   const preview={snapshot:'x'.repeat(64),chat:{id:'chat',name:'Synthetic chat',kind:'group',enabled:false},profile:'synthetic-profile',chatIds:['existing'],selectedChatIds:['existing'],managed:true,gatewayEnabled:true,setupRequired:false};
   let calls=[],message;const fetcher=async(url,options)=>{calls.push(options);return {ok:true,json:async()=>preview};};
@@ -115,7 +181,9 @@ test('browser confirms exact scope, cancels without PATCH, and reconciles lost r
   calls=[];let reads=0;const states=[];
   await assert.rejects(toggleChatAccess({accountId:'a',chatId:'chat',enabled:true,confirm:()=>true,onState:s=>states.push(s),fetcher:async(url,options)=>{calls.push(options);if(options.method==='PATCH')throw Error('lost response');reads++;return {ok:true,json:async()=>({...preview,chat:{...preview.chat,enabled:reads>1}})};}}),/已重新讀取/);
   assert.equal(calls.filter(c=>c.method==='PATCH').length,1);assert.equal(states.at(-1).chat.enabled,true);
-  await assert.rejects(toggleChatAccess({accountId:'a',chatId:'chat',enabled:true,fetcher:async()=>({ok:true,json:async()=>({...preview,setupRequired:true})}),confirm:()=>{throw Error('must not confirm');}}),/連線/);
+  await assert.rejects(toggleChatAccess({accountId:'a',chatId:'chat',enabled:true,fetcher:async()=>({ok:true,json:async()=>({...preview,setupRequired:true})}),confirm:()=>{throw Error('must not confirm');}}),{code:'managed_setup_required',message:/設定精靈/});
+  await assert.rejects(toggleChatAccess({accountId:'a',chatId:'chat',enabled:true,confirm:()=>true,fetcher:async(url,options)=>options.method==='PATCH'?{ok:false,json:async()=>({error:'manual_grant_conflict',message:'Another client would also gain access to this chat.'})}:{ok:true,json:async()=>preview}}),
+    {code:'manual_grant_conflict',message:/其他 AI 用戶端.*已重新讀取/});
 });
 
 test('browser deadlines release a hung preview and reconcile an ambiguous timed-out PATCH',async()=>{

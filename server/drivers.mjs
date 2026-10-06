@@ -1,9 +1,10 @@
 import { BaseClient } from 'lineclientbot';
+import { Agent, fetch as lineFetch } from 'undici';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { fail, SendRejectedError } from './errors.mjs';
 import {AliasResolver,contactName} from './aliases.mjs';
-import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
+import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError,accountDiagnostic} from './account-health.mjs';
 import {mediaDescriptor,imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_TIMEOUT_MS} from './media.mjs';
 import {assertFlexTransport,validateFlex} from './flex.mjs';
 
@@ -41,14 +42,24 @@ export function squareMessages(response) {
 }
 
 export class LineDriver {
-  constructor(account, storage, events) {
+  constructor(account, storage, events, { fetch: transport } = {}) {
     this.account = account;
     this.storage = storage;
     this.events = events;
     this.abort = new AbortController();
     this.requestSignal = new AsyncLocalStorage();
+    // Node 26's fetch negotiates HTTP/2 and multiplexes every RPC onto one LINE
+    // connection. LINE stalls the other calls on it while the Talk long-poll is
+    // held, so OpenChat polls, account checks, reads and sends time out behind
+    // it. Each concurrent RPC gets its own HTTP/1.1 socket instead.
+    this.dispatcher = new Agent({ allowH2: false });
+    transport ??= (url, init) => lineFetch(url, { ...init, dispatcher: this.dispatcher });
     this.client = new BaseClient({ device: account.device, storage, legy: { encrypted: 'auto' },
-      fetch: request => fetch(new Request(request, { signal: AbortSignal.any([this.abort.signal, request.signal, this.requestSignal.getStore()].filter(Boolean)) })) });
+      fetch: async request => {
+        const signal = AbortSignal.any([this.abort.signal, request.signal, this.requestSignal.getStore()].filter(Boolean));
+        const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
+        return transport(request.url, { method: request.method, headers: request.headers, body, redirect: request.redirect, signal });
+      } });
     this.client.on('qrcall', url => events.qr(url));
     this.client.on('pincall', pin => events.pin(String(pin)));
     this.client.on('update:authtoken', token => {
@@ -56,7 +67,21 @@ export class LineDriver {
       void storage.set('bridge.authToken', token).catch(() => events.fault('vault_write_failed'));
     });
     this.client.on('end', () => events.fault('session_expired'));
+    // LINE rotates refresh tokens, but the SDK refreshes once per rejected call
+    // and drops the rotated token. Concurrent receivers would spend the same token
+    // and a later refresh would fail, forcing a new QR login. Share one refresh.
+    this.client.auth.tryRefreshToken = () => this.refreshing ??= this.refreshAccess().finally(() => { this.refreshing = null; });
     // Do not attach the library's log event: it includes raw credentials and message bodies.
+  }
+  async refreshAccess() {
+    const refreshToken = await this.storage.get('refreshToken');
+    if (typeof refreshToken !== 'string' || !refreshToken) throw Object.assign(new Error('No refresh token is stored.'), { name: 'RefreshError' });
+    const result = await this.client.auth.refresh({ request: { refreshToken } });
+    if (typeof result?.accessToken !== 'string' || !result.accessToken) throw Object.assign(new Error('LINE returned no access token.'), { name: 'RefreshError' });
+    this.client.authToken = result.accessToken;
+    this.client.emit('update:authtoken', result.accessToken);
+    if (typeof result.refreshToken === 'string' && result.refreshToken) await this.storage.set('refreshToken', result.refreshToken);
+    if (result.tokenIssueTimeEpochSec != null && result.durationUntilRefreshInSec != null) await this.storage.set('expire', result.tokenIssueTimeEpochSec + result.durationUntilRefreshInSec);
   }
   async login(qr=false) {
     const token = qr ? undefined : await this.storage.get('bridge.authToken');
@@ -64,13 +89,14 @@ export class LineDriver {
     // BaseClient avoids high-level login's catch-all E2EE key re-registration on token resume.
     try{await this.client.loginProcess.login(qr ? { qr: true } : { authToken: token });}
     catch(error){
-      if(!qr&&error?.name==='RequestError'&&discoveryErrorCode(error)==='NOT_AUTHORIZED_DEVICE')fail(409,'login_required','LINE requires a new QR login to authorize this device.');
+      // Resuming cannot repair rejected or unrefreshable credentials; ask for QR.
+      if(!qr&&accountDiagnostic(error).kind==='auth')fail(409,'login_required','LINE requires a new QR login to authorize this device.');
       throw error;
     }
     this.ready = true;
     return { displayName: this.client.profile.displayName, mid: this.client.profile.mid };
   }
-  stop() { this.ready=false; this.client.disabled=true; this.abort.abort(); }
+  stop() { this.ready=false; this.client.disabled=true; this.abort.abort(); void this.dispatcher?.destroy().catch(() => {}); }
   // The SDK accepts a deadline, but no per-call signal. Scope cancellation to
   // this async request so stopping a receiver leaves concurrent account RPCs alone.
   monitorRequest(signal,operation) { signal.throwIfAborted();return this.requestSignal.run(signal,operation); }

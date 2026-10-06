@@ -140,8 +140,8 @@ test('profile RPC errors preserve safe classification across the real driver and
 test('a profile deadline cancels only that request and keeps a concurrent receiver fetch alive',async t=>{
   const deadline=new AbortController(),requests=[];
   t.mock.method(AbortSignal,'timeout',ms=>{assert.equal(ms,ACCOUNT_CHECK_TIMEOUT_MS);return deadline.signal;});
-  t.mock.method(globalThis,'fetch',request=>{requests.push(request);return new Promise((resolve,reject)=>request.signal.addEventListener('abort',()=>reject(request.signal.reason),{once:true}));});
-  const driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}});t.after(()=>driver.stop());
+  const fetch=(url,init)=>{requests.push(init);return new Promise((resolve,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));};
+  const driver=new LineDriver({device:'IOSIPAD'},{},{fault:()=>{}},{fetch});t.after(()=>driver.stop());
   driver.client.talk.getProfile=async()=>{await driver.client.fetch(new Request('https://synthetic.invalid/profile'));return profile;};
   const receiver=new AbortController();const poll=driver.monitorRequest(receiver.signal,()=>driver.client.fetch(new Request('https://synthetic.invalid/poll'))).catch(()=>{});
   const checked=driver.check();await flush();assert.equal(requests.length,2);

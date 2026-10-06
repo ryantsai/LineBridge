@@ -53,6 +53,7 @@ function fixture(){
     renderAudit(){},renderTunnel(){},renderMonitoring(){},renderAiInstructions(){},
     dashboard:{render(){}},archive:{render(){}},wizard:{sync(){},render(){}},providerName:value=>value,
     renderAccountPane(){throw new Error('Discovery must preserve the account pane');},
+    sessionFetch(){throw new Error('The permission controller boundary is mocked');},
     readMessages(){throw new Error('Discovery must not fetch messages');},
     escape:value=>String(value??'').replace(/[&<>"]/g,value=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[value])),
     nice:value=>({group:'群組',direct:'一對一',openchat:'OpenChat'}[value]??value),
@@ -199,6 +200,25 @@ test('a failed monitoring save restores usable controls and the persisted state'
   assert.match(f.node('#chat-list').innerHTML,/<span>未監控<\/span>/);
   assert.doesNotMatch(f.node('#chat-list').innerHTML,/data-designate="synthetic-old"[^>]*disabled/);
   assertReaderUnchanged(f);
+});
+
+test('a toggle that needs Local AI setup opens the wizard and leaves the room unchanged',async()=>{
+  const f=fixture();f.context.chats[0].enabled=0;f.context.chatAiFilter='all';let opened=0;
+  f.node('#setup-dialog').showModal=()=>{opened++;f.node('#setup-dialog').open=true;};f.context.wizard.start=()=>{};
+  f.context.toggleChatAccess=async()=>{throw Object.assign(new Error('請先完成「設定精靈」'),{code:'managed_setup_required'});};
+  await assert.rejects(f.context.saveChatMonitoring(f.account.id,f.context.selectedChat,true),{code:'managed_setup_required'});
+  assert.equal(opened,1);assert.equal(f.node('#toggle-chat-monitor').disabled,false);
+  assert.match(f.node('#chat-list').innerHTML,/<span>未監控<\/span>/);assertReaderUnchanged(f);
+});
+
+test('an expired or restarted dashboard session is renewed once and the request retried',async()=>{
+  const context={fetch:null},calls=[];let renewed=false;
+  vm.createContext(context);vm.runInContext(section('async function sessionFetch(','async function api('),context);
+  context.fetch=async url=>{calls.push(url);if(url==='/'){renewed=true;return new Response('<!doctype html>');}return renewed?Response.json({ok:true}):Response.json({error:'dashboard_session_required'},{status:401});};
+  assert.equal((await context.sessionFetch('/admin/state',{})).status,200);assert.deepEqual(calls,['/admin/state','/','/admin/state']);
+  // Other denials are returned as-is, without renewing the session.
+  calls.length=0;context.fetch=async url=>{calls.push(url);return Response.json({error:'origin_denied'},{status:403});};
+  assert.equal((await context.sessionFetch('/admin/state',{})).status,403);assert.deepEqual(calls,['/admin/state']);
 });
 
 test('a monitoring save finishing after an account switch leaves the new account untouched',async()=>{

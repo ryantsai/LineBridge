@@ -64,7 +64,14 @@ export function createWizard(ctx){
       paint('connect',frame('連線帳號','',`<div class="connect"><div class="connect-avatar ${connected?'on':pending?'busy':''}">${avatar(accountName(a),a?.id,'xl')}</div><strong class="connect-name">${escape(accountName(a))}</strong><span class="badge ${connected?'good':a?.status==='error'?'danger':pending?'warn':''}">${escape(nice(a?.status))}</span>${connected?'':`<div class="btn-row">${a?.canResume?`<button class="btn primary" id="wizard-resume">${icon('refresh')}恢復工作階段</button>`:''}<button class="btn ${a?.canResume?'':'primary'}" id="wizard-login">${icon('qr')}${a?.kind==='demo'?'連接沙盒':'掃描 QR Code'}</button></div>`}</div>`,bottom('其他帳號','繼續',!connected)));
       listen('#wizard-back',()=>{mode='stored';waiting=false;render();});listen('#wizard-resume',()=>ctx.connect(false));listen('#wizard-login',()=>ctx.connect(true));listen('#wizard-next',()=>{step=2;waiting=false;render();});return;
     }
-    if(draftAccount!==a.id){draftAccount=a.id;rooms=ctx.getChats();chosen=new Set(a.localSetup?.chatIds??rooms.filter(c=>c.enabled).map(c=>c.id));chatSearch='';autoMonitorNewChats=a.localSetup?.autoMonitorNewChats===true;lastScope=JSON.stringify(a.localSetup?.chatIds??[]);}
+    if(draftAccount!==a.id){
+      draftAccount=a.id;rooms=ctx.getChats();
+      const monitored=rooms.filter(c=>c.enabled).map(c=>c.id),setup=a.localSetup;
+      // An active scope also starts with rooms monitored outside it (older toggles),
+      // so confirming reconciles them instead of silently stopping their reception.
+      chosen=new Set(setup?.grantActive?[...setup.chatIds,...monitored]:setup?.chatIds??monitored);
+      chatSearch='';autoMonitorNewChats=setup?.autoMonitorNewChats===true;lastScope=JSON.stringify(setup?.chatIds??[]);
+    }
     if(step===2){
       const searching=root.querySelector('#setup-chat-search')===document.activeElement;
       paint('chats',frame('選擇聊天室','AI 只能存取你勾選的聊天室。',`<div class="picker-tools"><div class="input-icon">${icon('search')}<label class="sr-only" for="setup-chat-search">搜尋聊天室名稱、類型或 ID</label><input id="setup-chat-search" type="search" placeholder="搜尋名稱、類型或 ID" value="${escape(chatSearch)}"></div><button class="btn" id="setup-discover" ${busy?'disabled':''}>${icon('refresh',busy?'spin':'')}探索</button><button class="btn ghost" id="setup-manual" ${busy?'disabled':''}>${icon('plus')}新增 ID</button></div><p class="picker-count" id="setup-chat-count" role="status" aria-live="polite"></p><div class="picker-list" id="setup-chat-list"></div><label class="toggle-card"><input type="checkbox" class="switch" id="setup-auto-monitor" ${autoMonitorNewChats?'checked':''} ${busy?'disabled':''}><span><strong>自動加入新聊天室</strong><small>監聽時每 ${ctx.getState()?.refresh?.intervalSeconds??60} 秒探索一次；新的一對一、群組與 OpenChat 會自動開放 AI 讀取與傳送並封存。</small></span></label>`,bottom('返回','下一步',busy||!chosen.size),chip(a)));
@@ -76,20 +83,30 @@ export function createWizard(ctx){
       listen('#setup-manual',()=>ctx.openChat());
       listen('#wizard-back',()=>{step=1;mode='stored';render();});listen('#wizard-next',()=>{step=3;render();});return;
     }
-    const setup=a.localSetup??{phase:'not_enabled'},selected=rooms.filter(c=>chosen.has(c.id));
+    const setup=a.localSetup??{phase:'not_enabled'},selected=rooms.filter(c=>chosen.has(c.id)),saved=new Set(setup.chatIds??[]);
     lastScope=setupSignature(setup);
     const active=setup.grantActive===true,hasSetup=!['not_enabled','revoked'].includes(setup.phase);
-    const unchanged=chosen.size===(setup.chatIds?.length??0)&&(setup.chatIds??[]).every(id=>chosen.has(id))&&autoMonitorNewChats===(setup.autoMonitorNewChats===true);
-    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>90 天</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span><span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}</ul></div><p class="note">${icon('info')}<span>啟用後，本機 AI 可讀取並傳送訊息到以上聊天室${autoMonitorNewChats?'與之後新發現的聊天室':''}，並開始接收與加密封存。${hasSetup?'變更範圍需先停用再重新啟用。':''}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',active?'完成':'啟用',busy||(active&&!unchanged)||(!active&&(hasSetup||!selected.length||selected.length!==chosen.size||a.status!=='connected')),active),chip(a)));
+    const unchanged=chosen.size===saved.size&&[...saved].every(id=>chosen.has(id))&&autoMonitorNewChats===(setup.autoMonitorNewChats===true);
+    // An active profile is updated in place: same profile and bearer, no new credential.
+    const updating=active&&!unchanged,stopping=rooms.filter(c=>c.enabled&&!chosen.has(c.id));
+    const blocked=busy||(updating?!selected.length||selected.length!==chosen.size:!active&&(hasSetup||!selected.length||selected.length!==chosen.size||a.status!=='connected'));
+    const reach=`本機 AI 可讀取並傳送訊息到以上聊天室${autoMonitorNewChats?'與之後新發現的聊天室':''}`;
+    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>${active&&setup.expiresAt?`${escape(new Date(setup.expiresAt).toLocaleDateString('zh-TW'))} 到期`:'90 天'}</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span>${active&&!saved.has(c.id)?'<span class="tag good">新增</span>':''}<span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}</ul></div>${stopping.length?`<p class="note warn">${icon('alert')}<span>將停止監控並移除 AI 存取：${stopping.map(c=>escape(chatName(c))).join('、')}</span></p>`:''}<p class="note">${icon('info')}<span>${active?`${reach}，並持續接收與加密封存。${updating?'更新範圍會沿用現有的設定檔與憑證，AI 不需重新連線。':''}`:`啟用後，${reach}，並開始接收與加密封存。${setup.phase==='enabled'?'目前的授權已到期或撤銷；請先停用並移除憑證，再重新啟用。':''}`}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',!active?'啟用':updating?'更新範圍':'完成',blocked,active&&!updating),chip(a)));
     renderStatus();
     listen('#wizard-back',()=>{step=2;render();});
     listen('#setup-advanced',()=>ctx.go('access'));
-    listen('#wizard-next',async()=>{if(busy)return;if(active){ctx.go('dashboard');return;}busy=true;render();try{await ctx.enable(a.id,{chatIds:[...chosen],read:true,send:true,confirmed:true,autoMonitorNewChats});}finally{busy=false;render();}});
+    listen('#wizard-next',async()=>{
+      if(busy)return;if(active&&!updating){ctx.go('dashboard');return;}busy=true;render();
+      try{
+        if(updating)await ctx.updateScope(a.id,{chatIds:[...chosen],currentChatIds:setup.chatIds??[],autoMonitorNewChats,confirmed:true});
+        else await ctx.enable(a.id,{chatIds:[...chosen],read:true,send:true,confirmed:true,autoMonitorNewChats});
+      }finally{busy=false;render();}
+    });
     listen('#setup-revoke',async()=>{if(busy)return;busy=true;render();try{await ctx.revoke(a.id);}finally{busy=false;render();}});
   }
   function renderStatus(){
     const a=account(),setup=a?.localSetup,target=root.querySelector('#setup-status');if(!target)return;
-    const health={ready:'已就緒',sandbox:'沙盒已啟用，不連線 LINE',waiting:'等待每個接收串流首次成功',initializing:'正在建立接收起點',retrying:'接收串流重試中',stale:'超過 60 秒未成功接收',off:'接收已停止',disconnected:'帳號未連線',paused:'AI 存取已暫停',selection_changed:'聊天室已變更；請停用後重新啟用',unavailable:'受保護的憑證儲存無法使用',profile_conflict:'本機設定檔與此授權不符',endpoint_changed:'閘道連接埠已變更；請停用後重新啟用',disabled:'未啟用、已撤銷或已到期'};
+    const health={ready:'已就緒',sandbox:'沙盒已啟用，不連線 LINE',waiting:'等待每個接收串流首次成功',initializing:'正在建立接收起點',retrying:'接收串流重試中',stale:'超過 60 秒未成功接收',off:'接收已停止',disconnected:'帳號未連線',paused:'AI 存取已暫停',selection_changed:'監控中的聊天室與 AI 授權範圍不一致；請返回確認後按「更新範圍」',unavailable:'受保護的憑證儲存無法使用',profile_conflict:'本機設定檔與此授權不符',endpoint_changed:'閘道連接埠已變更；請停用後重新啟用',disabled:'未啟用、已撤銷或已到期'};
     const fine=setup?.ready||setup?.health==='sandbox',streams=Object.values(setup?.monitor?.streams??{}).filter(s=>s.channel!=='demo');
     const streamLabel={healthy:'正常',stale:'逾時',waiting:'等待中',initializing:'建立中',retrying:'重試中',disconnected:'未連線',off:'已停止',no_chats:'無聊天室'};
     const html=setup?.phase==='cleanup_required'?`<p class="status-line warn">${icon('alert')}存取已撤銷，但憑證清理未完成。解鎖憑證儲存後再按停用。</p>`:setup?.phase==='enabled'?`<p class="status-line ${fine?'good':'warn'}"><span class="dot ${fine?'good live':'warn'}"></span>${escape(health[setup.health]??setup.health)}</p>${streams.length?`<div class="streams">${streams.map(s=>`<span class="stream" title="最後成功：${escape(s.lastSuccessAt??'尚無紀錄')}"><span class="dot ${s.health==='healthy'?'good':''}"></span>${escape(s.channel==='talk'?'一對一與群組':'OpenChat')} · ${escape(streamLabel[s.health]??s.health)}</span>`).join('')}</div>`:''}`:'';
@@ -105,6 +122,9 @@ export function createWizard(ctx){
     start(){if(busy){render();return;}step=1;mode=ctx.getState()?.accounts.length?'stored':'welcome';waiting=false;awaitingNew=false;draftAccount=null;rooms=[];chosen=new Set();chatSearch='';lastScope='';view='';render();},
     render,
     cancelNewAccount(){awaitingNew=false;if(step===1)waiting=false;},
+    // A room added by ID from the picker is meant to be chosen; show it now
+    // instead of waiting for the next periodic refresh.
+    chatAdded(id){if(step!==2)return;rooms=ctx.getChats();if(rooms.some(c=>c.id===id))chosen.add(id);render();},
     accountAdded(){if(waiting){awaitingNew=false;mode='connect';if(account()?.status==='connected'){waiting=false;step=2;}render();}},
     sync(){
       if(waiting&&!awaitingNew&&account()?.status==='connected'){waiting=false;step=2;render();}
