@@ -54,7 +54,7 @@ An AI with terminal access on the same Windows/Mac computer can use the existing
 
 ## Test from the cloud VM
 
-Choose a provider, start it, then click **複製雲端 AI 測試指令**. Give those instructions and a scoped LineBridge token to the cloud AI. A successful connection from this PC does not establish that the VM can reach it. Each VM/network may filter different hostnames, IP addresses or protocols.
+Choose a provider, start it, then click **複製雲端 AI 測試指令**. Give the non-secret instructions to the cloud AI; inject its scoped LineBridge token through the client’s private credential settings or protected environment, never conversation text, command arguments or logs. A successful connection from this PC does not establish that the VM can reach it. Each VM/network may filter different hostnames, IP addresses or protocols.
 
 The dependency-free `examples/probe-connection.mjs` runs on Node 18+ from the VM. Set `LINE_BRIDGE_TOKEN` in its environment and run `node examples/probe-connection.mjs URL`. It checks DNS, LineBridge health, unauthenticated rejection, scoped API, admin isolation and MCP tool discovery. It does not contact LINE or send messages. Without a token, it checks reachability and unauthenticated rejection only.
 

@@ -6,6 +6,15 @@
 
 日常 CLI 操作另參考儲存庫的 [LineBridge CLI skill](https://github.com/ryantsai/LineBridge/blob/main/.agents/skills/linebridge-cli/SKILL.md)。安裝與已授權的服務復原依本指南；指令與限制以安裝版本的 `--help` 及 [CLI 文件](CLI.md)為準。
 
+## 安裝後的操作檢查索引
+
+- **執行位置與版本：** Dot 的 CLI 必須在使用者持續開機、連網的 Windows／Mac 上執行；雲端的 localhost 不是該電腦。使用官方實際發布的平台套件與內附 runtime。合併到 main、GitHub 已發布、CLI 已安裝與服務正在執行的版本各自不同；分別核對 release／build metadata、`--version` 與 `version --profile PROFILE_NAME`，不要以合併通知推定已升級。
+- **保留現況：** 升級前完整停止並備份原資料目錄、vault 與受保護 profile；SQLite 也保存傳送冪等紀錄，不能用新的空資料目錄取代。沿用原 OS 使用者、資料路徑及 loopback 埠，詳見下方升級／還原步驟。
+- **範圍變更：** 有效設定使用「更新範圍」，保留 profile、token 與到期日；[監控與 grant 同步規則](CONNECTIONS.md#chat-toggles-and-managed-local-ai-access)也涵蓋手動／遠端 client 的衝突。
+- **接收健康：** 按已安裝版本回傳的 `staleAfterMs` 檢查每個 stream 的 durable success；目前為更新間隔加 60 秒，預設 120 秒。Talk 等待上限 180 秒，pending 不算新的成功。空的已完成 poll 算成功；HTTP 有回應不代表 LINE 接收正常。只在已授權且確認服務意外停止時，沿用同一資料目錄嘗試啟動一次；主動停止／撤銷或單純 stale 不適用。[判讀欄位](CLI.md#receiver-health)。
+- **傳送前：** 比對[收件者與訊息能力](CLI.md#recipient-and-message-capabilities)，取得確切對象、內容與必要的單次傳輸加密確認。OA 文字已有一次 v0.7.9 API 接受紀錄；Flex 一次遭拒，群組 `NOT_FOUND` 尚未解決。區分[傳送前失敗、明確拒絕與未知結果](CLI.md#send-outcome-evidence-and-current-limitation)，不可自動重送或換 key 規避未知結果。
+
+
 ## 探索既有的本機 AI 存取
 
 **AI Agent：使用者完成 LINE 配對與授權後，請自行探索現有設定，不要要求使用者複製精靈指令、profile 名稱或監控聊天室清單。** 以同一個 OS 使用者執行現有安裝。下方 `CLI_COMMAND` 代表其啟動程式：Windows 的 `.\linebridge.cmd`、macOS 的 `./linebridge`，或該啟動程式的絕對路徑。已備妥 Node 24+ 與相依套件的原始碼目錄可用 `node bin/linebridge.mjs`。
@@ -129,7 +138,7 @@ nohup "$bundle/linebridge" serve --require-token \
 
 精靈的聊天室清單可依名稱、類型或 ID 搜尋，篩選不會取消已勾選的聊天室。選用「自動加入新聊天室」並確認後，監聽期間會依自動更新間隔探索新的一對一、群組與 OpenChat，加入本機 profile 的讀取 + 傳送授權並封存新訊息。目前未勾選的聊天室仍排除在外；停止監聽、帳號離線或授權撤銷／到期時不會自動加入新聊天室。
 
-專用 profile 限同一個本機閘道及確認過的聊天室，包含已明確選用的自動監控新聊天室。手動新增聊天室指定不會擴大既有授權；手動更改範圍或續期須停用並由使用者重新確認。已有有效的本機 AI 授權時，可直接在「聊天室」帳號設定切換「自動加入新聊天室」；關閉後保留已加入的聊天室與現有授權。聊天室清單預設篩選「AI 監控」，也可選「非 AI 監控」或「所有聊天室」，並搭配類型與文字搜尋。停用會立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示無法完全無人操作。電腦須保持開機、連網，服務持續執行。
+專用 profile 限同一個本機閘道及確認過的聊天室。監控指定、read/send grant 與本機受保護的 profile 是不同層次；只有監控指定不代表既有 token 已有權限。有效的本機 AI 設定可用聊天室 AI 開關同步監控與 managed grant，或重新開啟設定精靈，在 v0.7.7 起的「更新範圍」確認新增／移除項目；保留原 profile、token 與到期日，不必停用或重新登錄。此操作不會續期。缺少、鎖定、撤銷或過期的 profile 應依介面提示處理，不可自動建立新授權。手動／遠端 client 的 grant 須另行審查，詳見 [範圍更新](CONNECTIONS.md#chat-toggles-and-managed-local-ai-access)。關閉「自動加入新聊天室」會保留已加入的聊天室；停用本機 AI 設定則立即撤銷授權。`auth forget` 只移除本機 profile，不撤銷伺服器 token。LINE 配對、權限確認及必要的 OS 授權提示需要使用者操作。
 
 ## 資料指令與接收驗證
 
@@ -170,4 +179,4 @@ CLI_COMMAND send --profile PROFILE_NAME --account ACCOUNT_ID --chat CHAT_ID --ke
 
 ## 圖片讀取與 Flex 訊息
 
-可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。目前僅完成合成測試，尚未進行真實傳送或下載測試。
+可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。2026-10-06 的一次已授權 OA 收件者 Flex 實測遭 LINE 明確拒絕：`INCOMPATIBLE_APP_VERSION`；尚無成功接受或顯示的證據，也不能推論所有收件者都不支援。圖片下載的真實驗證仍待完成。詳見 [實測紀錄與限制](CLI.md#evidence-and-live-test-handoff)。

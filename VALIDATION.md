@@ -1,3 +1,16 @@
+# Windows operational validation — 2026-10-06
+
+Documentation baseline: main `c8fa570bebf4fa1000e2f0b63ee7525fbcf0aaf0`, official v0.7.9. These anonymous observations are bounded evidence, not a guarantee for other accounts or versions. Production identifiers, credentials, message contents and logs are deliberately omitted.
+
+- Official Windows x64 bundle: release asset SHA-256 and build metadata checked; installed CLI version/help and authenticated profile scope verified. Existing data, protected profile and durable send ledger were preserved during upgrade. A merge, published release, installed CLI and running gateway are separate versions to check.
+- Reception: all four configured streams had completed durable successes within the returned `staleAfterMs` at the verification instant. This is point-in-time receiver evidence, not continuous uptime or proof every possible chat receives messages. Empty completed polls count; pending polls alone do not prove success or failure. Use each installed version’s actual fields and threshold.
+- OA text: one approved v0.7.8 attempt failed before dispatch during capability preparation. After the narrow LINE_AT capability fix, one newly authorized v0.7.9 text intent returned `accepted_by_line` and a message ID, with transport protection. No receipt/read claim is made.
+- Flex: one approved v0.7.8 minimal bubble to an OA recipient was explicitly refused with `INCOMPATIBLE_APP_VERSION`; durable state was rejected and no message ID was returned. No retry/fallback occurred. Successful rendering remains unverified; this is not evidence that every recipient rejects Flex. The v0.7.9 CLI still maps this HTTP 502 class to exit 8; see [diagnosis](CLI.md#send-outcome-evidence-and-current-limitation).
+- Group E2EE: a read-only `NOT_FOUND` investigation remains unresolved; another key lookup alone did not prove a send. No forced registration, reset or group send was used as a repair.
+- Image download/interpretation and successful live Flex rendering remain unverified. The synthetic suite passed 298 tests at v0.7.9; mocks are not live transport or rendering evidence.
+
+The records below are historical validations of their named versions and do not replace current installed-version checks.
+
 # LineBridge validation history
 
 ## 2026-10-05 portable tray migration
