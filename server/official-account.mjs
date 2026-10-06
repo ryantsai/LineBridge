@@ -16,6 +16,11 @@ export async function officialAccountCapability(client,chat){
   let buddy;
   try{buddy=await client.request.request([[11,4,chat.id]],'getBuddyDetail',4,true,'/BUDDY4');}
   catch(error){throw new PreparationFailure('BUDDY_LOOKUP',error);}
-  const officialAccount=buddy?.mid===chat.id&&buddy.businessAccount===true&&[1,2,3,'OFFICIAL','LINE_AT_0','LINE_AT'].includes(buddy.botType);
+  // LINE@ migrated into Official Accounts in 2019. Authenticated LINE_AT (3)
+  // is positive identity evidence even when the separate businessAccount flag
+  // is false. Require an actual boolean; do not infer LINE_AT_0 or unknown types.
+  const lineAt=buddy?.botType===3||buddy?.botType==='LINE_AT';
+  const businessType=[1,2,3,'OFFICIAL','LINE_AT_0','LINE_AT'].includes(buddy?.botType);
+  const officialAccount=buddy?.mid===chat.id&&(buddy.businessAccount===true&&businessType||buddy.businessAccount===false&&lineAt);
   return {officialAccount,negotiation};
 }
