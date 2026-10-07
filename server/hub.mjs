@@ -163,7 +163,7 @@ export class Hub {
       if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh,refreshIntervalSeconds(this.store)*1000);else if(driver?.ready)await driver.stopMonitor?.();
     });this.monitorQueues.set(id,job);
     try{await job;}
-    catch(error){if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
+    catch(error){if(!this.stopping&&this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
     finally{if(this.monitorQueues.get(id)===job)this.monitorQueues.delete(id);}
     if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.scheduleDiscovery(id,true);
     this.store.audit('local-admin','monitor.toggle',id,null,enabled?'enabled':'disabled');
@@ -209,10 +209,11 @@ export class Hub {
   }
   driver(id) {const r=this.runtime.get(id);if(r?.status!=='connected' || !r.driver?.ready) fail(409,'account_disconnected','This account is not connected.');return r.driver;}
   async serialized(id,job) {
+    if(this.stopping)fail(503,'service_stopping','The service is stopping.');
     const prior=this.queues.get(id) ?? {tail:Promise.resolve(),count:0};
     if(prior.count>=8) fail(429,'account_busy','This account has too many pending operations.');
     prior.count++;this.queues.set(id,prior);
-    const result=prior.tail.catch(()=>{}).then(job);
+    const result=prior.tail.catch(()=>{}).then(()=>{if(this.stopping)fail(503,'service_stopping','The service is stopping.');return job();});
     prior.tail=result.catch(()=>{});
     try{return await result;}finally{prior.count--;if(!prior.count && this.queues.get(id)===prior)this.queues.delete(id);}
   }
@@ -340,7 +341,7 @@ export class Hub {
       try {
         if(kind==='flex'&&!driver.sendFlex)throw new SendRejectedError(409,'flex_transport_unverified','This adapter does not support Flex sending.');
         const result={accountId:id,chatId,...await (kind==='flex'?driver.sendFlex(chat,text):driver.send(chat,text,options,()=>{
-          try{this.authorize(actor,id,'send',chatId);}catch{throw new SendRejectedError(403,'send_authorization_revoked','Send permission changed during preparation. No message was sent.');}
+          try{if(this.stopping)throw new Error();this.authorize(actor,id,'send',chatId);}catch{throw new SendRejectedError(403,'send_authorization_revoked','Send permission changed or the service stopped during preparation. No message was sent.');}
         })),replayed:false};
         this.store.finishSend(actor.id,key,'sent',result);this.store.audit(actor.id,'messages.send',id,chatId,'ok');
         if(this.record(id).kind==='demo'&&kind==='text')try{this.capture(id,chatId,{id:result.messageId,senderId:'synthetic',senderName:'Sample account',text,timestamp:result.timestamp,contentType:'NONE'});}catch{this.store.audit(actor.id,'monitor.capture',id,chatId,'failed');}
@@ -404,5 +405,13 @@ export class Hub {
     r.healthJob=job;return job;
   }
   async healthcheck() {await Promise.allSettled([...this.runtime].map(([id,r])=>this.probeAccount(id,r)));}
+  async drain() {
+    if(this.draining)return this.draining;
+    this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values())this.cancelHealth(r);
+    this.draining=(async()=>{
+      await Promise.all([this.worker.drain(),Promise.allSettled([...this.queues.values()].map(q=>q.tail)),Promise.allSettled([...this.monitorQueues.values()])]);
+      for(const r of this.runtime.values())r.driver?.stop();
+    })();return this.draining;
+  }
   close() {this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values()){this.cancelHealth(r);r.driver?.stop();}this.worker.close();}
 }

@@ -10,6 +10,7 @@ import {accountCheckError} from '../server/account-health.mjs';
 // stdout is a private JSON pipe; never attach the adapter's raw logging events.
 console.log=()=>{};console.error=()=>{};
 const drivers=new Map(),writes=new Map(),monitors=new Map(),controlJobs=new Map();
+const jobs=new Set();let closing=false;
 const controlMethods=new Set(['connect','disconnect','monitor_start','monitor_stop','monitor_update','monitor_interval']);
 function control(accountId,operation){
   const job=(controlJobs.get(accountId)??Promise.resolve()).catch(()=>{}).then(operation);
@@ -51,8 +52,10 @@ async function handle(request){
   try{
     let result;
     const operation=async()=>{
+    if(closing)throw new HubError(503,'service_stopping','The LINE worker is draining.');
     if(method==='connect'){
       await stopMonitor(accountId);
+      if(closing)throw new HubError(503,'service_stopping','The LINE worker is draining.');
       drivers.get(accountId)?.stop();
       const storage=new PipeStorage(accountId,params.storage ?? {});
       let driver;
@@ -75,7 +78,9 @@ async function handle(request){
         case 'send':result=await driver.send(params.chat,params.text,params.options,()=>authorizeDispatch(id));break;
         case 'monitor_start':{
           await stopMonitor(accountId);
+          if(closing)throw new HubError(503,'service_stopping','The LINE worker is draining.');
           if(params.reset)for(const key of Object.keys(driver.storage.getAll()))if(key.startsWith('monitor.'))await driver.storage.delete(key);
+          if(closing)throw new HubError(503,'service_stopping','The LINE worker is draining.');
           const monitor=new LiveMonitor(driver,(event,value)=>emit({type:'event',accountId,event,value}),async(chatId,message)=>{
             const ackId=randomUUID();await new Promise((resolve,reject)=>{
               const timer=setTimeout(()=>{writes.delete(ackId);reject(new Error('capture_failed'));},10000);
@@ -102,11 +107,24 @@ async function handle(request){
   }
 }
 const input=createInterface({input:process.stdin,crlfDelay:Infinity});
+async function shutdown(){
+  if(closing)return;closing=true;
+  for(const monitor of monitors.values())monitor.stop();
+  // Cancel login waits, but let already dispatched work report its outcome.
+  for(const driver of drivers.values())if(!driver.ready)driver.stop();
+  await Promise.allSettled([...jobs]);
+  await Promise.allSettled([...monitors.values()].map(monitor=>monitor.done()));
+  for(const driver of drivers.values())driver.stop();
+  // Storage/capture ACKs are still handled by the input loop while draining.
+  while(writes.size)await new Promise(resolve=>setTimeout(resolve,10));
+  emit({type:'shutdown_complete'});input.close();process.stdin.destroy();
+}
 input.on('line',line=>{
   if(line.length>2_000_000){process.exit(2);return;}
   try{const message=JSON.parse(line,(_,v)=>v&&typeof v==='object'&&'$bigint'in v?BigInt(v.$bigint):v);
     if(['storage_ack','capture_ack','authorize_send_ack'].includes(message.type)){const pending=writes.get(message.id);writes.delete(message.id);message.ok?pending?.resolve():pending?.reject();}
-    else void handle(message);
+    else if(message.type==='shutdown')void shutdown();
+    else {const job=handle(message);jobs.add(job);void job.finally(()=>jobs.delete(job));}
   }catch{process.exit(2);}
 });
-input.on('close',()=>{for(const m of monitors.values())m.stop();for(const d of drivers.values())d.stop();process.exit(0);});
+input.on('close',()=>{if(closing)return;for(const m of monitors.values())m.stop();for(const d of drivers.values())d.stop();process.exit(0);});

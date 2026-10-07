@@ -13,6 +13,7 @@ const decode=value=>JSON.parse(value,(_,v)=>v&&typeof v==='object'&&'$bigint' in
 export class ProtocolWorker {
   constructor(store,vault,capture) {Object.assign(this,{store,vault,capture});this.pending=new Map();this.events=new Map();}
   start() {
+    if(this.closing)throw new HubError(503,'service_stopping','The LINE worker is draining.');
     if(this.child)return;
     const child=spawn(process.execPath,[fileURLToPath(new URL('../protocol/worker.mjs',import.meta.url))],{windowsHide:true,stdio:['pipe','pipe','ignore']});
     this.child=child;
@@ -27,13 +28,14 @@ export class ProtocolWorker {
       this.child=null;
       for(const request of this.pending.values()){clearTimeout(request.timer);request.reject(new HubError(502,'upstream_unavailable','The LINE worker stopped.'))}
       this.pending.clear();
-      for(const emit of this.events.values())emit.fault?.('protocol_error');
+      if(!this.closing)for(const emit of this.events.values())emit.fault?.('protocol_error');
     };
     child.on('error',failed);child.on('exit',failed);
   }
   write(value){this.child?.stdin.write(`${encode(value)}\n`);}
   handle(message) {
-    if(message.type==='result'){
+    if(message.type==='shutdown_complete'){this.drained=true;}
+    else if(message.type==='result'){
       const request=this.pending.get(message.id);if(!request)return;
       clearTimeout(request.timer);this.pending.delete(message.id);
       if(message.error){const e=message.error;request.reject(request.method==='check'?accountCheckError(e):new (e.rejected_send?SendRejectedError:HubError)(e.status||502,e.code||'upstream_unavailable',e.message||'LINE operation failed.'));}
@@ -64,6 +66,7 @@ export class ProtocolWorker {
     }
   }
   call(method,params={},timeout=40000,signal,beforeDispatch){
+    if(this.closing)return Promise.reject(new HubError(503,'service_stopping','The LINE worker is draining.'));
     if(signal?.aborted)return Promise.reject(signal.reason);
     this.start();const id=randomUUID();
     return new Promise((resolve,reject)=>{
@@ -92,10 +95,25 @@ export class ProtocolWorker {
       setRefreshInterval:refreshIntervalMs=>call('monitor_interval',{refreshIntervalMs}),
       updateMonitor:chats=>call('monitor_update',{chats}),
       stopMonitor:()=>call('monitor_stop'),
-      stop(){this.ready=false;worker.events.delete(id);if(worker.child)void call('disconnect').catch(()=>{});}
+      stop(){this.ready=false;worker.events.delete(id);if(worker.child&&!worker.closing)void call('disconnect').catch(()=>{});}
     };
   }
+  drain(){
+    if(this.drainPromise)return this.drainPromise;
+    this.closing=true;const child=this.child;
+    if(!child)return Promise.resolve();
+    this.drainPromise=new Promise((resolve,reject)=>{
+      child.once('close',(code)=>{
+        if(this.child===child)this.child=null;
+        this.events.clear();
+        if(code===0&&this.drained)resolve();else reject(new HubError(503,'worker_drain_failed','The LINE worker did not confirm a complete drain.'));
+      });
+      this.write({type:'shutdown'});
+    });
+    return this.drainPromise;
+  }
   close(){
+    this.closing=true;
     for(const request of this.pending.values()){clearTimeout(request.timer);request.reject(new HubError(502,'upstream_unavailable','The LINE worker stopped.'));}
     this.pending.clear();this.events.clear();this.child?.kill();this.child=null;
   }

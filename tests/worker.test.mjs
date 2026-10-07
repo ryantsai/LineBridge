@@ -94,3 +94,45 @@ test('private worker serializes monitor replacement through durable ACKs without
   const cancelled=assert.rejects(pending);
   await waiting;await call('disconnect');await cancelled;
 });
+
+for(const heldType of ['capture_ack','storage_ack'])test(`graceful worker drain waits for durable ${heldType} and rejects new work`,async t=>{
+  const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'synthetic'),a=store.addAccount('drain','line','IOSIPAD');
+  store.putChat(a.id,{id:'synthetic-chat',name:'synthetic',kind:'group'});store.designate(a.id,'synthetic-chat',true);store.setSetting(`monitor:${a.id}`,true);
+  const storage=new VaultStorage(store,vault,a.id);await storage.set('monitor.talk',{revision:1});
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    LineDriver.prototype.login=async function(){this.ready=true;this.client.profile={mid:'synthetic-owner'};
+      this.client.talk.sync=async()=>({operationResponse:{operations:[{type:26,revision:2,message:{id:'synthetic-message',to:'synthetic-chat',from:'synthetic-sender',text:'synthetic text'}}]}});return this.client.profile;};
+    LineDriver.prototype.decryptMessage=async value=>value;
+    LineDriver.prototype.resolveMessageNames=async(chat,messages)=>messages;
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(store,vault,(id,chat,message)=>capture(store,vault,id,chat,message));
+  const child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
+  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));
+  t.after(()=>{input.close();worker.close();store.close();});
+  let release,seen;const waiting=new Promise(r=>{seen=r;}),write=worker.write.bind(worker);
+  worker.write=value=>{if(value.type===heldType&&!release){release=()=>write(value);seen();}else write(value);};
+  await worker.call('connect',{accountId:a.id,account:{device:'IOSIPAD'},storage:storage.getAll()});
+  await worker.call('monitor_start',{accountId:a.id,chats:[{id:'synthetic-chat',kind:'group'}]});
+  await waiting;
+  let stopped=false;const drained=worker.drain().then(()=>{stopped=true;});
+  await new Promise(r=>setTimeout(r,60));assert.equal(stopped,false,'The process must retain its ACK pipe and store until the outstanding commit is acknowledged');
+  await assert.rejects(worker.call('read',{accountId:a.id}),{code:'service_stopping'});
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM messages').get().n,1);
+  release();await drained;assert.equal(child.exitCode,0);assert.equal(worker.child,null);
+  assert.equal((await storage.get('monitor.talk')).revision,heldType==='capture_ack'?1:2,'A stopped capture cannot advance a cursor; an already committed checkpoint is retained');
+  await worker.drain();assert.equal(worker.pending.size,0);
+});
+
+test('graceful worker drain waits for an accepted synthetic send outcome and does not kill its child',async t=>{
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    LineDriver.prototype.login=async function(){this.ready=true;return {mid:'synthetic'};};
+    LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await beforeDispatch();await new Promise(r=>setTimeout(r,100));return {messageId:'synthetic-accepted'};};
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
+  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));t.after(()=>{input.close();worker.close();});
+  await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
+  let accepted;const dispatched=new Promise(r=>{accepted=r;});
+  const send=worker.call('send',{accountId:'synthetic',chat:{id:'synthetic'},text:'synthetic'},1000,undefined,accepted);
+  await dispatched;const draining=worker.drain();
+  assert.equal((await send).messageId,'synthetic-accepted');await draining;assert.equal(child.exitCode,0);assert.equal(child.signalCode,null);
+});

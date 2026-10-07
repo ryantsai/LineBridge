@@ -22,7 +22,7 @@ final class Tray: NSObject, NSApplicationDelegate {
         }
         item.menu = menu
         host.executableURL = root.appendingPathComponent("runtime/node")
-        host.arguments = [root.appendingPathComponent("app/server/tray.mjs").path] + CommandLine.arguments.dropFirst().filter { $0 != "--smoke-test" && $0 != "--smoke-stop" }
+        host.arguments = [root.appendingPathComponent("app/server/tray.mjs").path, "--desktop-pid", String(ProcessInfo.processInfo.processIdentifier)] + CommandLine.arguments.dropFirst().filter { $0 != "--smoke-test" && $0 != "--smoke-stop" }
         host.currentDirectoryURL = root; host.standardInput = input; host.standardOutput = output
         host.standardError = FileHandle.nullDevice
         output.fileHandleForReading.readabilityHandler = { handle in

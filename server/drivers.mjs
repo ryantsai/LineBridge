@@ -58,6 +58,7 @@ export class LineDriver {
     // held, so OpenChat polls, account checks, reads and sends time out behind
     // it. Each concurrent RPC gets its own HTTP/1.1 socket instead.
     this.dispatcher = new Agent({ allowH2: false });
+    const networkTransport=transport?'custom':'http1';
     transport ??= (url, init) => lineFetch(url, { ...init, dispatcher: this.dispatcher });
     this.client = new BaseClient({ device: account.device, storage, legy: { encrypted: 'auto' },
       fetch: async request => {
@@ -65,7 +66,7 @@ export class LineDriver {
         const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
         return transport(request.url, { method: request.method, headers: request.headers, body, redirect: request.redirect, signal });
       } });
-    guardRpcTransport(this.client);
+    guardRpcTransport(this.client,{driverSignal:this.abort.signal,receiverSignal:()=>this.requestSignal.getStore(),networkTransport});
     this.client.on('qrcall', url => events.qr(url));
     this.client.on('pincall', pin => events.pin(String(pin)));
     this.client.on('update:authtoken', token => {
