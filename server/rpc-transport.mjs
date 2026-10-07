@@ -38,9 +38,8 @@ export function guardRpcTransport(client){
     };
     return response;
   }
-  const fetch=client.fetch.bind(client);
-  client.fetch=async(...args)=>{
-    const response=observe(await fetch(...args));
+  async function checkedResponse(response){
+    observe(response);
     if(response.status<200||response.status>=300){
       // Do not feed an HTTP error body to the SDK (its parse error embeds it).
       // Inspect at most the first chunk to distinguish empty; discard the rest.
@@ -51,14 +50,16 @@ export function guardRpcTransport(client){
       throw Object.assign(new Error('LINE HTTP request failed'),{name:'RequestError'});
     }
     return response;
-  };
+  }
+  const fetch=client.fetch.bind(client);
+  client.fetch=async(...args)=>checkedResponse(await fetch(...args));
   const legy=request.legyTransport,encrypted=legy.fetch.bind(legy);
   legy.fetch=async(inner,fetcher,options)=>{
     try{
-      // LineJS 3.4.2 forwards the original signal itself. Observe its decoded
-      // response without rebuilding Requests or patching dependency source.
+      // LineJS 3.4.2 forwards the original signal itself. Apply the same HTTP
+      // boundary to its decoded status: outer 200 can still carry inner 429.
       const response=await encrypted(inner,fetcher,options);
-      inner.signal.throwIfAborted();return observe(response);
+      inner.signal.throwIfAborted();return await checkedResponse(response);
     }catch(error){
       const state=context.getStore();
       if(state?.httpStatus>=200&&state.httpStatus<300&&!inner.signal.aborted&&!['AbortError','TimeoutError'].includes(error?.name)&&!state.responseParse)state.responseParse='invalid_legy';

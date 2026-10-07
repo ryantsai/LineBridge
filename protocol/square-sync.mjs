@@ -140,8 +140,11 @@ export class SquareSync {
         const next={syncToken:pending.response.syncToken,...(token(pending.response.continuationToken)?{continuationToken:pending.response.continuationToken}:{})};
         if(pending.response.events.length&&next.syncToken===cursor.syncToken&&next.continuationToken===cursor.continuationToken){pending=undefined;throw Object.assign(new Error('Square account cursor stalled'),{name:'RequestError'});}
         await m.driver.storage.set(SQUARE_ACCOUNT_KEY,next);cursor=next;signal.throwIfAborted();
-        for(const room of pending.rooms)if(room.active&&this.rooms.get(room.id)===room&&!room.recovery&&!room.baseline)m.status(room.id,'running',undefined,true,{source:'account_events'});
         const more=!!next.continuationToken&&pending.response.events.length>0;
+        // Later account pages can still contain a selected room's notification.
+        // Only a caught-up feed renews untouched rooms; actual room drains have
+        // already recorded their own durable success independently above.
+        if(!more)for(const room of pending.rooms)if(room.active&&this.rooms.get(room.id)===room&&!room.recovery&&!room.baseline)m.status(room.id,'running',undefined,true,{source:'account_events'});
         pending=undefined;retries=0;feedPages++;
         if(more&&feedPages<SQUARE_BASELINE_MAX_PAGES&&Date.now()-burstStarted<SQUARE_BASELINE_BURST_MS){await pause(SQUARE_BASELINE_PAGE_DELAY_MS,signal);if(Date.now()-burstStarted>=SQUARE_BASELINE_BURST_MS){feedPages=0;await m.waitForNextPoll(signal,{jitter:true});}}
         else{feedPages=0;await m.waitForNextPoll(signal,{jitter:true});}

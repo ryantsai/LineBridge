@@ -91,6 +91,33 @@ test('account empty page counts as success only after durable ACK, and an actual
   await tick(t,1000);assert.equal(f.monitor.pollStates.get('a').status,'retrying');assert.equal(f.monitor.pollStates.get('a').lastSuccessAt,recovered);
 });
 
+test('account continuation pages cannot renew untouched rooms before the caught-up page is durably ACKed',async t=>{
+  const ack=deferred(),roomCalls=new Map();t.after(()=>ack.resolve());
+  const f=fixture(t,{ids:['a','b'],feed:(_o,n)=>({
+    events:n===1||n===5?[]:[notice(n===3?'a':'excluded')],syncToken:`feed-${n}`,...(n>1&&n<5?{continuationToken:`more-${n}`}:{})
+  }),room:options=>{
+    const id=options.squareChatMid,n=(roomCalls.get(id)??0)+1;roomCalls.set(id,n);
+    return {events:id==='a'&&n===2?[message('a','late-notification')]:[],syncToken:`${id}-${n}`};
+  },write:(key,value)=>key===SQUARE_ACCOUNT_KEY&&value.syncToken==='feed-5'?ack.promise:undefined});
+  const store=new Store(':memory:'),account=store.addAccount('Synthetic backlog','line','IOSIPAD');t.after(()=>store.close());
+  for(const id of ['a','b']){store.putChat(account.id,{...chat(id),name:id});store.designate(account.id,id,true);}store.setSetting(`monitor:${account.id}`,true);
+  const health=()=>monitorStatus(store,account.id,Object.fromEntries(f.monitor.pollStates));
+  await flush();const original=f.monitor.pollStates.get('b').lastSuccessAt;assert.equal(health().health,'healthy');
+  await tick(t,75001);
+  assert.equal(f.feeds.length,2);assert.equal(f.hydrates.length,2);assert.equal(f.durable.get(SQUARE_ACCOUNT_KEY).continuationToken,'more-2');
+  for(const id of ['a','b']){assert.equal(f.monitor.pollStates.get(id).lastSuccessAt,original);assert.equal(health().streams[id].health,'stale');}
+  await tick(t,250);assert.deepEqual(f.captured.map(([,m])=>m.id),['late-notification']);assert.equal(f.monitor.pollStates.get('a').ready,false);
+  await tick(t,250);const hydrated=f.monitor.pollStates.get('a').lastSuccessAt;
+  assert.notEqual(hydrated,original);assert.equal(f.monitor.pollStates.get('a').source,'room_events');assert.equal(health().streams.a.health,'healthy');assert.equal(health().streams.b.health,'stale');
+  await tick(t,250);assert.equal(f.feeds.length,4);
+  assert.equal(f.monitor.pollStates.get('a').lastSuccessAt,hydrated);assert.equal(f.monitor.pollStates.get('b').lastSuccessAt,original);
+  await tick(t,250);assert.equal(f.feeds.length,5);assert.equal(f.durable.get(SQUARE_ACCOUNT_KEY).syncToken,'feed-4');assert.equal(health().streams.b.health,'stale');
+  await tick(t,1);ack.resolve();await flush();
+  assert.equal(f.durable.get(SQUARE_ACCOUNT_KEY).syncToken,'feed-5');assert.equal(health().health,'healthy');
+  assert.notEqual(f.monitor.pollStates.get('a').lastSuccessAt,hydrated);assert.notEqual(f.monitor.pollStates.get('b').lastSuccessAt,original);
+  assert.deepEqual([...roomCalls],[['a',3],['b',1]],'excluded notifications never hydrate a room and untouched rooms retain their own cursor');
+});
+
 test('many rooms use at most two concurrent hydration calls; no global ACK while one is pending',async t=>{
   const gates=[],f=fixture(t,{ids:['a','b','c','d','e','f'],room:options=>{const gate=deferred();gates.push({gate,id:options.squareChatMid});return gate.promise;}});
   t.after(()=>{for(const {gate,id} of gates)gate.resolve({events:[],syncToken:`${id}-done`});});
