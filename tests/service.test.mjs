@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,readFile,writeFile,readdir,stat} from 'node:fs/promises';
+import {mkdtemp,rm,readFile,writeFile,readdir,stat,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve,sep} from 'node:path';
 import {spawn,execFile} from 'node:child_process';
@@ -61,7 +61,7 @@ test('status uses the lightweight probe and still recognizes older services that
     await new Promise(r=>server.listen(0,'127.0.0.1',r));
     try{
       const port=server.address().port;
-      await writeFile(join(data,'service.json'),JSON.stringify({runtime:'node',pid:process.pid,instance:'synthetic-instance',adminPort:port,gatewayPort:port+1,dataDir:resolve(data)}));
+      await writeFile(join(data,'service.json'),JSON.stringify({runtime:'node',pid:process.pid,instance:'synthetic-instance',adminPort:port,gatewayPort:port+1,dataDir:await realpath(data)}));
       const info=JSON.parse((await run(data,'status')).stdout);
       assert.equal(info.status,'running');assert.equal(info.accounts,2);assert.equal(info.authentication,legacy?'local':'token');assert.equal(info.version,legacy?'0.7.6':'9.9.9');
       assert.deepEqual(paths,legacy?['/','/admin/status','/admin/state']:['/','/admin/status'],'The full dashboard state is read only from older services');

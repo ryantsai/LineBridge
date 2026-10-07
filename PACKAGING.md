@@ -8,6 +8,18 @@ Extract the whole archive. Use **linebridge.cmd** on Windows or **./linebridge**
 
 The LINE dependency is the official JSR `@evex/linejs` 3.4.2, pinned through `npm:@jsr/evex__linejs@3.4.2` with tarball integrity in the lockfile. Portable releases bundle it and require no registry setup on the target computer. Source builds and headless npm archive installations need the project `.npmrc` setting `@jsr:registry=https://npm.jsr.io`; add this line to the consuming project's existing `.npmrc` before installing the archive, without replacing unrelated settings. This is [JSR's documented npm compatibility configuration](https://jsr.io/docs/npm-compatibility). The repository includes it for `npm ci`; package smoke uses the same documented consumer configuration. Dependency install scripts can remain disabled. LineJS/types' MIT license, omitted from their JSR npm archives, is retained in `protocol/third-party-notices.txt`; bundled notices also enumerate nested dependency versions.
 
+LineJS 3.4.2 requests Thrift `^0.20.0`. The project overrides it to `0.23.0`, which fixes [the recursion vulnerability](https://github.com/advisories/GHSA-r67j-r569-jrwp) and [the HTTP server vulnerabilities](https://github.com/advisories/GHSA-526f-jxpj-jmg2), with binary/compact wire compatibility covered by tests. Use `npm ci --ignore-scripts` after updating the checkout to install its locked dependencies before testing. Do not use `npm audit fix --force` for this warning: its suggested LineJS `0.0.2` downgrade can add an obsolete package alongside the alias without fixing the dependency actually used.
+
+Portable bundles include the patched Thrift from the build's lockfile. For a headless npm archive installation, merge the following into the consuming project's root `package.json` before installing; [npm does not apply dependency packages' overrides](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#overrides). A global archive installation does not inherit this repository's override. `npm run test:package-cli` checks a fresh installation with this consumer configuration, including the actual Thrift version and server imports.
+
+```json
+"overrides": {
+  "@evex/linejs": {
+    "thrift": "0.23.0"
+  }
+}
+```
+
 | Platform | Archive | Requirements |
 | --- | --- | --- |
 | Windows x64 | ZIP | Supported Windows 10/11 or Server 2016+; .NET Framework 4.8 for tray |
@@ -238,7 +250,7 @@ Start the **complete old bundle** with the recorded launch settings and original
 
 ## CLI archive
 
-Replace `VERSION` below with the actual release version. `npm run package` produces `release/npm/line-bridge-VERSION.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. Install on a machine that can reach LINE using `npm install -g ./line-bridge-VERSION.tgz`; Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
+Replace `VERSION` below with the actual release version. `npm run package` produces `release/npm/line-bridge-VERSION.tgz` with checksums and a manifest. File-list validation excludes private data, native executables, Rust sources, generated bundles and build trees. On a machine that can reach LINE, configure a consuming project with the JSR registry and Thrift override above, then use `npm install --ignore-scripts ./line-bridge-VERSION.tgz` and invoke its CLI with `npx --no-install linebridge`. Node 24+ must already be present. No install-time download/start/build scripts are attached. Scoped tokens are required by default. The archive is not published to the npm registry.
 
 ## Verification
 

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {randomBytes,generateKeyPairSync} from 'node:crypto';
+import {createRequire} from 'node:module';
 import {InternalError} from '@evex/linejs/base';
-import {Protocols,LINEStruct} from '@evex/linejs/thrift';
+import {Thrift,Protocols,LINEStruct} from '@evex/linejs/thrift';
 import {LineDriver} from '../server/drivers.mjs';
 import {Store} from '../server/store.mjs';
 import {Vault,VaultStorage} from '../server/vault.mjs';
@@ -21,10 +22,27 @@ function fixture(t){
 test('official JSR LineJS is pinned with registry integrity and bundled signal forwarding',async()=>{
   const pkg=JSON.parse(await readFile(new URL('../package.json',import.meta.url))),lock=JSON.parse(await readFile(new URL('../package-lock.json',import.meta.url)));
   assert.equal(pkg.dependencies['@evex/linejs'],'npm:@jsr/evex__linejs@3.4.2');assert.equal(pkg.dependencies.lineclientbot,undefined);
+  assert.equal(pkg.dependencies['@jsr/evex__linejs'],undefined,'Do not install the obsolete package suggested by npm audit fix --force');
+  assert.equal(lock.packages['node_modules/@jsr/evex__linejs'],undefined);
+  const sdkRequire=createRequire(import.meta.resolve('@evex/linejs/thrift'));
+  assert.equal(sdkRequire('thrift/package.json').version,'0.23.0','The SDK must resolve the patched Thrift runtime');
   assert.equal(lock.packages['node_modules/@evex/linejs'].version,'3.4.2');assert.equal(lock.packages['node_modules/@evex/linejs'].resolved,'https://npm.jsr.io/~/11/@jsr/evex__linejs/3.4.2.tgz');
   assert.equal(lock.packages['node_modules/@evex/linejs'].integrity,'sha512-nq7q2DKMdOUn1bK5I2sdTb0waaD0JkK/8Zi18T8iQA+nsHLJSlXuTYpvQcfrY2EFPu5IJ5HEUaiJfOkVIzTWIg==');
   // Behavior is separately exercised with real SDK encrypted timeout/body tests.
   const legy=await readFile(new URL('../node_modules/@evex/linejs/base/request/legy.js',import.meta.url),'utf8');assert.match(legy,/signal: request\.signal/);
+});
+test('patched Thrift preserves LineJS binary and compact wire formats and 64-bit cursors',()=>{
+  const thrift=new Thrift(),value=[[12,0,[[10,1,9007199254740999n],[11,2,'測試 LINE'],[15,3,[8,[1,-2,3]]],[2,4,true]]]];
+  // Captured with LineJS 3.4.2 and Thrift 0.20.0 before the security override.
+  const fixtures={
+    3:'800100010000000766697874757265000000000c00000a000100200000000000070b00020000000be6b8ace8a9a6204c494e450f0003080000000300000001fffffffe0000000302000401000000',
+    4:'82210007666978747572650c00168e80808080808020180be6b8ace8a9a6204c494e45193502030611000000'
+  };
+  for(const id of [3,4]){
+    const wire=Buffer.from(fixtures[id],'hex');
+    assert.deepEqual(Buffer.from(thrift.writeThrift(value,'fixture',Protocols[id])),wire);
+    assert.deepEqual(thrift.readThrift(wire,Protocols[id]),{data:{0:{1:9007199254740999n,2:'測試 LINE',3:[1,-2,3],4:true}},_info:{fname:'fixture',mtype:1,rseqid:0}});
+  }
 });
 test('token resume preserves legacy encrypted key/cursor records and does not enroll keys or log in again',async t=>{
   const {storage,driver,client}=fixture(t),pair=keyPair(123),groupKey={keyId:77,privKey:randomBytes(32).toString('base64')};

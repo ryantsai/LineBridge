@@ -1,6 +1,6 @@
 {
   "name": "line-bridge",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "type": "module",
   "description": "LineBridge portable LINE gateway with a browser dashboard, native tray and encrypted searchable archive",
   "license": "MIT",
@@ -52,13 +52,18 @@
     "check": "node scripts/check.mjs"
   },
   "dependencies": {
+    "@evex/linejs": "npm:@jsr/evex__linejs@3.4.2",
     "@modelcontextprotocol/sdk": "^1.32.0",
     "express": "^5.2.1",
     "jose": "^6.2.12",
-    "@evex/linejs": "npm:@jsr/evex__linejs@3.4.2",
     "qrcode": "^1.5.4",
     "undici": "^8.11.2",
     "zod": "^4.6.5"
+  },
+  "overrides": {
+    "@evex/linejs": {
+      "thrift": "0.23.0"
+    }
   },
   "devDependencies": {
     "esbuild": "0.28.2"

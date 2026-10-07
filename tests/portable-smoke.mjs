@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {seedSyntheticMonitor} from './synthetic-monitor-fixture.mjs';
 import {execFileSync,spawn} from 'node:child_process';
-import {mkdir,mkdtemp,readFile,writeFile,readdir,copyFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,writeFile,readdir,copyFile,realpath} from 'node:fs/promises';
 import {join,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
@@ -52,7 +52,7 @@ async function start(adminPort,gatewayPort){
     if(service.exitCode!==null)throw new Error(`Portable service exited: ${serviceOutput}`);
     try{
       const meta=JSON.parse(await readFile(join(data,'service.json'),'utf8'));
-      assert.equal(meta.dataDir,data);assert.equal(meta.adminPort,adminPort);assert.equal(meta.gatewayPort,gatewayPort);
+      assert.equal(meta.dataDir,await realpath(data));assert.equal(meta.adminPort,adminPort);assert.equal(meta.gatewayPort,gatewayPort);
       const response=await fetch(`http://127.0.0.1:${adminPort}`,{signal:AbortSignal.timeout(1000)});
       assert.equal(response.status,200);const cookie=response.headers.getSetCookie()[0]?.split(';')[0];
       assert.match(await response.text(),/LineBridge/);
@@ -86,6 +86,7 @@ try{
   await copyFile(archive,join(extracted,'bundle.archive'));
   execFileSync('tar',['-xf','bundle.archive'],{cwd:extracted,windowsHide:true,stdio:'pipe'});
   const bundle=join(extracted,info.directory);bin=join(bundle,plan.launcher);
+  assert.match(await readFile(join(bundle,'app/third-party-notices.txt'),'utf8'),/=== thrift 0\.23\.0 \(/,'The portable bundle must include patched Thrift');
   const bundleInfo=JSON.parse(await readFile(join(bundle,'bundle-info.json'),'utf8'));
   for(const key of ['version','platform','architecture','directory','launcher','tray','nodeVersion'])assert.equal(bundleInfo[key],info[key]);
   const node=join(bundle,'runtime',plan.nodeName),nodeInfo=JSON.parse(await readFile(join(bundle,'runtime/node-source.json'),'utf8'));

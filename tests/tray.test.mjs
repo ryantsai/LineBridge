@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,rm,realpath} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
@@ -19,8 +19,9 @@ function launch(data,p){
   return {child,closed,get output(){return stdout;},async until(pattern){const end=Date.now()+40000;while(Date.now()<end){if(pattern.test(stdout))return stdout;if(child.exitCode!==null)throw new Error(stdout+stderr);await delay(30);}throw new Error('Tray timeout: '+stdout+stderr);}};
 }
 async function fixture(t){
-  const data=await mkdtemp(join(tmpdir(),'linebridge-tray-')),children=[];
-  t.after(async()=>{for(const item of children){item.child.stdin.end();await item.closed;}try{await run(data,'stop');}catch{}for(let i=0;i<50;i++){if((await run(data,'status')).status==='stopped')break;await delay(100);}await removeClientFixture(data);});
+  const directory=await mkdtemp(join(tmpdir(),'linebridge-tray-')),data=await realpath(directory),children=[];
+  // Match the canonical data directory written by the real CLI and tray.
+  t.after(async()=>{for(const item of children){item.child.stdin.end();await item.closed;}try{await run(data,'stop');}catch{}for(let i=0;i<50;i++){if((await run(data,'status')).status==='stopped')break;await delay(100);}await removeClientFixture(directory);});
   return {data,start(p){const item=launch(data,p);children.push(item);return item;}};
 }
 test('tray starts authenticated service, opens verified custom port, avoids duplicates, and detaches without stopping',async t=>{

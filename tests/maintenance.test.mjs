@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,writeFile,readFile,rm,readdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,readdir,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -23,7 +23,8 @@ async function ports(){
   }
 }
 async function fixture(t){
-  const data=await mkdtemp(join(tmpdir(),'linebridge-maintenance-')),children=[];
+  const directory=await mkdtemp(join(tmpdir(),'linebridge-maintenance-')),data=await realpath(directory),children=[];
+  // Metadata uses the service's canonical path, including Windows short TEMP paths.
   // Explicit synthetic host model for Linux: exercise JS lifecycle/IPC and
   // real locks/sockets, never claim to test native Windows/macOS code here.
   const preload=join(data,'synthetic-host.mjs');
@@ -41,7 +42,7 @@ async function fixture(t){
     for(const child of children)if(child.exitCode===null&&child.signalCode===null){child.stdin.end();child.kill();}
     // Only the service whose instance metadata lives in this disposable fixture.
     try{const m=JSON.parse(await readFile(join(data,'service.json'),'utf8'));if(m.dataDir===data&&m.pid!==process.pid)process.kill(m.pid);}catch{}
-    await pause(80);await removeClientFixture(data);
+    await pause(80);await removeClientFixture(directory);
   });
   return {data,p,env,start,run,serve:(...flags)=>start(cli,['serve','--data-dir',data,'--admin-port',String(p.admin),'--gateway-port',String(p.gateway),'--trust-local',...flags])};
 }
