@@ -11,7 +11,7 @@
 - **執行位置與版本：** Dot 的 CLI 必須在使用者持續開機、連網的 Windows／Mac 上執行；雲端的 localhost 不是該電腦。使用官方實際發布的平台套件與內附 runtime。合併到 main、GitHub 已發布、CLI 已安裝與服務正在執行的版本各自不同；分別核對 release／build metadata、`--version` 與 `version --profile PROFILE_NAME`，不要以合併通知推定已升級。
 - **保留現況：** 升級前完整停止並備份原資料目錄、vault 與受保護 profile；SQLite 也保存傳送冪等紀錄，不能用新的空資料目錄取代。沿用原 OS 使用者、資料路徑及 loopback 埠，詳見下方升級／還原步驟。
 - **範圍變更：** 有效設定使用「更新範圍」，保留 profile、token 與到期日；[監控與 grant 同步規則](CONNECTIONS.md#chat-toggles-and-managed-local-ai-access)也涵蓋手動／遠端 client 的衝突。
-- **接收健康：** 按已安裝版本回傳的 `staleAfterMs` 檢查每個 stream 的 durable success；目前為更新間隔加 60 秒，預設 120 秒。Talk 等待上限 180 秒，pending 不算新的成功。空的已完成 poll 算成功；HTTP 有回應不代表 LINE 接收正常。只在已授權且確認服務意外停止時，沿用同一資料目錄嘗試啟動一次；主動停止／撤銷或單純 stale 不適用。[判讀欄位](CLI.md#receiver-health)。
+- **接收健康：** 按已安裝版本回傳的 `staleAfterMs` 檢查每個 stream 的 durable success；目前為更新間隔加 60 秒，新預設 75 秒，既存設定可能不同。Talk 等待上限 180 秒，pending 不算新的成功。空的已完成 poll 算成功；HTTP 有回應不代表 LINE 接收正常。只在已授權且確認服務意外停止時，沿用同一資料目錄嘗試啟動一次；主動停止／撤銷或單純 stale 不適用。[判讀欄位](CLI.md#receiver-health)。
 - **傳送前：** 比對[收件者與訊息能力](CLI.md#recipient-and-message-capabilities)，取得確切對象、內容與必要的單次傳輸加密確認。OA 文字已有一次 v0.7.9 API 接受紀錄；Flex 一次遭拒，群組 `NOT_FOUND` 尚未解決。區分[傳送前失敗、明確拒絕與未知結果](CLI.md#send-outcome-evidence-and-current-limitation)，不可自動重送或換 key 規避未知結果。
 
 
@@ -155,8 +155,8 @@ CLI_COMMAND search --profile PROFILE_NAME --account ACCOUNT_ID --chat CHAT_ID --
 CLI_COMMAND events --profile PROFILE_NAME --account ACCOUNT_ID --after 0 --limit 100
 ```
 
-- **確認真正收訊：**`accounts` 的 `connected`／`accountHealth` 只證明帳號驗證。另檢查 `monitor.enabled`、`monitor.health` 與**每個** `monitor.streams` 的 `health`、`lastAttemptAt`、`lastSuccessAt`。以伺服器 `monitor.checkedAt` 與 `staleAfterMs` 判斷新鮮度；目前門檻為更新間隔 + 60,000 ms，預設 120,000 ms。只有訊息／游標持久保存並確認後才更新成功時間，空輪詢也可成功。HTTP 200、結束代碼 0、單一健康串流或 sandbox 都不足以證明所有 LINE 收訊正常。[健康狀態與排錯](CLI.md#receiver-health)。
-- **自動與立即更新：**自動更新預設 60 秒，在「監控」頁的「每 … 秒更新」可存為全域 3–3600 秒；同時控制畫面及成功輪詢後的等待。Talk 長輪詢最長 180 秒，安靜的請求可能先變 `stale`，不等於已逾時。`refresh` 立即讀取指定聊天室，不需啟用監聽；上游失敗回傳錯誤，不以快取假裝更新成功。它不送已讀回條、不重設接收游標。更新間隔不是 LINE 已確認的配額或精準送達時間。
+- **確認真正收訊：**`accounts` 的 `connected`／`accountHealth` 只證明帳號驗證。另檢查 `monitor.enabled`、`monitor.health` 與**每個** `monitor.streams` 的 `health`、`lastAttemptAt`、`lastSuccessAt`。以伺服器 `monitor.checkedAt` 與 `staleAfterMs` 判斷新鮮度；目前門檻為更新間隔 + 60,000 ms，新預設 75,000 ms，既存設定可能不同。只有訊息／游標持久保存並確認後才更新成功時間，空輪詢也可成功。HTTP 200、結束代碼 0、單一健康串流或 sandbox 都不足以證明所有 LINE 收訊正常。[健康狀態與排錯](CLI.md#receiver-health)。
+- **自動與立即更新：**OpenChat 改為單一帳號事件入口，預設每 15 秒集中查詢並加入 ±20% 抖動，只對已指定房間限量補取。畫面更新預設 15 秒；「監控」頁的「每 … 秒更新」可存為全域 3–3600 秒。既存設定保留，原本存為 60 秒者需在此改為 15。Talk 在持久保存後等 250 毫秒再發長輪詢；連續快速空回應會放慢至最多 5 秒。其 180 秒期限與健康門檻分開，安靜的請求可能先變 `stale`，不等於已逾時。`refresh` 立即讀取指定聊天室，不送已讀回條、不重設游標；上游失敗不以快取假裝成功。集中查詢不保證總請求更少。[同步設計、遷移與流量取捨](CLI.md#central-openchat-sync-and-recovery)。
 - **除錯紀錄：**在「紀錄」頁開啟「除錯紀錄」，可記錄每次畫面更新、LINE 輪詢、帳號驗證及立即更新訊息的狀態、耗時與錯誤類型。預設關閉，設定會保存；關閉後停止新增除錯項目。紀錄不含訊息內容或憑證，共保留最近 2,000 筆活動，頁面顯示最近 80 筆。
 - **有限讀取：**`read`／`refresh` 每頁最多 100 則。Talk 只取近期訊息，OpenChat 用回傳游標讀取有限頁面。核對 `coverage`、`upstreamError`、本機備援；不能宣稱全部歷史、全部聊天室或 LINE 原生「未讀」。
 - **搜尋與事件分頁：**搜尋只含已封存的可解密文字，不含附件或未捕捉訊息。`hasMore: true` 時維持查詢／篩選，以 `--before NEXT_BEFORE` 繼續，`NEXT_BEFORE` 取自 `nextBefore`；**空結果頁也要繼續**。`events` 保存 `cursor`，下次用 `--after EVENTS_CURSOR`。這些指令不會自動持續輪詢或建立 AI 排程。[分頁與結束代碼](CLI.md#commands-and-pagination)、[搜尋限制](SEARCH.md)。

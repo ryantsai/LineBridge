@@ -11,7 +11,7 @@ import {Vault} from '../server/vault.mjs';
 import {Hub,localActor} from '../server/hub.mjs';
 import {LineDriver,normalizeMessage} from '../server/drivers.mjs';
 import {imageResult,boundedResponse,decryptAuthenticatedMedia,MEDIA_MAX_BYTES} from '../server/media.mjs';
-import {InternalError} from '../node_modules/lineclientbot/dist/esm/base/core/utils/error.js';
+import {InternalError} from '@evex/linejs/base';
 import {validateFlex} from '../server/flex.mjs';
 import {runCli} from '../client/cli.mjs';
 import {createApps} from '../server/app.mjs';

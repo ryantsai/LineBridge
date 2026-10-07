@@ -1,4 +1,4 @@
-import { BaseClient } from 'lineclientbot';
+import { BaseClient } from '@evex/linejs/base';
 import { Agent, fetch as lineFetch } from 'undici';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -10,6 +10,8 @@ import {assertFlexTransport,validateFlex} from './flex.mjs';
 import {officialAccountCapability,OA_NOTICE} from './official-account.mjs';
 import {prepareText} from './send-preparation.mjs';
 import {dispatchText} from './send-dispatch.mjs';
+import {guardRpcTransport} from './rpc-transport.mjs';
+import {existingKeyE2EE} from './encryption-policy.mjs';
 
 export function discoveryErrorCode(error) {
   const code=error?.data?.errorCode ?? error?.data?.code ?? error?.code;
@@ -63,6 +65,7 @@ export class LineDriver {
         const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
         return transport(request.url, { method: request.method, headers: request.headers, body, redirect: request.redirect, signal });
       } });
+    guardRpcTransport(this.client);
     this.client.on('qrcall', url => events.qr(url));
     this.client.on('pincall', pin => events.pin(String(pin)));
     this.client.on('update:authtoken', token => {
@@ -114,6 +117,7 @@ export class LineDriver {
   }
   get aliases(){return this.aliasResolver ??= new AliasResolver(this.client,this.storage);}
   async resolveMessageNames(chat,messages){return this.aliases.resolveMessages(chat,messages);}
+  async decryptMessage(raw){return existingKeyE2EE(this.client).decryptE2EEMessage(raw);}
   async discover() {
     const result=[], warnings=[], stages={};
     try {
@@ -169,7 +173,7 @@ export class LineDriver {
     const messages=[];
     for(const item of response) {
       const raw=this.client.thrift.rename_thrift('Message',item);
-      try { messages.push(normalizeMessage(await this.client.e2ee.decryptE2EEMessage(raw))); }
+      try { messages.push(normalizeMessage(await this.decryptMessage(raw))); }
       catch { messages.push(normalizeMessage({...raw,text:''},{unavailableReason:'E2EE decryption failed; this message was not exposed.'})); }
     }
     return {messages:await this.resolveMessageNames(chat,messages.sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)))),cursor:null,coverage:'Recent messages returned by LINE; full historical sync is not supported.'};

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LiveMonitor,pollDiagnostic} from '../protocol/monitor.mjs';
+import {RoomMonitor as LiveMonitor} from './room-monitor-fixture.mjs';
+import {pollDiagnostic} from '../protocol/monitor.mjs';
 import {TALK_POLL_TIMEOUT_MS} from '../server/monitor-policy.mjs';
 import {Store} from '../server/store.mjs';
 import {monitorStatus} from '../server/inbox.mjs';
@@ -138,8 +139,8 @@ test('interval-aware freshness, pending deadlines, sticky failure, and EVERY str
   clock(t);const store=new Store(':memory:');t.after(()=>store.close());const account=store.addAccount('Synthetic receiver','line','IOSIPAD');
   for(const chat of [{id:'chosen',kind:'group'},{id:'room',kind:'openchat'}]){store.putChat(account.id,{...chat,name:chat.id});store.designate(account.id,chat.id,true);}store.setSetting(`monitor:${account.id}`,true);
   const success=new Date().toISOString(),streams={talk:{status:'polling',ready:true,lastAttemptAt:success,lastSuccessAt:success,pollTimeoutMs:180000,pollDeadlineAt:new Date(Date.now()+180000).toISOString()},room:{status:'running',ready:true,lastSuccessAt:success}};
-  assert.equal(monitorStatus(store,account.id,streams).staleAfterMs,120000);
-  t.mock.timers.tick(120000);assert.equal(monitorStatus(store,account.id,streams).health,'healthy');
+  assert.equal(monitorStatus(store,account.id,streams).staleAfterMs,75000);
+  t.mock.timers.tick(75000);assert.equal(monitorStatus(store,account.id,streams).health,'healthy');
   t.mock.timers.tick(1);streams.room.lastSuccessAt=new Date().toISOString();let health=monitorStatus(store,account.id,streams);
   assert.equal(health.health,'stale');assert.equal(health.streams.talk.health,'stale');assert.equal(health.streams.room.health,'healthy');assert.equal(streams.talk.lastSuccessAt,success);
   streams.talk.lastSuccessAt=new Date().toISOString();streams.talk.error='monitor_poll_failed';assert.equal(monitorStatus(store,account.id,streams).health,'retrying');

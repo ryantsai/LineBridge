@@ -2,7 +2,7 @@ import test from 'node:test';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomBytes} from 'node:crypto';
-import {BaseClient} from 'lineclientbot';
+import {BaseClient} from '@evex/linejs/base';
 import {LineDriver} from '../server/drivers.mjs';
 import {prepareText} from '../server/send-preparation.mjs';
 import {publicError,SendRejectedError} from '../server/errors.mjs';

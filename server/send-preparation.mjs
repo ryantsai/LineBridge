@@ -1,4 +1,5 @@
 import {preparationCauses} from '../client/send-diagnostic.mjs';
+import {existingKeyE2EE} from './encryption-policy.mjs';
 
 function cause(error){
   const names={'NoE2EEKey':'SELF_KEY_MISSING','No E2EEKey':'RECIPIENT_KEY_MISSING','Not support E2EE':'E2EE_UNSUPPORTED',TypeError:'SDK_TYPE_ERROR',TimeoutError:'TIMEOUT',AbortError:'CANCELLED'};
@@ -18,7 +19,7 @@ export class PreparationFailure extends Error {
 export async function prepareText(client,chat,text,negotiation){
   let stage='MESSAGE_PREPARATION';
   const failures=new WeakMap();
-  const e2ee=Object.create(client.e2ee),view=Object.create(client),talk=Object.create(client.talk);
+  const e2ee=existingKeyE2EE(client),view=Object.create(client),talk=Object.create(client.talk);
   view.talk=talk;e2ee.client=view;
   const wrap=(target,original,name,nextStage,receiver)=>{
     if(typeof original[name]!=='function')return;

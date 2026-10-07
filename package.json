@@ -55,7 +55,7 @@
     "@modelcontextprotocol/sdk": "^1.32.0",
     "express": "^5.2.1",
     "jose": "^6.2.12",
-    "lineclientbot": "0.1.3",
+    "@evex/linejs": "npm:@jsr/evex__linejs@3.4.2",
     "qrcode": "^1.5.4",
     "undici": "^8.11.2",
     "zod": "^4.6.5"

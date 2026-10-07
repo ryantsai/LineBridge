@@ -10,6 +10,8 @@ const root=process.cwd(),directory=await mkdtemp(join(tmpdir(),'linebridge-packa
 try {
   const info=JSON.parse(await readFile(join(root,'release/npm/package-info.json'),'utf8'));
   await writeFile(join(directory,'package.json'),'{"name":"synthetic-cli-install","private":true}');
+  // Official LineJS is on JSR; npm consumers need this documented scoped registry.
+  await writeFile(join(directory,'.npmrc'),'@jsr:registry=https://npm.jsr.io\n');
   // Installing into an empty directory verifies all client files/imports were
   // shipped, independently of source-tree resolution. No lifecycle scripts.
   const installEnv={...process.env};

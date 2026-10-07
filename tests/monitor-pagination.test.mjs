@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LiveMonitor,SQUARE_BASELINE_PAGE_DELAY_MS,SQUARE_BASELINE_MAX_PAGES,SQUARE_BASELINE_BURST_MS} from '../protocol/monitor.mjs';
+import {RoomMonitor as LiveMonitor} from './room-monitor-fixture.mjs';
+import {SQUARE_BASELINE_PAGE_DELAY_MS,SQUARE_BASELINE_MAX_PAGES,SQUARE_BASELINE_BURST_MS} from '../protocol/monitor.mjs';
 
 const INTERVAL=60000;
 const flush=()=>new Promise(resolve=>setImmediate(resolve));

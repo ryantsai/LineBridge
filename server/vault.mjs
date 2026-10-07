@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile,stat,chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { BaseStorage } from 'lineclientbot';
+import { BaseStorage } from '@evex/linejs/storage';
 
 // Key exchange uses child-process pipes, never command-line arguments or logs.
 async function dpapi(mode, bytes) {
