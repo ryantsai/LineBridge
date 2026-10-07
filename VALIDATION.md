@@ -1,4 +1,15 @@
-# Windows operational validation — 2026-10-06
+# Central OpenChat sync and official LineJS migration - 2026-10-07
+
+Isolated Windows x64 development branch based on main `5f66ee9962a9f764e0d6b902375dedb812a21ca2` (v0.7.10). These are synthetic checks of the proposed code, not a released version or live LINE reception evidence.
+
+- Official upstream: GitHub `evex-dev/linejs` stable tag v3.4.2 resolves to `ef6c3d9f70dd41fa51053615d47f071f58cf8db3`; official JSR metadata reports 3.4.2. `@evex/linejs` uses the exact JSR npm alias and lockfile tarball integrity. The upstream MIT notice omitted from JSR's npm archive is retained in the distribution.
+- Full Node suite: **334 tests passed**, with no skips. New coverage includes account-feed scope, bounded room hydration, baseline/backfill, durable room/account ACK failure and restart replay through encrypted SQLite, ordering/deduplication, selection cancellation, account Retry-After, safe HTTP/body diagnostics, real SDK plain/LEGY deadlines, existing token/key/cursor compatibility, and prevention of automatic key enrollment. Actual private worker tests cover overlapping monitor replacements, pending durable ACKs, and cancellable login.
+- Talk checks verify 250 ms rearm after durable success, bounded anti-spin on rapid valid empty pages, recovery after an operation-bearing or held response, and a separate 180-second request deadline. Square checks verify quiet decoded empty polls as successes; malformed/zero-byte HTTP, pending requests and incomplete catch-up do not become healthy empty polls.
+- JavaScript syntax, HTTP with the official MCP client, fresh npm archive installation, and Windows portable build/smoke passed. Portable smoke used an extracted path containing spaces/Unicode and no Node/npm on PATH; it checked the bundled runtime and worker, scoped CLI access, synthetic sends, archive persistence and shutdown. npm validation used checksum-verified npm 11.6.0 in an isolated tool directory. Native macOS builds were not run.
+- The installed application, existing credentials/data and live LINE sessions were not changed or used for these checks. No real messages, key registration, grant changes, release, merge or workflow run occurred. GitHub Actions remained disabled. The roughly 110-second live Talk failures remain unexplained by the prior sanitized evidence; these tests do not establish that migration fixes them.
+- Traffic/recovery limits are documented in [CLI.md](CLI.md#central-openchat-sync-and-recovery): a default of 15 seconds with jitter can increase total quiet requests for a small room count, account notifications still need selected-room hydration, a failing room stalls its account batch, and five-minute reconciliation is subject to backlog/delay and LINE retention. Existing saved intervals, including 60 seconds, are preserved. A future approved installation still requires checking authenticated scope and every stream using its actual freshness fields.
+
+# Windows operational validation - 2026-10-06
 
 Documentation baseline: main `c8fa570bebf4fa1000e2f0b63ee7525fbcf0aaf0`, official v0.7.9. These anonymous observations are bounded evidence, not a guarantee for other accounts or versions. Production identifiers, credentials, message contents and logs are deliberately omitted.
 

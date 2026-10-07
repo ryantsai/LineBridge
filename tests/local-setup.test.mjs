@@ -134,7 +134,7 @@ test('automatic discovery follows the refresh interval, resumes on reconnect and
   driver.rooms.push({id:'future-room',name:'Future room',kind:'openchat'});
   t.mock.timers.tick(0);await flush();assert.equal(polls,1);assert.equal(updates,1);assert.equal(f.store.chat(f.id,'future-room').enabled,1);
   assert.match(f.store.setting(`discovery:${f.id}`).warnings[0],/retry/);
-  t.mock.timers.tick(59999);await flush();assert.equal(polls,1);
+  t.mock.timers.tick(14999);await flush();assert.equal(polls,1);
   t.mock.timers.tick(1);await flush();assert.equal(polls,2);assert.equal(updates,2,'A failed update is reconciled on the next discovery');
   await f.hub.setRefreshSettings({intervalSeconds:3});t.mock.timers.tick(2999);await flush();assert.equal(polls,2);
   t.mock.timers.tick(1);await flush();assert.equal(polls,3);

@@ -35,7 +35,7 @@ export function dashboardMarkup(state,escape){
     ${metric('已連線帳號',summary.connected,`共 ${number(summary.accounts)} 個帳號`,'users')}
     ${metric('AI 監控聊天室',summary.monitored,`共 ${number(summary.chats)} 個聊天室`,'chats')}
     ${metric('已封存訊息',summary.messages,'加密保存在這台電腦','inbox')}
-    ${metric('監聽中帳號',summary.listening,`每 ${state.refresh?.intervalSeconds??60} 秒更新`,'pulse')}
+    ${metric('監聽中帳號',summary.listening,`每 ${state.refresh?.intervalSeconds??15} 秒更新`,'pulse')}
   </div>
   ${!summary.accounts?`<div class="panel dashboard-welcome"><span class="empty-icon">${icon('chats')}</span><div><h2>從第一個 LINE 帳號開始</h2><p class="muted">使用設定精靈連接帳號、選擇聊天室並啟用 AI。</p></div><button class="btn" data-go="setup">開始設定${icon('arrowRight')}</button></div>`:''}
   <div class="dashboard-charts">

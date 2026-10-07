@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LiveMonitor} from '../protocol/monitor.mjs';
+import {RoomMonitor as LiveMonitor} from './room-monitor-fixture.mjs';
+
 
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};

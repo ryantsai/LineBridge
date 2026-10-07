@@ -27,7 +27,7 @@ let startupChecked=false;
 const savingAutoMonitor=new Set();
 const savingChatMonitoring=new Set();
 let refreshRunning=false,reading=false,sending=false,chatListRefreshPending=false;
-let refreshTimer,refreshIntervalSeconds=60,refreshSettingsVersion;
+let refreshTimer,refreshIntervalSeconds=15,refreshSettingsVersion;
 let currentPage='dashboard',monitorAccount=null,monitorReading=false,monitorVersion='',monitorOptions='',accountOptions='';
 let feedAccount=null,readerChat=null,chatInfoOpen=false;
 const seenEvents=new Set(),seenMessages=new Set();
@@ -216,7 +216,7 @@ function renderAutoMonitorSetting(a){
   const active=!!a.localSetup?.grantActive,mismatch=active&&a.localSetup.selectionChanged===true;
   if(!savingAutoMonitor.has(a.id))toggle.checked=active&&a.localSetup.autoMonitorNewChats===true;
   toggle.disabled=!active||savingAutoMonitor.has(a.id);
-  $('#account-auto-monitor-help').textContent=active?`監聽時每 ${state.refresh?.intervalSeconds??60} 秒探索；新聊天室會自動開放 AI 讀取與傳送並封存。關閉後保留已加入的聊天室。${mismatch?' 監控中的聊天室與本機 AI 授權範圍不一致，請用設定精靈確認並更新範圍。':''}`:'先完成設定精靈並啟用本機 AI，即可自動加入新聊天室。';
+  $('#account-auto-monitor-help').textContent=active?`監聽時每 ${state.refresh?.intervalSeconds??15} 秒探索；新聊天室會自動開放 AI 讀取與傳送並封存。關閉後保留已加入的聊天室。${mismatch?' 監控中的聊天室與本機 AI 授權範圍不一致，請用設定精靈確認並更新範圍。':''}`:'先完成設定精靈並啟用本機 AI，即可自動加入新聊天室。';
   $('#account-setup').hidden=active&&!mismatch;
 }
 async function saveAutoMonitorSetting(id,enabled){
@@ -316,7 +316,7 @@ function renderMonitoring(){
   const live=a&&m.enabled&&a.status==='connected',facts=a?[nice(a.status==='connected'?m.status:m.enabled?'disconnected':'off'),`${a.designatedChats} 個聊天室`,...(a.localSetup?.grantActive&&a.localSetup.autoMonitorNewChats?['自動加入新聊天室']:[]),`已存 ${(m.storedMessages || 0).toLocaleString('zh-TW')} 則`,...(m.lastMessage?[`最新 ${short(m.lastMessage)}`]:[])]:[];
   $('#monitor-detail').innerHTML=a?`<span class="dot ${live?'good live':m.enabled?'warn':''}"></span>${escape(facts.join(' · '))}`:'';
   const streams=Array.isArray(m.streams)?m.streams:Object.values(m.streams ?? {});
-  const healthLabel={healthy:'正常',stale:`超過 ${(m.staleAfterMs??120000)/1000} 秒未成功`,waiting:'等待首次成功',initializing:'建立起點',retrying:'重試中',disconnected:'帳號未連線',off:'已停止',sandbox:'沙盒',no_chats:'尚未開放聊天室'};
+  const healthLabel={healthy:'正常',stale:`超過 ${(m.staleAfterMs??75000)/1000} 秒未成功`,waiting:'等待首次成功',initializing:'同步中',retrying:'重試中',disconnected:'帳號未連線',off:'已停止',sandbox:'沙盒',no_chats:'尚未開放聊天室'};
   $('#monitor-streams').innerHTML=a?streams.map(s=>{const kind=s.health==='healthy'?'good':['stale','retrying','disconnected'].includes(s.health)?'warn':'',tip=[`最後成功：${s.lastSuccessAt?when(s.lastSuccessAt):s.channel==='demo'?'沙盒不輪詢 LINE':'尚無紀錄'}`,...(s.lastAttemptAt?[`最後嘗試：${when(s.lastAttemptAt)}`]:[]),...(s.channel!=='talk'&&s.channel!=='demo'?[s.channel]:[])].join('\n');return `<span class="stream" title="${escape(tip)}"><span class="dot ${kind}${kind==='good'?' live':''}"></span>${escape(s.channel==='demo'?'沙盒模式':`${s.channel==='talk'?'一對一與群組':'OpenChat'} · ${healthLabel[s.health]||nice(s.status)}`)}</span>`;}).join('')||`<span class="stream"><span class="dot"></span>${escape(healthLabel[m.health]||'尚未開始輪詢')}</span>`:'';
   if(!a){feedAccount=null;$('#monitor-feed').innerHTML=`<div class="empty"><span class="empty-icon">${icon('pulse')}</span><h3>尚未連接帳號</h3><p>完成設定後，新訊息會出現在這裡。</p><div class="btn-row"><button class="btn primary" data-go="setup">開始設定</button></div></div>`;}
 }
@@ -440,4 +440,4 @@ const activity=createActivity({getState:()=>state,api,action,toast,refresh,escap
 function renderAudit(){activity.render();}
 const connections=createConnections({api,action,toast,refresh,escape,when,getState:()=>state});
 function renderTunnel(){connections.render();}
-await refresh();configureRefreshTimer(state?.refresh?.intervalSeconds??60);
+await refresh();configureRefreshTimer(state?.refresh?.intervalSeconds??15);

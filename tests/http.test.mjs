@@ -103,7 +103,7 @@ test('only the local admin can save refresh settings, with strict bounds and sta
   const index=await fetch(adminBase),cookie=index.headers.getSetCookie()[0].split(';')[0];
   const headers={Cookie:cookie,Origin:adminBase,'X-Line-Bridge':'dashboard','Content-Type':'application/json'};
   const state=()=>fetch(`${adminBase}/admin/state`,{headers:{Cookie:cookie}}).then(r=>r.json());
-  assert.equal((await state()).refresh.intervalSeconds,60);
+  assert.equal((await state()).refresh.intervalSeconds,15);
   const path=`${adminBase}/admin/refresh-settings`;
   assert.equal((await fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:'{"intervalSeconds":120}'})).status,401);
   assert.equal((await fetch(path,{method:'PUT',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{"intervalSeconds":120}'})).status,403);

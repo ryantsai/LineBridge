@@ -49,7 +49,7 @@ test('CLI accounts exposes per-stream receiver success and missing-stream health
   const monitor=result.json[0].monitor;
   assert.equal(monitor.health,'waiting');assert.equal(monitor.streams.talk.lastSuccessAt,lastSuccessAt);
   assert.equal(monitor.streams.talk.health,'healthy');assert.equal(monitor.streams['demo-openchat'].lastSuccessAt,null);
-  assert.equal(monitor.intervalSeconds,60);assert.equal(monitor.staleAfterMs,120000);assert.ok(monitor.checkedAt);
+  assert.equal(monitor.intervalSeconds,15);assert.equal(monitor.staleAfterMs,75000);assert.ok(monitor.checkedAt);
   hub.runtime.get(account.id).driver.check=async()=>{throw Object.assign(new TypeError('private profile URL and token'),{cause:{code:'ECONNRESET'}});};
   await hub.healthcheck();const retryAccount=(await cli(['accounts'])).json[0];
   assert.equal(retryAccount.status,'connected');assert.equal(retryAccount.accountHealth.status,'retrying');

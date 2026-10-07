@@ -6,6 +6,8 @@ LineBridge ships portable bundles with Node, the shared service, browser dashboa
 
 Extract the whole archive. Use **linebridge.cmd** on Windows or **./linebridge** on macOS. Node/npm and compilers are not needed on the user's computer. Windows tray uses .NET Framework 4.8; macOS uses AppKit.
 
+The LINE dependency is the official JSR `@evex/linejs` 3.4.2, pinned through `npm:@jsr/evex__linejs@3.4.2` with tarball integrity in the lockfile. Portable releases bundle it and require no registry setup on the target computer. Source builds and headless npm archive installations need the project `.npmrc` setting `@jsr:registry=https://npm.jsr.io`; add this line to the consuming project's existing `.npmrc` before installing the archive, without replacing unrelated settings. This is [JSR's documented npm compatibility configuration](https://jsr.io/docs/npm-compatibility). The repository includes it for `npm ci`; package smoke uses the same documented consumer configuration. Dependency install scripts can remain disabled. LineJS/types' MIT license, omitted from their JSR npm archives, is retained in `protocol/third-party-notices.txt`; bundled notices also enumerate nested dependency versions.
+
 | Platform | Archive | Requirements |
 | --- | --- | --- |
 | Windows x64 | ZIP | Supported Windows 10/11 or Server 2016+; .NET Framework 4.8 for tray |

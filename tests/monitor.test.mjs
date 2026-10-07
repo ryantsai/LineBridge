@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LiveMonitor,nextTalkCursor,talkChatId} from '../protocol/monitor.mjs';
+import {RoomMonitor as LiveMonitor} from './room-monitor-fixture.mjs';
+import {nextTalkCursor,talkChatId} from '../protocol/monitor.mjs';
 test('talk routing handles incoming direct chats and group/outgoing messages',()=>{
   assert.equal(talkChatId({from:'friend',to:'self'},'self'),'friend');
   assert.equal(talkChatId({from:'friend',to:'group'},'self'),'group');

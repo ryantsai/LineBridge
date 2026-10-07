@@ -1,5 +1,5 @@
 // Content-free diagnostics for one OpenChat page. These explicit mappings are
-// from the bundled lineclientbot 0.1.3 SquareEventType/SquareEventStatus enums.
+// from the bundled LineJS 3.4.2 SquareEventType/SquareEventStatus enums.
 // Never copy upstream strings, payloads, identifiers, or cursor values to output.
 const eventTypes=Object.freeze({
   RECEIVE_MESSAGE:0,SEND_MESSAGE:1,NOTIFIED_JOIN_SQUARE_CHAT:2,

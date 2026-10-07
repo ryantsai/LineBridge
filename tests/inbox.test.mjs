@@ -17,7 +17,7 @@ test('health checks every designated stream and cannot hide missing, stale, disa
   const streams={talk:{status:'polling',lastSuccessAt:recent},room:{status:'polling',lastSuccessAt:old}};
   let status=monitorStatus(store,a.id,streams);
   assert.equal(status.health,'stale');assert.equal(status.streams.talk.health,'healthy');assert.equal(status.streams.room.health,'stale');
-  assert.equal(status.checkedAt,'2026-10-03T00:02:00.000Z');assert.equal(status.staleAfterMs,120000);
+  assert.equal(status.checkedAt,'2026-10-03T00:02:00.000Z');assert.equal(status.staleAfterMs,75000);
   delete streams.room;status=monitorStatus(store,a.id,streams);assert.equal(status.health,'waiting');assert.equal(status.streams.room.lastSuccessAt,null);
   streams.room={status:'polling',lastSuccessAt:recent,ready:false};assert.equal(monitorStatus(store,a.id,streams).health,'initializing');
   streams.room.ready=true;assert.equal(monitorStatus(store,a.id,streams).health,'healthy');

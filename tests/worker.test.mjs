@@ -55,3 +55,42 @@ test('real private pipe waits for parent dispatch authorization and rejects late
   await assert.rejects(worker.call('send',params,5,undefined,()=>assert.fail('Expired call must not authorize')),{code:'upstream_unavailable'});
   await new Promise(r=>setTimeout(r,70));assert.equal((await worker.call('read',{accountId:'synthetic'})).dispatches,1);
 });
+
+test('private worker serializes monitor replacement through durable ACKs without blocking login cancellation',async t=>{
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    import {LiveMonitor} from './protocol/monitor.mjs';
+    const active=new Set();let peak=0,starts=0;
+    LineDriver.prototype.login=async function(){
+      if(this.account.pending){this.events.qr('synthetic_waiting');await new Promise(resolve=>this.abort.signal.addEventListener('abort',resolve,{once:true}));throw new Error('synthetic_cancelled');}
+      return {mid:'synthetic'};
+    };
+    LineDriver.prototype.read=async()=>({active:active.size,peak,starts});
+    LiveMonitor.prototype.update=function(){if(!active.has(this)){active.add(this);starts++;peak=Math.max(peak,active.size);}};
+    const done=LiveMonitor.prototype.done;
+    LiveMonitor.prototype.done=async function(){
+      await this.driver.storage.set('synthetic.lifecycle',starts);
+      await done.call(this);await new Promise(resolve=>setTimeout(resolve,20));active.delete(this);
+    };
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
+  let acks=0;
+  const input=createInterface({input:child.stdout});input.on('line',line=>{
+    const message=JSON.parse(line);
+    if(message.type==='storage'){acks++;setTimeout(()=>worker.write({type:'storage_ack',id:message.id,ok:true}),10);}
+    else worker.handle(message);
+  });
+  t.after(()=>{input.close();worker.close();});
+  const accountId='synthetic',connect={accountId,account:{device:'IOSIPAD'},storage:{}};
+  const call=(method,params={})=>worker.call(method,{accountId,...params},3000);
+  await worker.call('connect',connect);await call('monitor_start');
+  await Promise.all([call('monitor_start'),call('monitor_start'),call('monitor_update'),call('monitor_interval',{refreshIntervalMs:15000})]);
+  assert.deepEqual(await call('read'),{active:1,peak:1,starts:3});
+  await Promise.all([worker.call('connect',connect),call('monitor_start')]);
+  assert.deepEqual(await call('read'),{active:1,peak:1,starts:4});
+  await Promise.all([call('monitor_stop'),call('monitor_start'),call('monitor_stop')]);
+  assert.deepEqual(await call('read'),{active:0,peak:1,starts:5});assert.equal(acks,5);
+  let ready;const waiting=new Promise(resolve=>{ready=resolve;});worker.events.set(accountId,{qr:ready});
+  const pending=worker.call('connect',{...connect,account:{device:'IOSIPAD',pending:true}},3000);
+  const cancelled=assert.rejects(pending);
+  await waiting;await call('disconnect');await cancelled;
+});

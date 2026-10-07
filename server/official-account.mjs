@@ -11,7 +11,7 @@ export async function officialAccountCapability(client,chat){
   catch(error){throw new PreparationFailure('RECIPIENT_KEY_NEGOTIATION',error);}
   if(negotiation?.specVersion!==-1)return {officialAccount:false,negotiation};
   if(negotiation.publicKey!=null)return {officialAccount:false,negotiation};
-  // Pinned lineclientbot 0.1.3 ships BuddyService but does not attach it to
+  // Pinned LineJS 3.4.2 ships BuddyService but does not attach it to
   // BaseClient. Match its getBuddyDetail_args field 4 and /BUDDY4 contract.
   let buddy;
   try{buddy=await client.request.request([[11,4,chat.id]],'getBuddyDetail',4,true,'/BUDDY4');}
