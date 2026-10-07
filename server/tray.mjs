@@ -3,33 +3,62 @@
 import {parseArgs} from 'node:util';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdir,open} from 'node:fs/promises';
+import {mkdir,open,realpath,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createInterface} from 'node:readline';
 import {DatabaseSync} from 'node:sqlite';
 import {defaultDataDirectory} from './main.mjs';
+import {randomUUID} from 'node:crypto';
+import {lifecycleLease,maintenance,writeRecord,readRecord} from './maintenance.mjs';
 
 const exec=promisify(execFile),cli=fileURLToPath(new URL('../bin/linebridge.mjs',import.meta.url));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const emit=(type,value='')=>console.log(`${type}\t${String(value).replace(/[\r\n\t]/g,' ')}`);
-let lock,timer,closing=false;
+let lock,timer,maintenanceTimer,data,metadataWrite,closePromise,closing=false;
+const instance=randomUUID();
 const input=createInterface({input:process.stdin});
-function close(){if(closing)return;closing=true;clearInterval(timer);input.close();process.stdin.destroy();lock?.close();lock=undefined;}
+function close(){
+  if(closing)return closePromise;closing=true;clearInterval(timer);clearInterval(maintenanceTimer);input.close();process.stdin.destroy();
+  closePromise=(async()=>{
+    try{await metadataWrite;if(data&&(await readRecord(data,'tray.json'))?.instance===instance)await rm(join(data,'tray.json'),{force:true});}
+    finally{lock?.close();lock=undefined;}
+  })();void closePromise.catch(()=>{process.exitCode=1;});return closePromise;
+}
 input.on('close',close);
 try{
-  const {values}=parseArgs({options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'}}});
-  const data=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
+  const {values}=parseArgs({options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'desktop-pid':{type:'string'}}});
+  data=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
   await mkdir(data,{recursive:true,mode:0o700});
+  data=await realpath(data);
+  const desktopPid=values['desktop-pid']===undefined?null:Number(values['desktop-pid']);
+  if(desktopPid!==null&&desktopPid!==process.ppid)throw new Error('Desktop parent identity does not match.');
   async function command(name){
     try{return JSON.parse((await exec(process.execPath,[cli,name,'--data-dir',data],{windowsHide:true,timeout:15000})).stdout);}
     catch(error){try{const result=JSON.parse(error.stdout);if(result.status==='unavailable')return result;}catch{}throw error;}
   }
   async function running(){const state=await command('status');if(state.status!=='running')throw new Error('Service is not running. Quit the tray and restart LineBridge; inspect service.stderr.log if startup failed.');return state;}
   // SQLite provides a per-data-directory singleton released by the OS on crash.
-  lock=new DatabaseSync(join(data,'tray-lock.sqlite'),{timeout:0});
-  try{lock.exec('CREATE TABLE IF NOT EXISTS tray_lock(id INTEGER PRIMARY KEY); BEGIN IMMEDIATE;');}
-  catch{lock.close();lock=undefined;const state=await running();emit('open',state.dashboardUrl);emit('quit');close();}
+  const gate=await lifecycleLease(data);let duplicate=false;
+  try{
+    if(await maintenance(data))throw new Error('維護中。更新完成後請先使用 serve --resume 及原資料目錄啟動。');
+    if(!closing){
+      lock=new DatabaseSync(join(data,'tray-lock.sqlite'),{timeout:0});
+      try{lock.exec('CREATE TABLE IF NOT EXISTS tray_lock(id INTEGER PRIMARY KEY); BEGIN IMMEDIATE;');}
+      catch{lock.close();lock=undefined;duplicate=true;}
+      if(lock){metadataWrite=writeRecord(data,'tray.json',{runtime:'tray',instance,pid:process.pid,desktopPid,dataDir:data});await metadataWrite;}
+    }
+  }finally{gate.close();}
+  if(duplicate){const state=await running();emit('open',state.dashboardUrl);emit('quit');await close();}
+  if(!closing){
+    let checking=false;
+    maintenanceTimer=setInterval(async()=>{
+      if(checking||closing)return;checking=true;
+      try{const marker=await maintenance(data);if(marker?.tray?.instance===instance){emit('quit');await close();}}
+      catch{emit('error','Maintenance state could not be verified.');emit('quit');await close();}
+      finally{checking=false;}
+    },200);
+  }
   if(!closing){
     let state=await command('status');
     if(state.status==='unavailable'){
@@ -40,7 +69,7 @@ try{
       if(alive)throw new Error('Existing service metadata cannot be verified. Check linebridge status before starting another service.');
       state={status:'stopped'};
     }
-    if(state.status==='stopped'){
+    if(state.status==='stopped'&&!closing){
       const stdout=await open(join(data,'service.stdout.log'),'a',0o600),stderr=await open(join(data,'service.stderr.log'),'a',0o600);
       let child;
       try{

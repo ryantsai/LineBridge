@@ -1,5 +1,29 @@
 # LINE data CLI
 
+## 維護關閉與更新後恢復
+
+本機更新前，先用既有啟動器的 `status --data-dir DATA_DIR` 記錄 `instance`、資料目錄、兩個連接埠與認證參數，再執行：
+
+```powershell
+.\linebridge.cmd shutdown --data-dir "DATA_DIR" --instance "STATUS_INSTANCE" --timeout-ms 30000
+```
+
+macOS 使用 `./linebridge`。`shutdown` 會驗證服務身分與實際資料目錄，建立 `maintenance.json`，通知該目錄的系統匣／桌面退出，停止接受新工作，等待既有請求、訊息／游標的 durable ACK 與已送出工作的結果，最後確認程序、資料鎖及管理埠、閘道埠、閘道埠 + 1 已釋放。它不以 PID 猜測或強制終止其他程序，不刪除資料、vault、profile、grant 或傳送冪等紀錄。
+
+只有 exit 0 且 JSON 為 `status: "stopped", maintenance: true` 才表示可進行備份與檔案替換；`status` 顯示服務停止本身不保證桌面已退出。總等待預設 30 秒，可指定 1000–120000 毫秒。`shutdown_timeout`（exit 1）表示尚未確認完成：已建立的維護標記會保留（若身分／啟動檢查尚未完成，標記可能尚未建立），不能當作更新成功，也不要手動刪除標記或改用新資料目錄。讓既有工作排空後，可用同一組參數重試。錯誤 instance、錯誤資料目錄或不可驗證的程序會拒絕關閉；不會進行配對或重新授權。
+
+`status` 的 `maintenance: true` 表示使用者主動維護，不適用意外停止的自動復原。若程序已離開但沒有確認完成排空，指令會回報 `drain_unconfirmed` 並保留標記；先檢查本機服務錯誤，保留可能為 unknown 的傳送紀錄，不能自動重送。
+
+維護標記會阻止 `serve` 與系統匣自動啟動。更新完成後，用**新版**啟動器、同一 OS 使用者、原資料目錄及原連接埠／認證設定明確恢復，例如原本需要 token 的服務：
+
+```powershell
+.\linebridge.cmd serve --resume --require-token --data-dir "DATA_DIR" --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT
+```
+
+`serve` 在前景執行；若原本使用背景啟動方式，沿用該方式並在其 `serve` 參數加入 `--resume`。舊程序、桌面或鎖尚未釋放時會拒絕恢復；啟動／綁定埠失敗會保留標記，成功後才清除。此時可另用 `tray --data-dir DATA_DIR` 附加系統匣，再核對 `status`、版本與原 profile 的健康狀態。`stop` 仍是僅停止服務的相容指令，不提供完整桌面維護交接。
+
+第一次從尚無 `shutdown` 的舊版升級時，仍須一次性使用舊版 `stop` 並退出舊系統匣；新 CLI 遇到不支援維護協定的舊程序會拒絕處理。維護期間不要以忽略此標記的舊版程式或外部自動重啟工具啟動。合併 PR、產生套件與實際安裝為不同步驟；Linux 合成測試不代表 Windows 原生系統匣、DPAPI 或套件安裝已驗證。
+
 ## Images and Flex messages
 
 Retrieve an image on demand using the ID returned by `events`. The message must
@@ -346,3 +370,13 @@ Talk's 180 seconds is a client transport deadline, not a serialized server hold-
 The adapter continues to use `BaseClient.loginProcess.login({authToken})` and the existing encrypted `bridge.authToken`, refresh token, self keys, request sequences and monitor cursors. It does not invoke the high-level client's key-repair login. LineJS reads legacy group-key records and adds generation-specific cache slots; it ignores the old unqualified contact-public-key cache and performs a read-only recipient lookup before storing a recipient-qualified entry. Existing records are retained. Missing group keys during monitoring, reads or send preparation fail without automatic key registration, key rotation, QR login or plaintext fallback. Initial QR setup remains a separate explicit user flow. Synthetic compatibility tests cannot establish that a real LINE session will remain authorized after a future upgrade; this draft has not been installed against a live account.
 
 The former 3-second dashboard timer primarily read local state; it could trigger an upstream reread of an open chat when the archive sequence increased. This is separate from receiver traffic. LINE's [official Messaging API rate limits](https://developers.line.biz/en/reference/messaging-api/#rate-limits) apply to bot channels, not this adapter's Talk `/SYNC4` and Square `/SQ1` client endpoints. No published numerical quota for these client endpoints was found in the October 7, 2026 review.
+
+### HTTP 410 分層診斷
+
+Talk `/SYNC4` 約 110 秒後的空 HTTP 410 仍是失敗；「閒置長輪詢被中止」僅是假說。這些紀錄不會把失敗或 pending 請求算成新接收成功，不改 freshness 規則，也不移動未經 durable ACK 的游標。
+
+`lastFailure` 與選用的「除錯紀錄」保留相容的 `httpStatus`／`responseEmpty`（有效回應層），並新增 `outerHttpStatus`／`outerResponseEmpty`、已解碼時才有的 `innerHttpStatus`／`innerResponseEmpty`、`responseLayer`、`rpcTransport`（plain／legy）、`networkTransport`（http1／custom）、`endpointClass`（talk_sync／talk／square／other）。空的外層回應沒有可推定的 LEGY 內層；外層 200、內層 410 也不算成功。
+
+`rpcDurationMs` 是失敗 RPC 的耗時；`rpcTimeoutMs` 與 `rpcTimeoutSource` 是該次 SDK 呼叫實際採用的預算及來源。已知 SDK token refresh 後的重試可能回到 30000 ms，不能只看監控的 `pollTimeoutMs: 180000`。`timeoutOrigin` 只記錄已觀察到的 RPC deadline、接收器 deadline／取消、driver 停止，或連線／headers／body timeout；無法判明時為 unknown，不會從 110 秒的耗時推定 timeout。HTTP 錯誤本身不會產生 timeout 欄位。
+
+僅 HTTP 410／429／503 的 `Retry-After` 可轉成 `retryAfterMs`，限制為 0–300000 ms；外層與解碼後有效回應另有 `outerRetryAfterMs`／`innerRetryAfterMs`。解碼後 headers 由 SDK 合併，內層 delay 表示有效值，不宣稱它來自哪一個原始 header。只接受整數秒或 HTTP 日期，不存原字串。其他 headers、原始 body、token、訊息內容、URL、`x-line-next-access` 均不進入診斷。

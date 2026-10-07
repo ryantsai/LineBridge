@@ -24,6 +24,9 @@ try {
   delete env.LINE_BRIDGE_TOKEN;delete env.CF_ACCESS_CLIENT_ID;delete env.CF_ACCESS_CLIENT_SECRET;delete env.LINE_BRIDGE_URL;
   const help=execFileSync(process.execPath,[bin,'accounts','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
   assert.ok(JSON.parse(help).commands.includes('send'));
+  const maintenanceHelp=execFileSync(process.execPath,[bin,'shutdown','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
+  assert.match(maintenanceHelp,/shutdown/);assert.match(maintenanceHelp,/--resume/);assert.match(maintenanceHelp,/維護關閉/);
+  for(const file of ['maintenance.mjs','rpc-metadata.mjs'])assert.ok((await readFile(join(directory,'node_modules/line-bridge/server',file))).length>0);
   for(const command of ['media','send-flex']){
     const result=execFileSync(process.execPath,[bin,command,'--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
     assert.ok(JSON.parse(result).commands.includes(command));

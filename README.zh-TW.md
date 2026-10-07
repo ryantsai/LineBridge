@@ -20,3 +20,7 @@ CLI_COMMAND chats --profile PROFILE_NAME --account ACCOUNT_ID
 ## 圖片讀取與 Flex 訊息
 
 可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。2026-10-06 的一次已授權 OA 收件者 Flex 實測遭 LINE 明確拒絕：`INCOMPATIBLE_APP_VERSION`；尚無成功接受或顯示的證據，也不能推論所有收件者都不支援。圖片下載的真實驗證仍待完成。詳見 [實測紀錄與限制](CLI.md#evidence-and-live-test-handoff)。
+
+## 更新時關閉桌面與服務
+
+新版提供 `shutdown --data-dir DATA_DIR --instance STATUS_INSTANCE`，等待同一實例的桌面、服務、worker、埠與資料鎖釋放。更新後以原設定執行 `serve --resume`；逾時會保留維護狀態，不能當成已完成。詳見 [CLI 維護關閉與恢復](CLI.md#維護關閉與更新後恢復)及 [完整升級步驟](README.md#升級備份與回復)。

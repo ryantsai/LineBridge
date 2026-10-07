@@ -104,3 +104,26 @@ test('permission is checked again before a queued operation is dispatched',async
   const token=mint(hub,account),actor=hub.authenticate(token.token),read=hub.read(actor,account.id,'demo-group');
   store.revoke(token.id);release();await first;await assert.rejects(read,{code:'invalid_token'});
 });
+
+test('maintenance drain commits an in-flight send result and rejects queued sends before reservation',async t=>{
+  const {hub,store,account}=await setup(t);hub.designate(account.id,'demo-group',true);
+  const actor=hub.authenticate(mint(hub,account,true).token),grants=hub.tokens();
+  let release,started;const dispatched=new Promise(r=>{started=r;});let sends=0;
+  hub.driver(account.id).send=async()=>{sends++;started();return new Promise(r=>{release=r;});};
+  const accepted=hub.send(actor,account.id,'demo-group','synthetic','drain-accepted');await dispatched;
+  const queued=hub.send(actor,account.id,'demo-group','synthetic queued','drain-queued');
+  const rejected=assert.rejects(queued,{code:'service_stopping'});let finished=false;
+  const draining=hub.drain().then(()=>{finished=true;});await new Promise(r=>setImmediate(r));assert.equal(finished,false);
+  release({messageId:'synthetic-accepted',delivery:'sandbox_only'});await accepted;await rejected;await draining;
+  assert.equal(sends,1);assert.equal(store.send(actor.id,'drain-accepted').state,'sent');assert.equal(store.send(actor.id,'drain-queued'),undefined);
+  assert.deepEqual(hub.tokens(),grants);await hub.drain();
+});
+
+test('shutdown cancellation of a pending monitor start preserves the saved monitoring preference',async t=>{
+  const {hub,store,account}=await setup(t);let cancel,started;
+  const waiting=new Promise(r=>{started=r;});
+  hub.driver(account.id).startMonitor=async()=>{started();await new Promise((_resolve,reject)=>{cancel=reject;});};
+  const monitor=hub.monitor(account.id,true),failed=assert.rejects(monitor);await waiting;
+  const draining=hub.drain();cancel(new Error('synthetic shutdown cancellation'));await failed;await draining;
+  assert.equal(store.setting(`monitor:${account.id}`),true);
+});

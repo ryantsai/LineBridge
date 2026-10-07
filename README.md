@@ -108,12 +108,14 @@ nohup "$bundle/linebridge" serve --require-token \
 
 停止時使用同一個套件的 `linebridge.cmd stop`（Windows）或 `linebridge stop`（macOS，含完整路徑），再確認 `status: stopped`。已有可攜式服務時直接使用精靈提供的內建 CLI，無需再安裝。只有最新發布中的 npm `.tgz` 或原始碼方案需要 Node.js 24+；[替代安裝與 CLI](CLI.md)。
 
+更新前使用 `shutdown` 可一次關閉該資料目錄的桌面／系統匣及服務，並抑制維護期間的自動啟動；更新完成後須明確 `serve --resume`。逾時不等於已關閉，不會強制終止無關程序。此流程不變更受保護憑證、授權或傳送紀錄。
+
 ## 升級、備份與回復
 
 1. 用舊啟動器執行 `status --data-dir DATA_DIR`，記錄實際版本、**絕對資料路徑**、管理埠、閘道埠、認證方式及既有啟動參數；資料指令使用的 profile 名稱也要保留。未指定資料目錄時先用 `status` 確認，舊安裝可能沿用不同預設路徑，不要猜測。保留舊版完整套件，將已驗證 SHA-256 的新版解壓至另一個目錄。
-2. 執行舊啟動器的 `stop --data-dir DATA_DIR`，於 30 秒期限內重查 `status --data-dir DATA_DIR`，直到 `stopped` 並確認原服務 PID 已結束；若系統匣仍開著也將其結束。只選 **Quit tray (keep service running)** 不會停止服務。無法確認停止時先排錯，不複製執行中的 SQLite 檔案。
+2. 支援維護關閉的版本使用 `shutdown --data-dir DATA_DIR --instance STATUS_INSTANCE --timeout-ms 30000`，等待 exit 0 且 `status: stopped, maintenance: true`，確認桌面、服務、worker、埠與資料鎖都已釋放。逾時保留維護標記，可重試，但不可開始覆蓋或複製執行中的 SQLite。第一次從尚未支援此指令的版本升級，仍需一次性執行舊版 `stop` 並退出系統匣。詳見 [CLI 維護交接](CLI.md#維護關閉與更新後恢復)。
 3. 將**整個已停止的資料目錄**複製至新的、受保護且位於來源目錄之外的備份目錄。至少核對 `bridge.sqlite` 與配套的 `vault-key.dpapi`（Windows）或 `vault-key.bin`（macOS）；若仍有 `bridge.sqlite-wal`／`bridge.sqlite-shm`，一併保留。核對來源與備份的檔案清單、大小及 SHA-256，不要只備份資料庫。Windows CLI profile 在 `%LOCALAPPDATA%/LineBridgeClient` 或 `LINE_BRIDGE_CLIENT_CONFIG`，須另備份其加密檔；macOS CLI profile 位於同一使用者的 Keychain，資料目錄副本不包含它。不要匯出明文秘密。下方連結提供 Windows／macOS 複製與驗證指令。
-4. 以新版 `tray --data-dir DATA_DIR --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT`，或原本需要認證的背景啟動方式，沿用相同 OS 使用者、資料路徑及埠。`--version` 應符合下載版本；在有限期限內確認 `status` 的實際服務版本、路徑、埠與認證，再以原有 profile 執行 `accounts`／`chats`，確認原有帳號、聊天室、封存與每個串流的健康狀態。雲端連線可能需重新啟動；Quick Tunnel 網址可能改變，須重驗遠端存取。
+4. 有維護標記時，先以新版 `serve --resume --require-token --data-dir DATA_DIR --admin-port ADMIN_PORT --gateway-port GATEWAY_PORT` 明確恢復，或在原背景啟動方式的 `serve` 加上 `--resume`；沿用原認證設定。成功啟動才清除標記，之後可用 `tray --data-dir DATA_DIR` 附加系統匣。沿用相同 OS 使用者、資料路徑及埠。`--version` 應符合下載版本；在有限期限內確認 `status` 的實際服務版本、路徑、埠與認證，再以原有 profile 執行 `accounts`／`chats`，確認原有帳號、聊天室、封存與每個串流的健康狀態。雲端連線可能需重新啟動；Quick Tunnel 網址可能改變，須重驗遠端存取。
 5. 升級失敗時先停止新版並確認程序結束，將升級後資料目錄**改名保留**，在原路徑放回完整且已驗證的升級前備份，再以舊版完整套件及原參數啟動。不要把舊資料庫覆蓋進仍含新 WAL 的目錄，也不要讓舊程式直接讀取新版遷移後資料庫。回復會捨棄備份後的訊息、游標、設定及授權變更；若曾更改授權，先核對到期／撤銷狀態與現有 profile，再恢復 AI 存取。
 6. 這是**同一台電腦、同一 OS 使用者**的回復流程。Windows DPAPI 與 macOS Keychain 不保證搬到另一使用者／電腦後可用，跨 OS vault 也不能直接使用。內建 `backups/before-archive-*.sqlite` 只是特定舊版封存遷移前的資料庫備份，不會每次升級建立，也不含 vault 或 CLI profile，不能代替上述完整備份。
 
@@ -182,3 +184,5 @@ CLI_COMMAND send --profile PROFILE_NAME --account ACCOUNT_ID --chat CHAT_ID --ke
 ## 圖片讀取與 Flex 訊息
 
 可用 `media`／MCP `line_read_image` 按需讀取已封存的圖片及基本貼圖靜態預覽；CLI 只建立新檔，不代表模型已看過圖片。個人 Talk 的 `send-flex` 必須明確確認 Flex 只有傳輸層加密、沒有 Letter Sealing，並沿用傳送權限與冪等 key。OpenChat Flex 因協定尚未驗證而阻擋，不會自動改走 LIFF 或授權。舊封存資料、素材格式與大小限制，以及待測試群組驗證項目，請見 [圖片與 Flex 操作說明](CLI.md#images-and-flex-messages)。2026-10-06 的一次已授權 OA 收件者 Flex 實測遭 LINE 明確拒絕：`INCOMPATIBLE_APP_VERSION`；尚無成功接受或顯示的證據，也不能推論所有收件者都不支援。圖片下載的真實驗證仍待完成。詳見 [實測紀錄與限制](CLI.md#evidence-and-live-test-handoff)。
+
+HTTP 410 除錯會區分外層 HTTP、解碼後 LEGY 回應、空 body、實際 RPC 預算與 timeout 來源，僅保留白名單欄位。約 110 秒空 410 不等於正常空 poll，閒置中止仍待實際證據；[分層診斷欄位](CLI.md#http-410-分層診斷)不會延長 freshness 或跳過 durable ACK。

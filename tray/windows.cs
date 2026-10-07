@@ -34,7 +34,7 @@ class Tray : ApplicationContext {
         menu.Items.Add("Stop service and quit", null, (s,e) => Send("stop"));
         icon = new NotifyIcon { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath), Text = "LineBridge", ContextMenuStrip = menu, Visible = !smoke };
         icon.MouseClick += (s,e) => { if(e.Button == MouseButtons.Left) Send("open"); };
-        var options = new[] {Path.Combine(root,"app","server","tray.mjs")}.Concat(args.Where(a => a != "--smoke-test" && a != "--smoke-stop"));
+        var options = new[] {Path.Combine(root,"app","server","tray.mjs"), "--desktop-pid", Process.GetCurrentProcess().Id.ToString()}.Concat(args.Where(a => a != "--smoke-test" && a != "--smoke-stop"));
         host = new Process { StartInfo = new ProcessStartInfo {
             FileName = Path.Combine(root,"runtime","node.exe"),
             Arguments = string.Join(" ", options.Select(Quote)),

@@ -13,7 +13,6 @@ import {VERSION} from './version.mjs';
 import {LocalSetup} from './local-setup.mjs';
 import {ChatAccess} from './chat-access.mjs';
 
-const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 function freshQuery(req){if(req.query.fresh===undefined)return false;if(!['true','false'].includes(req.query.fresh))fail(400,'invalid_input','fresh must be true or false.');return req.query.fresh==='true';}
 function harden(app) {
   app.disable('x-powered-by');app.set('trust proxy',false);
@@ -27,8 +26,16 @@ function errors(error,req,res,next) {
   const e=error instanceof ZodError ? {status:400,code:'invalid_input',message:'Invalid request fields.'} : error?.type==='entity.parse.failed' ? {status:400,code:'invalid_json',message:'Invalid JSON body.'} : error?.type==='entity.too.large' ? {status:413,code:'body_too_large',message:'Request is too large.'} : publicError(error);
   res.status(e.status).json({error:e.code,message:e.message});
 }
-export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,shutdown,requireToken=true,localSetup=new LocalSetup(hub,{gatewayPort})}) {
+export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,cloudflare=new Cloudflare(hub.store,hub.vault,adminPort),instance=null,dataDir=null,shutdown,prepareMaintenance,requireToken=true,localSetup=new LocalSetup(hub,{gatewayPort})}) {
   const admin=express(),gateway=express();harden(admin);harden(gateway);
+  const jobs=new Set();let draining=false;
+  const admission=(req,res,next)=>draining?res.status(503).json({error:'service_stopping'}):next();
+  const asyncRoute=fn=>(req,res,next)=>{
+    if(draining){res.status(503).json({error:'service_stopping'});return;}
+    const job=Promise.resolve().then(()=>fn(req,res,next));jobs.add(job);
+    void job.catch(next).finally(()=>jobs.delete(job));
+  };
+  for(const app of [admin,gateway])app.use(admission);
   const session=randomBytes(32).toString('base64url');
   const adminHosts=new Set([`localhost:${adminPort}`,`127.0.0.1:${adminPort}`]);
   admin.use((req,res,next)=>{
@@ -47,6 +54,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     next();
   });
   admin.use(express.json({limit:'32kb'}));
+  admin.use(admission); // An admitted request may still have been reading its body.
   admin.get(CALLBACK,asyncRoute(async(req,res)=>{
     try{await cloudflare.finish(req.query);res.type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 已連接</h1><p>可以關閉這個分頁，返回 LineBridge。</p></html>');}
     catch(error){res.status(publicError(error).status).type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 授權未完成</h1><p>請返回 LineBridge 重新連接。</p></html>');}
@@ -56,7 +64,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.get('/admin/discovery',(req,res)=>res.json({version:VERSION,instance,cli:{node:process.execPath,script:join(root,'bin/linebridge.mjs'),platform:process.platform},gatewayEnabled:hub.store.setting('aiEnabled',true),profiles:localSetup.discover()}));
   // Service identity for `linebridge status`, `stop` and the tray. Unlike /state it
   // never opens the protected credential store, queries tunnels or writes debug logs.
-  admin.get('/admin/status',(req,res)=>res.json({version:VERSION,backend:'node',instance,authentication:authentication(),gatewayEnabled:hub.store.setting('aiEnabled',true),accounts:hub.store.accounts().length}));
+  admin.get('/admin/status',(req,res)=>res.json({version:VERSION,backend:'node',instance,...(prepareMaintenance?{dataDir,maintenanceVersion:1}:{}),authentication:authentication(),gatewayEnabled:hub.store.setting('aiEnabled',true),accounts:hub.store.accounts().length}));
   admin.get('/admin/state',asyncRoute(async(req,res)=>{
     const startedAt=Date.now();
     try{
@@ -113,7 +121,11 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   admin.get('/admin/cloudflare/resources',asyncRoute(async(req,res)=>res.json(await cloudflare.resources(req.query.accountId))));
   admin.post('/admin/cloudflare/setup',asyncRoute(async(req,res)=>res.json(await cloudflare.provision(tunnels,gatewayPort,req.body))));
   admin.post('/admin/cloudflare/service-token',(req,res)=>res.json(cloudflare.serviceToken()));
-  if(shutdown)admin.post('/admin/shutdown',(req,res)=>{if(req.body.instance!==instance)fail(409,'instance_mismatch','The service instance has changed.');res.once('finish',()=>{void shutdown();});res.json({stopping:true});});
+  if(shutdown)admin.post('/admin/shutdown',asyncRoute(async(req,res)=>{
+    if(req.body.instance!==instance)fail(409,'instance_mismatch','The service instance has changed.');
+    if(req.body.maintenanceId!==undefined){if(!prepareMaintenance)fail(409,'shutdown_unsupported','Maintenance shutdown is unavailable.');await prepareMaintenance(req.body.maintenanceId);}
+    res.once('finish',()=>{void shutdown().catch(()=>{process.exitCode=1;});});res.json({stopping:true});
+  }));
   admin.use(express.static(join(root,'public'),{index:'index.html',etag:false,maxAge:0}));
   admin.use((req,res)=>res.status(404).json({error:'not_found'}));admin.use(errors);
 
@@ -148,6 +160,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     hub.limit(req.actor);next();
   }));
   gateway.use(express.json({limit:'32kb'}));
+  gateway.use(admission);
   gateway.get('/api/v1/version',(req,res)=>res.json({service:'LineBridge',version:VERSION}));
   gateway.get('/api/v1/status',(req,res)=>res.json({enabled:true,authentication:req.actor.local?'local':'token',accounts:hub.accounts(req.actor),setup:{dashboard:`http://127.0.0.1:${adminPort}`,mcp:`http://127.0.0.1:${gatewayPort}/mcp`,steps:['Pair your LINE account by scanning its QR code on your phone.','Designate chats, enable monitoring and create a scoped AI token.','Start a tunnel on this PC and connect your cloud AI with its HTTPS URL and token.']}}));
   gateway.get('/api/v1/accounts',(req,res)=>res.json(hub.accounts(req.actor)));
@@ -162,5 +175,5 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
   gateway.post('/mcp',asyncRoute((req,res)=>mcpHandler(hub,req,res)));
   gateway.all('/mcp',(req,res)=>res.status(405).json({error:'method_not_allowed',message:'Use stateless Streamable HTTP POST.'}));
   gateway.use((req,res)=>res.status(404).json({error:'not_found'}));gateway.use(errors);
-  return {admin,gateway};
+  return {admin,gateway,async drain(){draining=true;while(jobs.size)await Promise.allSettled([...jobs]);}};
 }

@@ -3,18 +3,22 @@ import {parseArgs} from 'node:util';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
-import {access} from 'node:fs/promises';
+import {access,realpath} from 'node:fs/promises';
 import {VERSION} from '../server/version.mjs';
 
 const help=`LineBridge ${VERSION} — local LINE MCP / HTTP gateway
 
-Usage: linebridge [serve|tray|status|stop] [options]
+Usage: linebridge [serve|tray|status|stop|shutdown] [options]
        linebridge discover|version|accounts|chats|read|refresh|search|events|send|send-flex|media|auth [options]
 
   serve                    Run in the foreground without a tray icon (default)
   tray                     Open the portable Windows/macOS tray launcher
   status                   Inspect the service for this data directory
   stop                     Gracefully stop that service
+  shutdown                 維護關閉：退出桌面／系統匣及此資料目錄的服務，等待釋放
+  --instance ID            shutdown: require the service instance shown by status
+  --timeout-ms MS          shutdown: total wait budget, 1000–120000 (default 30000)
+  --resume                 serve: 更新後明確解除維護並啟動；保留原資料目錄及連接埠
   --data-dir DIR           Persistent SQLite and encrypted vault directory
   --admin-port PORT        Local dashboard (default 3210)
   --gateway-port PORT      Local AI gateway (default 3211)
@@ -35,11 +39,13 @@ Both listeners bind to 127.0.0.1. Scoped Bearer tokens are required by default.
 Run on your PC and expose only the AI gateway through a tunnel.
 `;
 async function main(){
-  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'require-token':{type:'boolean'},'trust-local':{type:'boolean'},version:{type:'boolean'},help:{type:'boolean'}}});
+  const {values,positionals}=parseArgs({allowPositionals:true,options:{'data-dir':{type:'string'},'admin-port':{type:'string'},'gateway-port':{type:'string'},'require-token':{type:'boolean'},'trust-local':{type:'boolean'},instance:{type:'string'},'timeout-ms':{type:'string'},resume:{type:'boolean'},version:{type:'boolean'},help:{type:'boolean'}}});
   if(values.help){console.log(help);return;}if(values.version){console.log(VERSION);return;}
   if(!['win32','darwin'].includes(process.platform))throw new Error('LineBridge supports Windows and macOS only.');
   if(Number(process.versions.node.split('.')[0])<24)throw new Error('LineBridge requires Node.js 24 or newer.');
-  const command=positionals[0]??'serve';if(positionals.length>1||!['serve','tray','status','stop'].includes(command))throw new Error('Use linebridge serve, tray, status or stop. See --help.');
+  const command=positionals[0]??'serve';if(positionals.length>1||!['serve','tray','status','stop','shutdown'].includes(command))throw new Error('Use linebridge serve, tray, status, stop or shutdown. See --help.');
+  if(values.resume&&command!=='serve'||command!=='shutdown'&&(values.instance!==undefined||values['timeout-ms']!==undefined))throw new Error('--resume is for serve; --instance and --timeout-ms are for shutdown.');
+  if(command==='shutdown'&&['admin-port','gateway-port','require-token','trust-local'].some(key=>values[key]!==undefined))throw new Error('shutdown uses verified instance metadata. Use --data-dir, --instance and --timeout-ms only.');
   if(command==='tray'){
     if(values['trust-local'])throw new Error('The tray starts services with authentication required.');
     if(!['win32','darwin'].includes(process.platform))throw new Error('The tray is available in Windows/macOS portable bundles. Linux is unsupported.');
@@ -52,16 +58,22 @@ async function main(){
     console.log('Tray launched. It will verify or start the service and open your default browser.');return;
   }
   const {startService,defaultDataDirectory,metadata,validPort}=await import('../server/main.mjs');
-  const dataDir=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
+  let dataDir=values['data-dir']?resolve(values['data-dir']):defaultDataDirectory();
+  try{dataDir=await realpath(dataDir);}catch(error){if(error.code!=='ENOENT')throw error;}
+  if(command==='shutdown'){
+    const {shutdownDesktop}=await import('../server/maintenance.mjs');
+    console.log(JSON.stringify(await shutdownDesktop({dataDir,instance:values.instance,timeoutMs:values['timeout-ms']===undefined?30000:Number(values['timeout-ms'])})));return;
+  }
   if(command==='serve'){
     if(values['trust-local']&&values['require-token'])throw new Error('Use either --trust-local or --require-token.');
     const requireToken=values['require-token']===true||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1'||!(values['trust-local']===true||process.env.LINE_BRIDGE_TRUST_LOCAL==='1');
-    const service=await startService({dataDir,requireToken,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{})});
+    const service=await startService({dataDir,requireToken,resume:values.resume===true,...(values['admin-port']?{adminPort:Number(values['admin-port'])}:{}),...(values['gateway-port']?{gatewayPort:Number(values['gateway-port'])}:{})});
     const local=!requireToken&&service.tunnels.config().provider==='local';
     console.log(`LineBridge ${VERSION}\nDashboard: http://127.0.0.1:${service.adminPort}\nMCP: http://127.0.0.1:${service.gatewayPort}/mcp\nHTTP API: http://127.0.0.1:${service.gatewayPort}/api/v1\nAI access: ${local?'explicit local trust; no token required':'scoped Bearer token required'}\nSetup: bind your LINE account in the dashboard. Configure chats and API keys in their own pages; cloud connections are optional.\nData: ${service.dataDir}`);return;
   }
+  const {maintenance}=await import('../server/maintenance.mjs'),marker=await maintenance(dataDir),maintenanceState=marker?{maintenance:true,instance:marker.service?.instance??null}:{};
   const m=await metadata(dataDir);
-  if(!m||m.runtime!=='node'||!validPort(m.adminPort)||typeof m.instance!=='string'||m.dataDir!==dataDir){console.log(JSON.stringify({status:'stopped',dataDir}));return;}
+  if(!m||m.runtime!=='node'||!validPort(m.adminPort)||typeof m.instance!=='string'||m.dataDir!==dataDir){console.log(JSON.stringify({status:'stopped',dataDir,...maintenanceState}));return;}
   const base=`http://127.0.0.1:${m.adminPort}`;
   const request=(path,options={})=>fetch(`${base}${path}`,{...options,headers:{Connection:'close',...options.headers},redirect:'error',signal:AbortSignal.timeout(7000)});
   let cookie,state;
@@ -73,9 +85,9 @@ async function main(){
       await response.body?.cancel();response=await request('/admin/state',{headers:{Cookie:cookie}});if(!response.ok)throw new Error('No service state.');
       const full=await response.json();state={version:full.version,backend:full.backend,instance:full.instance,authentication:full.gateway?.authentication,accounts:full.accounts?.length};
     }else{if(!response.ok)throw new Error('No service state.');state=await response.json();}
-  }catch{console.log(JSON.stringify({status:'unavailable',dataDir,pid:m.pid}));process.exitCode=1;return;}
+  }catch{console.log(JSON.stringify({status:'unavailable',dataDir,pid:m.pid,...maintenanceState}));process.exitCode=1;return;}
   if(state.instance!==m.instance)throw new Error('The service instance has changed. Refusing to stop an unrelated process.');
-  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,authentication:state.authentication,mcpUrl:`http://127.0.0.1:${m.gatewayPort}/mcp`,apiUrl:`http://127.0.0.1:${m.gatewayPort}/api/v1`,dashboardUrl:base,accounts:state.accounts}));return;}
+  if(command==='status'){console.log(JSON.stringify({status:'running',version:state.version,backend:state.backend,instance:state.instance,pid:m.pid,adminPort:m.adminPort,gatewayPort:m.gatewayPort,dataDir,authentication:state.authentication,mcpUrl:`http://127.0.0.1:${m.gatewayPort}/mcp`,apiUrl:`http://127.0.0.1:${m.gatewayPort}/api/v1`,dashboardUrl:base,accounts:state.accounts,...maintenanceState}));return;}
   const response=await request('/admin/shutdown',{method:'POST',headers:{Cookie:cookie,Origin:base,'X-Line-Bridge':'dashboard','Content-Type':'application/json'},body:JSON.stringify({instance:m.instance})});
   if(!response.ok)throw new Error('The service could not be stopped.');
   console.log(JSON.stringify({status:'stopping',dataDir}));

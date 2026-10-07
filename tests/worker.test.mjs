@@ -6,8 +6,7 @@ import {Vault,VaultStorage} from '../server/vault.mjs';
 import {ProtocolWorker} from '../server/worker.mjs';
 import {capture} from '../server/inbox.mjs';
 import {SendRejectedError} from '../server/errors.mjs';
-import {spawn} from 'node:child_process';
-import {createInterface} from 'node:readline';
+import {startSource} from './worker-test-utils.mjs';
 
 test('private worker RPC returns bounded sanitized errors and stops cleanly',async t=>{
   const store=new Store(':memory:'),worker=new ProtocolWorker(store,new Vault(randomBytes(32),'test'),()=>{});t.after(()=>{worker.close();store.close();});
@@ -45,9 +44,8 @@ test('real private pipe waits for parent dispatch authorization and rejects late
     LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await new Promise(r=>setTimeout(r,30));await beforeDispatch();dispatches++;return {messageId:'synthetic'};};
     LineDriver.prototype.read=async()=>({dispatches});
     await import('./protocol/worker.mjs');`;
-  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));
-  t.after(()=>{input.close();worker.close();});
+  const worker=new ProtocolWorker(null,null,null);startSource(t,worker,source);
+  t.after(()=>worker.close());
   await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
   const params={accountId:'synthetic',chat:{id:'synthetic',kind:'direct'},text:'synthetic',options:{acknowledgeOaTransport:true}};
   let checks=0;assert.equal((await worker.call('send',params,1000,undefined,()=>{checks++;})).messageId,'synthetic');assert.equal(checks,1);
@@ -72,14 +70,13 @@ test('private worker serializes monitor replacement through durable ACKs without
       await done.call(this);await new Promise(resolve=>setTimeout(resolve,20));active.delete(this);
     };
     await import('./protocol/worker.mjs');`;
-  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  let acks=0;
-  const input=createInterface({input:child.stdout});input.on('line',line=>{
-    const message=JSON.parse(line);
+  const worker=new ProtocolWorker(null,null,null);startSource(t,worker,source);
+  let acks=0;const handle=worker.handle.bind(worker);
+  worker.handle=message=>{
     if(message.type==='storage'){acks++;setTimeout(()=>worker.write({type:'storage_ack',id:message.id,ok:true}),10);}
-    else worker.handle(message);
-  });
-  t.after(()=>{input.close();worker.close();});
+    else handle(message);
+  };
+  t.after(()=>worker.close());
   const accountId='synthetic',connect={accountId,account:{device:'IOSIPAD'},storage:{}};
   const call=(method,params={})=>worker.call(method,{accountId,...params},3000);
   await worker.call('connect',connect);await call('monitor_start');
@@ -93,4 +90,44 @@ test('private worker serializes monitor replacement through durable ACKs without
   const pending=worker.call('connect',{...connect,account:{device:'IOSIPAD',pending:true}},3000);
   const cancelled=assert.rejects(pending);
   await waiting;await call('disconnect');await cancelled;
+});
+
+for(const heldType of ['capture_ack','storage_ack'])test(`graceful worker drain waits for durable ${heldType} and rejects new work`,async t=>{
+  const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'synthetic'),a=store.addAccount('drain','line','IOSIPAD');
+  store.putChat(a.id,{id:'synthetic-chat',name:'synthetic',kind:'group'});store.designate(a.id,'synthetic-chat',true);store.setSetting(`monitor:${a.id}`,true);
+  const storage=new VaultStorage(store,vault,a.id);await storage.set('monitor.talk',{revision:1});
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    LineDriver.prototype.login=async function(){this.ready=true;this.client.profile={mid:'synthetic-owner'};
+      this.client.talk.sync=async()=>({operationResponse:{operations:[{type:26,revision:2,message:{id:'synthetic-message',to:'synthetic-chat',from:'synthetic-sender',text:'synthetic text'}}]}});return this.client.profile;};
+    LineDriver.prototype.decryptMessage=async value=>value;
+    LineDriver.prototype.resolveMessageNames=async(chat,messages)=>messages;
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(store,vault,(id,chat,message)=>capture(store,vault,id,chat,message));
+  const child=startSource(t,worker,source);
+  t.after(()=>{worker.close();store.close();});
+  let release,seen;const waiting=new Promise(r=>{seen=r;}),write=worker.write.bind(worker);
+  worker.write=value=>{if(value.type===heldType&&!release){release=()=>write(value);seen();}else write(value);};
+  await worker.call('connect',{accountId:a.id,account:{device:'IOSIPAD'},storage:storage.getAll()});
+  await worker.call('monitor_start',{accountId:a.id,chats:[{id:'synthetic-chat',kind:'group'}]});
+  await waiting;
+  let stopped=false;const drained=worker.drain().then(()=>{stopped=true;});
+  await new Promise(r=>setTimeout(r,60));assert.equal(stopped,false,'The process must retain its ACK pipe and store until the outstanding commit is acknowledged');
+  await assert.rejects(worker.call('read',{accountId:a.id}),{code:'service_stopping'});
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM messages').get().n,1);
+  release();await drained;assert.equal(child.exitCode,0);assert.equal(worker.child,null);
+  assert.equal((await storage.get('monitor.talk')).revision,heldType==='capture_ack'?1:2,'A stopped capture cannot advance a cursor; an already committed checkpoint is retained');
+  await worker.drain();assert.equal(worker.pending.size,0);
+});
+
+test('graceful worker drain waits for an accepted synthetic send outcome and does not kill its child',async t=>{
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    LineDriver.prototype.login=async function(){this.ready=true;return {mid:'synthetic'};};
+    LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await beforeDispatch();await new Promise(r=>setTimeout(r,100));return {messageId:'synthetic-accepted'};};
+    await import('./protocol/worker.mjs');`;
+  const worker=new ProtocolWorker(null,null,null),child=startSource(t,worker,source);t.after(()=>worker.close());
+  await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
+  let accepted;const dispatched=new Promise(r=>{accepted=r;});
+  const send=worker.call('send',{accountId:'synthetic',chat:{id:'synthetic'},text:'synthetic'},1000,undefined,accepted);
+  await dispatched;const draining=worker.drain();
+  assert.equal((await send).messageId,'synthetic-accepted');await draining;assert.equal(child.exitCode,0);assert.equal(child.signalCode,null);
 });

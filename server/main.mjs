@@ -1,6 +1,6 @@
 import {fileURLToPath} from 'node:url';
 import {dirname,join,resolve} from 'node:path';
-import {mkdir,readFile,writeFile,rm,stat,chmod} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rm,stat,chmod,realpath} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {randomUUID} from 'node:crypto';
@@ -11,6 +11,7 @@ import {Tunnels} from './tunnels.mjs';
 import {createApps} from './app.mjs';
 import {HubError} from './errors.mjs';
 import {defaultDataDirectory,metadata,validPort} from './service-location.mjs';
+import {lifecycleLease,maintenance,assertResume,verifyMaintenance,writeRecord,MAINTENANCE_FILE} from './maintenance.mjs';
 export {defaultDataDirectory,metadata,validPort} from './service-location.mjs';
 
 export const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -42,35 +43,48 @@ function listen(app,port){return new Promise((ok,reject)=>{
   // for a failed bind (the callback runs before a later error listener).
   const server=app.listen(port,'127.0.0.1',error=>error?reject(error):ok(server));
 });}
-export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_TRUST_LOCAL!=='1'||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1',defaultProvider=requireToken?'cloudflare_quick':'local'}={}){
+export async function startService({dataDir=defaultDataDirectory(),adminPort=Number(process.env.LINE_BRIDGE_ADMIN_PORT??3210),gatewayPort=Number(process.env.LINE_BRIDGE_GATEWAY_PORT??3211),requireToken=process.env.LINE_BRIDGE_TRUST_LOCAL!=='1'||process.env.LINE_BRIDGE_REQUIRE_TOKEN==='1',defaultProvider=requireToken?'cloudflare_quick':'local',resume=false}={}){
   if(!['win32','darwin'].includes(process.platform))throw new Error('LineBridge supports Windows and macOS only.');
-  const data=resolve(dataDir),instance=randomUUID();
+  let data=resolve(dataDir);const instance=randomUUID();
   if(![adminPort,gatewayPort,gatewayPort+1].every(validPort)||adminPort===gatewayPort||adminPort===gatewayPort+1)throw new HubError(400,'invalid_ports','Use distinct ports between 1025 and 65534; reserve gateway+1 for connector health.');
   await mkdir(data,{recursive:true,mode:0o700});if(process.platform!=='win32')await chmod(data,0o700);
-  const lock=await lease(data);let store,hub,tunnels,adminServer,gatewayServer,stopPromise;
-  const closeServers=()=>{for(const server of [adminServer,gatewayServer]){server?.close();server?.closeAllConnections();}};
+  data=await realpath(data);
+  const gate=await lifecycleLease(data);let lock,store,hub,tunnels,apps,initializing,adminServer,gatewayServer,stopPromise;
   async function shutdown(){
     if(stopPromise)return stopPromise;
     stopPromise=(async()=>{
-      hub?.close();closeServers();await tunnels?.close();
-      await Promise.allSettled([...[...hub?.queues.values()??[]].map(q=>q.tail),...hub?.monitorQueues.values()??[]]);
+      // Stop admission first; leave the store and private ACK pipe available
+      // until accepted work and its durable results have drained.
+      const requests=apps?.drain(),draining=hub?.drain();
+      for(const server of [adminServer,gatewayServer])server?.close();
+      await Promise.all([requests,draining,initializing]);
+      await tunnels?.close();
+      for(const server of [adminServer,gatewayServer])server?.closeAllConnections();
+      store?.close();
+      const marker=await maintenance(data);
+      if(marker?.service?.instance===instance)await writeRecord(data,MAINTENANCE_FILE,{...marker,serviceDrained:true});
       const m=await metadata(data);if(m?.instance===instance){await rm(join(data,'service.json'),{force:true});await rm(join(data,'server.pid'),{force:true});}
-      store?.close();lock.close();process.off('SIGINT',signal);process.off('SIGTERM',signal);
+      lock?.close();process.off('SIGINT',signal);process.off('SIGTERM',signal);
     })();return stopPromise;
   }
   const signal=()=>{void shutdown().catch(()=>{process.exitCode=1;});};
   try{
+    const marker=await maintenance(data);
+    if(marker&&!resume)throw new HubError(409,'maintenance_active','Maintenance is active. After updating, explicitly run serve --resume with this data directory.');
+    if(marker)await assertResume(data,marker);
+    lock=await lease(data);
     const existingDatabase=existsSync(join(data,'bridge.sqlite'));
     const vault=await Vault.open(data),savedBackup=await migrationBackup(data);
     store=new Store(join(data,'bridge.sqlite'));if(savedBackup)store.setSetting('archiveMigrationBackup',savedBackup);
     if(process.platform!=='win32')for(const name of ['bridge.sqlite','service-lock.sqlite'])await chmod(join(data,name),0o600);
     if(!existingDatabase&&!store.setting('tunnel',null))store.setSetting('tunnel',{provider:defaultProvider,hostname:'',teamDomain:'',audience:''});
     hub=new Hub(store,vault);tunnels=new Tunnels(store,vault,root,gatewayPort,gatewayPort+1,data);
-    const apps=createApps({hub,tunnels,root,adminPort,gatewayPort,instance,shutdown,requireToken});
+    apps=createApps({hub,tunnels,root,adminPort,gatewayPort,instance,dataDir:data,shutdown,prepareMaintenance:id=>verifyMaintenance(data,instance,id),requireToken});
     adminServer=await listen(apps.admin,adminPort);gatewayServer=await listen(apps.gateway,gatewayPort);
     await writeFile(join(data,'service.json'),JSON.stringify({runtime:'node',pid:process.pid,instance,adminPort,gatewayPort,dataDir:data}),{mode:0o600});
     await writeFile(join(data,'server.pid'),String(process.pid),{mode:0o600});
-    process.on('SIGINT',signal);process.on('SIGTERM',signal);void hub.initialize();
+    if(marker)await rm(join(data,MAINTENANCE_FILE));
+    process.on('SIGINT',signal);process.on('SIGTERM',signal);initializing=hub.initialize();
     return {hub,tunnels,adminPort,gatewayPort,dataDir:data,instance,shutdown};
-  }catch(error){await shutdown();throw error;}
+  }catch(error){await shutdown();throw error;}finally{gate.close();}
 }
