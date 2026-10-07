@@ -55,11 +55,14 @@ test('maintenance closes the modeled desktop, tray and owned service, waits for 
     child.stdout.on('data',bytes=>process.stdout.write(bytes));
     child.on('exit',code=>setTimeout(()=>process.exit(code??1),250));
     process.on('SIGTERM',()=>child.stdin.end());`);
+  // Track and reap this fixture service directly. The Linux container's PID 1
+  // can leave a detached service as a zombie after its tray parent exits.
+  const owned=f.start(cli,['serve','--data-dir',f.data,'--admin-port',String(f.p.admin),'--gateway-port',String(f.p.gateway),'--require-token']);await owned.until(/Dashboard:/);
   const desktop=f.start(native);await desktop.until(/ready\t/);
   const before=JSON.parse((await f.run('status')).stdout);assert.equal(before.status,'running');assert.equal(before.adminPort,f.p.admin);
   const trayInfo=JSON.parse(await readFile(join(f.data,'tray.json'),'utf8'));assert.equal(trayInfo.desktopPid,desktop.child.pid);
   const result=JSON.parse((await f.run('shutdown','--instance',before.instance)).stdout);
-  assert.equal(result.status,'stopped');assert.equal(result.maintenance,true);assert.equal(await desktop.closed,0);assert.match(desktop.output,/quit\t/);
+  assert.equal(result.status,'stopped');assert.equal(result.maintenance,true);assert.equal(await desktop.closed,0);assert.equal(await owned.closed,0);assert.match(desktop.output,/quit\t/);
   assert.equal((await maintenance(f.data)).service.instance,before.instance);
   assert.deepEqual(JSON.parse((await f.run('shutdown','--instance',before.instance)).stdout),result);
   const blocked=f.serve();assert.equal(await blocked.closed,1);assert.match(blocked.output,/maintenance_active/);
@@ -88,6 +91,47 @@ test('bounded timeout retains maintenance and refuses resume while an owned tray
   lock.close();owner.child.kill();await owner.closed;await rm(join(f.data,'tray.json'));
   assert.equal((await shutdownDesktop({dataDir:f.data})).status,'stopped');
   const resumed=f.serve('--resume');await resumed.until(/Dashboard:/);await f.run('shutdown');assert.equal(await resumed.closed,0);
+});
+test('CLI timeout keeps the production worker pipe and data lock until a synthetic in-flight RPC drains',async t=>{
+  const f=await fixture(t),unlock=join(f.data,'release-worker'),entered=join(f.data,'worker-entered'),source=join(f.data,'synthetic-service.mjs');
+  // Only the child adapter is synthetic. The actual protocol loop, parent
+  // start/event handlers, service, CLI and SQLite locks all run unchanged.
+  const workerSource=`import {LineDriver} from ${JSON.stringify(pathToFileURL(resolve('server/drivers.mjs')).href)};
+    import {access,writeFile} from 'node:fs/promises';
+    LineDriver.prototype.login=async function(){this.ready=true;return {mid:'synthetic'};};
+    LineDriver.prototype.read=async()=>{
+      await writeFile(${JSON.stringify(entered)},'synthetic');
+      const deadline=Date.now()+15000;
+      for(;;){try{await access(${JSON.stringify(unlock)});return {ok:true};}catch{}if(Date.now()>=deadline)throw new Error('synthetic deadline');await new Promise(r=>setTimeout(r,20));}
+    };
+    await import(${JSON.stringify(pathToFileURL(resolve('protocol/worker.mjs')).href)});`;
+  await writeFile(source,`import childProcess from 'node:child_process';
+    import {syncBuiltinESMExports} from 'node:module';
+    import {access} from 'node:fs/promises';
+    const spawn=childProcess.spawn;
+    childProcess.spawn=(file,args,options)=>{
+      if(args[0]!==${JSON.stringify(resolve('protocol/worker.mjs'))})return spawn(file,args,options);
+      const child=spawn(file,['--input-type=module','-e',${JSON.stringify(workerSource)}],options);
+      console.log('synthetic-worker-pid:'+child.pid);return child;
+    };syncBuiltinESMExports();
+    const {startService}=await import(${JSON.stringify(pathToFileURL(resolve('server/main.mjs')).href)});
+    const service=await startService({dataDir:${JSON.stringify(f.data)},adminPort:${f.p.admin},gatewayPort:${f.p.gateway},requireToken:false,defaultProvider:'local'});
+    await service.hub.worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
+    void service.hub.worker.call('read',{accountId:'synthetic'},20000).then(()=>console.log('synthetic-result'),()=>console.log('synthetic-failed'));
+    for(;;){try{await access(${JSON.stringify(entered)});break;}catch{}await new Promise(r=>setTimeout(r,20));}
+    console.log('synthetic-ready');`);
+  const service=f.start(source);
+  try{
+    await service.until(/synthetic-ready/);
+    const started=Date.now();await assert.rejects(f.run('shutdown','--timeout-ms','1000'),e=>/shutdown_timeout/.test(e.stderr));assert.ok(Date.now()-started<3500);
+    assert.equal(service.child.exitCode,null);assert.equal(tryLease(f.data,'service'),null);assert.equal((await maintenance(f.data)).serviceDrained,false);
+    const workerPid=Number(service.output.match(/synthetic-worker-pid:(\d+)/)[1]);assert.doesNotThrow(()=>process.kill(workerPid,0));
+    const blocked=f.serve('--resume');assert.equal(await blocked.closed,1);assert.match(blocked.output,/maintenance_busy/);
+    await writeFile(unlock,'synthetic release');
+    assert.equal(JSON.parse((await f.run('shutdown')).stdout).status,'stopped');assert.equal(await service.closed,0);
+    assert.match(service.output,/synthetic-result/);assert.doesNotMatch(service.output,/synthetic-failed/);assert.equal((await maintenance(f.data)).serviceDrained,true);
+    assert.throws(()=>process.kill(workerPid,0),{code:'ESRCH'});
+  }finally{await writeFile(unlock,'synthetic cleanup');await Promise.race([service.closed,pause(2000)]);}
 });
 test('shutdown serializes with startup and a marker survives a failed resume bind',async t=>{
   const f=await fixture(t);tryLease(f.data,'service').close();

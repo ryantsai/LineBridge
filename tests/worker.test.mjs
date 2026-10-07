@@ -6,8 +6,7 @@ import {Vault,VaultStorage} from '../server/vault.mjs';
 import {ProtocolWorker} from '../server/worker.mjs';
 import {capture} from '../server/inbox.mjs';
 import {SendRejectedError} from '../server/errors.mjs';
-import {spawn} from 'node:child_process';
-import {createInterface} from 'node:readline';
+import {startSource} from './worker-test-utils.mjs';
 
 test('private worker RPC returns bounded sanitized errors and stops cleanly',async t=>{
   const store=new Store(':memory:'),worker=new ProtocolWorker(store,new Vault(randomBytes(32),'test'),()=>{});t.after(()=>{worker.close();store.close();});
@@ -45,9 +44,8 @@ test('real private pipe waits for parent dispatch authorization and rejects late
     LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await new Promise(r=>setTimeout(r,30));await beforeDispatch();dispatches++;return {messageId:'synthetic'};};
     LineDriver.prototype.read=async()=>({dispatches});
     await import('./protocol/worker.mjs');`;
-  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));
-  t.after(()=>{input.close();worker.close();});
+  const worker=new ProtocolWorker(null,null,null);startSource(t,worker,source);
+  t.after(()=>worker.close());
   await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
   const params={accountId:'synthetic',chat:{id:'synthetic',kind:'direct'},text:'synthetic',options:{acknowledgeOaTransport:true}};
   let checks=0;assert.equal((await worker.call('send',params,1000,undefined,()=>{checks++;})).messageId,'synthetic');assert.equal(checks,1);
@@ -72,14 +70,13 @@ test('private worker serializes monitor replacement through durable ACKs without
       await done.call(this);await new Promise(resolve=>setTimeout(resolve,20));active.delete(this);
     };
     await import('./protocol/worker.mjs');`;
-  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  let acks=0;
-  const input=createInterface({input:child.stdout});input.on('line',line=>{
-    const message=JSON.parse(line);
+  const worker=new ProtocolWorker(null,null,null);startSource(t,worker,source);
+  let acks=0;const handle=worker.handle.bind(worker);
+  worker.handle=message=>{
     if(message.type==='storage'){acks++;setTimeout(()=>worker.write({type:'storage_ack',id:message.id,ok:true}),10);}
-    else worker.handle(message);
-  });
-  t.after(()=>{input.close();worker.close();});
+    else handle(message);
+  };
+  t.after(()=>worker.close());
   const accountId='synthetic',connect={accountId,account:{device:'IOSIPAD'},storage:{}};
   const call=(method,params={})=>worker.call(method,{accountId,...params},3000);
   await worker.call('connect',connect);await call('monitor_start');
@@ -106,9 +103,8 @@ for(const heldType of ['capture_ack','storage_ack'])test(`graceful worker drain 
     LineDriver.prototype.resolveMessageNames=async(chat,messages)=>messages;
     await import('./protocol/worker.mjs');`;
   const worker=new ProtocolWorker(store,vault,(id,chat,message)=>capture(store,vault,id,chat,message));
-  const child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));
-  t.after(()=>{input.close();worker.close();store.close();});
+  const child=startSource(t,worker,source);
+  t.after(()=>{worker.close();store.close();});
   let release,seen;const waiting=new Promise(r=>{seen=r;}),write=worker.write.bind(worker);
   worker.write=value=>{if(value.type===heldType&&!release){release=()=>write(value);seen();}else write(value);};
   await worker.call('connect',{accountId:a.id,account:{device:'IOSIPAD'},storage:storage.getAll()});
@@ -128,8 +124,7 @@ test('graceful worker drain waits for an accepted synthetic send outcome and doe
     LineDriver.prototype.login=async function(){this.ready=true;return {mid:'synthetic'};};
     LineDriver.prototype.send=async function(chat,text,options,beforeDispatch){await beforeDispatch();await new Promise(r=>setTimeout(r,100));return {messageId:'synthetic-accepted'};};
     await import('./protocol/worker.mjs');`;
-  const worker=new ProtocolWorker(null,null,null),child=spawn(process.execPath,['--input-type=module','-e',source],{windowsHide:true,stdio:['pipe','pipe','ignore']});worker.child=child;
-  const input=createInterface({input:child.stdout});input.on('line',line=>worker.handle(JSON.parse(line)));t.after(()=>{input.close();worker.close();});
+  const worker=new ProtocolWorker(null,null,null),child=startSource(t,worker,source);t.after(()=>worker.close());
   await worker.call('connect',{accountId:'synthetic',account:{device:'IOSIPAD'},storage:{}});
   let accepted;const dispatched=new Promise(r=>{accepted=r;});
   const send=worker.call('send',{accountId:'synthetic',chat:{id:'synthetic'},text:'synthetic'},1000,undefined,accepted);
