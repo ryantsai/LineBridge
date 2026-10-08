@@ -6,6 +6,8 @@
 
 日常 CLI 操作另參考儲存庫的 [LineBridge CLI skill](https://github.com/ryantsai/LineBridge/blob/main/.agents/skills/linebridge-cli/SKILL.md)。安裝與已授權的服務復原依本指南；指令與限制以安裝版本的 `--help` 及 [CLI 文件](CLI.md)為準。
 
+**日常操作的模型建議：**一般的 LineBridge 讀取、列出、搜尋與摘要工作，建議在 AI 宿主或 Codex 工作中選用 **GPT-6 Luna**，思考等級（thinking level）設為 **Medium**。這是本專案的預設建議，不覆蓋其他專案或宿主的全域模型偏好；LineBridge 本身不選擇或切換模型。可用模型與思考等級以宿主提供的選項為準，不保證此組合最快。模型選擇不改變傳送前的明確授權、冪等 key 與未知結果不重送規則，也不得將 token、金鑰或其他秘密寫入指令參數、聊天或記錄。
+
 ## 安裝後的操作檢查索引
 
 - **執行位置與版本：** Dot 的 CLI 必須在使用者持續開機、連網的 Windows／Mac 上執行；雲端的 localhost 不是該電腦。使用官方實際發布的平台套件與內附 runtime。合併到 main、GitHub 已發布、CLI 已安裝與服務正在執行的版本各自不同；分別核對 release／build metadata、`--version` 與 `version --profile PROFILE_NAME`，不要以合併通知推定已升級。
