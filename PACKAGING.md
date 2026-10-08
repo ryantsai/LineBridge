@@ -256,6 +256,12 @@ Replace `VERSION` below with the actual release version. `npm run package` produ
 
 The archive includes the supported [data CLI](CLI.md), its client modules and credential adapters. `npm run test:package-cli` checks a fresh temporary installation after packaging. Portable CI tests Node 24/26 on Windows and macOS, with separate native synthetic DPAPI/Keychain checks. Unit tests label mocked OS helpers; native storage checks use disposable profiles and isolated stores. Neither suite uses real LINE credentials or messages.
 
+The [Codex MCP commands and adapter](CODEX.md) are included in both distributions.
+They record absolute runtime/script paths; after moving an installation, preview
+and confirm replacement from its new launcher. `npm run test:codex` covers
+synthetic config/protocol behavior. `npm run test:codex:host` uses an installed
+Codex CLI with disposable configuration, without starting MCP or accessing credentials.
+
 `npm run test:smoke` tests HTTP and the official MCP client with synthetic accounts. Native tray/controller checks run in `npm run test:portable`. `npm run test:tunnel` explicitly starts a disposable live Quick Tunnel, checking HTTPS, scoped API/MCP/search and inaccessible admin routes. It sends only synthetic messages. Build scripts preserve third-party licenses and verify runtime hashes before packaging.
 
 ngrok 3.39.11 is downloaded on demand into the user data directory, with pinned platform archive checksums; its proprietary agent is not bundled in portable archives. The installed Tailscale client supplies Serve and Funnel. See CONNECTIONS.md for cloud VM reachability checks.

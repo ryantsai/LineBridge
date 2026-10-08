@@ -150,7 +150,7 @@ CLI_COMMAND events --profile PROFILE_NAME --account ACCOUNT_ID --after 0 --limit
 - **有限の読み取り：**`read`／`refresh` は 1 ページ最大 100 件です。Talk は最近のメッセージ、OpenChat は返されたカーソルによる有限ページに対応します。`coverage`、`upstreamError`、ローカルの代替データを確認し、全履歴、全チャット、LINE 固有の「未読」を取得したと主張しません。
 - **検索／イベントのページ分割：**検索は保存済みで復号可能なテキストだけで、添付内容や未取得のメッセージは対象外です。`hasMore: true` の間は検索／フィルターを維持し、`nextBefore` を `NEXT_BEFORE` として `--before NEXT_BEFORE` で続けます。**結果が空のページでも続行します。**`events` の `cursor` を保存し、次回の `--after EVENTS_CURSOR` に使います。これらは継続ポーリングや AI のスケジュールを作成しません。[ページ分割と終了コード](CLI.md#commands-and-pagination)、[検索制限](SEARCH.md)を参照してください。
 
-データコマンドは JSON を標準出力に返し、非公開チャットが含まれる場合があります。MCP はゲートウェイ `/mcp` のステートレスな Streamable HTTP、HTTP は `/api/v1` を使用します。LineBridge は stdio MCP ランチャーを提供せず、AI クライアントへの自動登録も行いません。リモートには HTTPS、狭い範囲で有効期限付きのトークン、必要なら Cloudflare Access 認証情報を使用します。ローカルウィザードのプロファイルはトンネルでは使えません。[MCP クライアント設定とホストの制限](CONNECTIONS.md#mcp-client-setup)、[OpenAPI](openapi.json)を参照してください。
+データコマンドは JSON を標準出力に返し、非公開チャットが含まれる場合があります。MCP はゲートウェイ `/mcp` のステートレスな Streamable HTTP、HTTP は `/api/v1` を使用します。同じ Windows／Mac 上では `linebridge codex preview` → `install` でプロジェクト／ユーザー範囲を明示し、確認した設定を登録できます。`linebridge mcp` stdio アダプターは既存の保護されたプロファイルを使用し、トークンをコピーせず、既定では読み取りツールのみを公開します。`verify` とプレビュー確認付きの `uninstall` も利用できます。[Codex の設定・検証・削除](CODEX.md)。クラウド Dot への直接 MCP 接続を登録する機能ではありません。リモートには HTTPS、狭い範囲で有効期限付きのトークン、必要なら Cloudflare Access 認証情報を使用します。ローカルウィザードのプロファイルはトンネルでは使えません。[MCP クライアント設定とホストの制限](CONNECTIONS.md#mcp-client-setup)、[OpenAPI](openapi.json)を参照してください。
 
 ## 送信と障害対応
 

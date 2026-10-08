@@ -32,6 +32,13 @@ try {
   delete env.LINE_BRIDGE_TOKEN;delete env.CF_ACCESS_CLIENT_ID;delete env.CF_ACCESS_CLIENT_SECRET;delete env.LINE_BRIDGE_URL;
   const help=execFileSync(process.execPath,[bin,'accounts','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
   assert.ok(JSON.parse(help).commands.includes('send'));
+  const codexHelp=execFileSync(process.execPath,[bin,'codex','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
+  assert.deepEqual(JSON.parse(codexHelp).commands,['preview','install','uninstall','verify']);
+  const codexPreview=JSON.parse(execFileSync(process.execPath,[bin,'codex','preview','--scope','project','--project',directory,'--profile','synthetic-only','--url','http://127.0.0.1:1'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']}));
+  assert.equal(codexPreview.applied,false);assert.equal(codexPreview.configuration.args[0],bin);assert.equal(codexPreview.tools,'read');
+  assert.ok((await readFile(join(directory,'node_modules/line-bridge/CODEX.md'))).length>0);
+  const mcpHelp=spawnSync(process.execPath,[bin,'mcp','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true});
+  assert.equal(mcpHelp.status,0);assert.equal(mcpHelp.stdout,'');assert.match(mcpHelp.stderr,/protected-profile MCP adapter/);
   const maintenanceHelp=execFileSync(process.execPath,[bin,'shutdown','--help'],{cwd:directory,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']});
   assert.match(maintenanceHelp,/shutdown/);assert.match(maintenanceHelp,/--resume/);assert.match(maintenanceHelp,/維護關閉/);
   for(const file of ['maintenance.mjs','rpc-metadata.mjs'])assert.ok((await readFile(join(directory,'node_modules/line-bridge/server',file))).length>0);

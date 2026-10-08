@@ -54,6 +54,11 @@ test('profile integrity and credential schema prevent namespace/command injectio
   await assert.rejects(new CredentialStore({platform:'linux',run:async()=>({code:0,stdout:encoded})}).get('test'),{code:'credential_store_unavailable'});
 });
 
+test('fast POSIX helpers with no input do not fail from stdin EPIPE; failed credential writes still fail closed',{skip:process.platform==='win32'},async()=>{
+  for(let n=0;n<64;n++)assert.deepEqual(await runProtectedHelper('/bin/echo',['synthetic-helper-complete']),{code:0,stdout:'synthetic-helper-complete\n'});
+  await assert.rejects(runProtectedHelper('/bin/true',[],{input:'synthetic-only-'.repeat(16*1024)}),{code:'credential_store_unavailable'});
+});
+
 test('app enrollment refuses an existing profile and does not place secrets in helper argv',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'linebridge-create-profile-'));t.after(()=>removeClientFixture(dir));
   for(const platform of ['win32','darwin','linux']){

@@ -43,14 +43,16 @@ export function runProtectedHelper(file, args, {input = '', timeoutMs = 10000, e
     let child, timer, settled = false, size = 0;
     const chunks = [];
     const fail = () => { if(!settled) { settled=true;clearTimeout(timer);child?.kill();reject(credentialError()); } };
-    try { child = spawn(file,args,{env:helperEnv,windowsHide:true,stdio:['pipe','pipe','pipe'],shell:false}); } catch { fail();return; }
+    // Fast read-only helpers can exit before even an empty-string stdin write,
+    // causing a false EPIPE. With no input, give them an already closed stream.
+    try { child = spawn(file,args,{env:helperEnv,windowsHide:true,stdio:[input.length ? 'pipe' : 'ignore','pipe','pipe'],shell:false}); } catch { fail();return; }
     timer = setTimeout(fail,timeoutMs);
     child.on('error',fail);
-    child.stdin.on('error',fail);
+    child.stdin?.on('error',fail);
     child.stdout.on('data',chunk=>{size+=chunk.length;if(size>16384)fail();else chunks.push(chunk);});
     child.stderr.resume();
     child.on('close',code=>{if(!settled){settled=true;clearTimeout(timer);resolvePromise({code,stdout:Buffer.concat(chunks).toString('utf8')});}});
-    child.stdin.end(input);
+    child.stdin?.end(input);
   });
 }
 

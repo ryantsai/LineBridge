@@ -1,5 +1,11 @@
 # LINE data CLI
 
+For a persistent MCP connection in a local Codex host, use
+[`linebridge codex preview/install/verify/uninstall`](CODEX.md). It reuses an
+existing protected profile through the `linebridge mcp` stdio adapter, defaults
+to read tools and requires a scope-specific preview digest before editing Codex
+configuration. Ordinary data commands and profiles remain available independently.
+
 ## 維護關閉與更新後恢復
 
 本機更新前，先用既有啟動器的 `status --data-dir DATA_DIR` 記錄 `instance`、資料目錄、兩個連接埠與認證參數，再執行：
