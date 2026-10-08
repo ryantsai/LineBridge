@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {ClientError,EXIT} from './errors.mjs';
 import {runProtectedHelper} from './credentials.mjs';
 
-const refused=()=>new ClientError('codex_metadata_unsupported','Existing Codex file protection could not be safely verified. Custom ACLs, extended attributes or special flags require manual configuration in Codex settings. No automatic replacement is allowed.',EXIT.remote);
+const refused=()=>new ClientError('codex_metadata_unsupported','Codex file protection could not be safely verified. Custom ACLs, extended attributes or special flags require manual configuration in Codex settings. No automatic configuration change is allowed.',EXIT.remote);
 const signature=value=>createHash('sha256').update(value).digest('hex');
 
 // Input paths and descriptors use a private pipe, never shell interpolation.

@@ -130,7 +130,12 @@ bits are retained; inability to preserve ownership blocks the change.
 Before existing config bytes are written, the empty temporary has inherited
 macOS ACLs removed or the verified Windows security descriptor applied. Windows
 uses `File.Replace` with metadata merge errors enforced, without a rename fallback.
-A new config uses mode 0600 where supported. No separate backup copies existing
+A new config uses mode 0600 where supported. First installation checks its empty
+candidate before writing and validates the completed candidate with the same
+protection checks used by verification/removal before publishing it. Unsupported
+or unavailable metadata leaves no installed entry. A preview for an absent file
+cannot establish these native checks without creating a file; installation may
+therefore refuse a change that preview could describe. No separate backup copies existing
 config secrets. A crash may leave a private temporary file or lock. If Windows
 cannot confirm replacement, the protected candidate is deliberately retained
 because the native API can fail after moving a file; do not retry. Inspect

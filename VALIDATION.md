@@ -1,19 +1,26 @@
 # Codex MCP integration review - 2026-10-08
 
-Local review branch `cloud/codex-mcp-integration` starts from the preserved
+Review branch `cloud/codex-mcp-integration` starts from the preserved
 README checkpoint `96d2b239802a07ba81567bc9fa0e0a4f05e22c44`, on refreshed main
 `9fb0a5fc7db582e4df3ca4f2a548dae372b9310b` (v0.7.13). This is unreleased
 engineering evidence from Linux/Node 24.19.0; Linux remains unsupported for the
 LineBridge CLI/service. The ordinary Luna/Medium README recommendation is intact.
 
-- `npm run test:codex`: **22/22 passed** on disposable files, synthetic protected
+- `npm run test:codex`: **25/25 passed** on disposable files, synthetic protected
   stores and synthetic MCP traffic. Coverage includes scope/consent, byte and
   profile preservation, stale writes, foreign/edited entries, fixed read/send
   allowlists, no retries/redirects, version-only verification, POSIX ownership,
   and fail-closed metadata boundaries. The Windows helper is inspected/mocked;
   its PowerShell and native ACL APIs were not executed on Linux. Including the
-  protected-helper suite, affected checks passed **27/27**.
-- Full regression after the empty-input helper correction: **387/387 passed**,
+  protected-helper suite, affected checks passed **30/30**.
+- First-install regressions exercise the real `runCodex` path with modeled
+  native helpers. Unavailable/refusing helpers, inherited custom protection and
+  a protection change before publication leave `config.toml` absent and remove
+  the temporary/lock. Supported modeled macOS/Windows cases complete install,
+  verify and uninstall. The empty candidate is checked before writing and the
+  completed candidate is validated again before publication; these are
+  synthetic regression checks, not native Windows acceptance evidence.
+- Full regression after the helper and first-install corrections: **390/390 passed**,
   no skips, using a test-only `darwin`
   platform preload and writable `/tmp` npm cache. Processes, IPC and SQLite are
   real Linux execution; the preload is not evidence of native macOS/Windows
@@ -47,7 +54,9 @@ LineBridge CLI/service. The ordinary Luna/Medium README recommendation is intact
 
 No live user Codex configuration, protected profile, LINE account/session or
 gateway grant was changed. No real LINE read/send/login, credential enrollment,
-push, merge, release or workflow activation was performed. See [CODEX.md](CODEX.md)
+merge, release or workflow activation was performed. The branch is published as
+[draft PR #19](https://github.com/ryantsai/LineBridge/pull/19) for independent review.
+See [CODEX.md](CODEX.md)
 for the official Codex contract, supported command flow and local/cloud limits.
 
 # Central OpenChat sync and official LineJS migration - 2026-10-07

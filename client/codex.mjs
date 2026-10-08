@@ -144,6 +144,10 @@ async function applyPlan(plan,{beforeCommit,fileOps} = {}) {
     catch {throw failure('codex_config_busy','Another installer may be editing this Codex directory. Close it and preview again. A stale .linebridge-codex.lock requires manual inspection before removal.');}
     temp=await open(temporary,'wx',0o600);createdTemp=true;
     if(plan.before.exists)await fileOps.prepare(plan.file,temporary,plan.before.metadata);
+    // A missing destination has no metadata to inspect during offline preview.
+    // Check its empty candidate before writing so unsupported first installs
+    // cannot publish an entry that our own verify/removal would refuse.
+    else await snapshot(temporary,fileOps);
     if(plan.before.exists && plan.before.metadata.kind!=='win32'){
       // A same-mode replacement with a different group can disclose config to
       // new readers. Preserve ownership while the candidate is still empty.
@@ -156,9 +160,11 @@ async function applyPlan(plan,{beforeCommit,fileOps} = {}) {
     }
     await temp.writeFile(plan.after);if(plan.before.metadata?.kind!=='win32')await temp.chmod(plan.before.mode);await temp.sync();await temp.close();temp=undefined;
     await beforeCommit?.();
+    const candidate=await snapshot(temporary,fileOps);
+    if(!candidate.exists || candidate.revision!==hash(plan.after))throw failure('codex_config_changed','The configuration candidate changed before installation. Nothing was published; preview again.');
     const current=await snapshot(plan.file,fileOps);
     if(current.revision!==plan.before.revision || current.identity!==plan.before.identity)throw failure('codex_config_changed','Codex configuration changed after preview. Nothing was replaced; preview again.');
-    // New files use no-clobber creation. Existing files use an atomic rename
+    // New files use no-clobber creation. Existing files use native replacement
     // after the final comparison; close other config editors during installation.
     if(plan.before.exists)await fileOps.replace(temporary,plan.file,plan.before.metadata);else await link(temporary,plan.file);
   }catch(error){preserveTemporary=error.preserveTemporary===true;throw error;}
