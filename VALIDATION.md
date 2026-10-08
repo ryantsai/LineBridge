@@ -11,8 +11,10 @@ LineBridge CLI/service. The ordinary Luna/Medium README recommendation is intact
   profile preservation, stale writes, foreign/edited entries, fixed read/send
   allowlists, no retries/redirects, version-only verification, POSIX ownership,
   and fail-closed metadata boundaries. The Windows helper is inspected/mocked;
-  its PowerShell and native ACL APIs were not executed on Linux.
-- Full regression: **386/386 passed**, no skips, using a test-only `darwin`
+  its PowerShell and native ACL APIs were not executed on Linux. Including the
+  protected-helper suite, affected checks passed **27/27**.
+- Full regression after the empty-input helper correction: **387/387 passed**,
+  no skips, using a test-only `darwin`
   platform preload and writable `/tmp` npm cache. Processes, IPC and SQLite are
   real Linux execution; the preload is not evidence of native macOS/Windows
   behavior. An earlier run without the required cache passed 385/386 and failed
@@ -21,9 +23,12 @@ LineBridge CLI/service. The ordinary Luna/Medium README recommendation is intact
   rejects Linux as designed.
 - JavaScript syntax and diff whitespace checks passed. The actual esbuild
   bundle completed preview/install/static verify/uninstall in a disposable
-  project, using modeled macOS policy/metadata commands. One concurrent bundle
-  run refused modeled metadata; its isolated rerun passed. That transient
-  refusal is not explained or claimed as a native success. The local npm
+  project, using modeled macOS policy/metadata commands. Intermittent metadata
+  refusals were traced to a successful fast helper exiting before a zero-byte
+  stdin write (`EPIPE`). The shared helper now uses closed stdin for empty input;
+  nonempty credential pipes still fail closed. A real-process regression and
+  **30 disposable install/uninstall round-trips** passed after the correction.
+  The local npm
   archive and fresh disposable installation checks cover shipped files,
   dependency inclusion, installed Codex preview/help and MCP-only stdout.
 - Actual installed `codex-cli 0.159.0-alpha.3` parsed the generated stdio
