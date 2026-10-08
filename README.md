@@ -165,7 +165,7 @@ CLI_COMMAND events --profile PROFILE_NAME --account ACCOUNT_ID --after 0 --limit
 - **有限讀取：**`read`／`refresh` 每頁最多 100 則。Talk 只取近期訊息，OpenChat 用回傳游標讀取有限頁面。核對 `coverage`、`upstreamError`、本機備援；不能宣稱全部歷史、全部聊天室或 LINE 原生「未讀」。
 - **搜尋與事件分頁：**搜尋只含已封存的可解密文字，不含附件或未捕捉訊息。`hasMore: true` 時維持查詢／篩選，以 `--before NEXT_BEFORE` 繼續，`NEXT_BEFORE` 取自 `nextBefore`；**空結果頁也要繼續**。`events` 保存 `cursor`，下次用 `--after EVENTS_CURSOR`。這些指令不會自動持續輪詢或建立 AI 排程。[分頁與結束代碼](CLI.md#commands-and-pagination)、[搜尋限制](SEARCH.md)。
 
-資料指令提供 JSON 標準輸出，結果可能含私人聊天內容。MCP 使用閘道 `/mcp` 的無狀態 Streamable HTTP；HTTP 使用 `/api/v1`。LineBridge 不提供 stdio MCP 啟動器，也不會自動在 AI 用戶端完成註冊。遠端須使用 HTTPS、窄範圍到期 token，必要時加上 Cloudflare Access 憑證；本機精靈 profile 不能透過通道使用。[MCP 用戶端設定與主機限制](CONNECTIONS.md#mcp-client-setup)、[OpenAPI](openapi.json)。
+資料指令提供 JSON 標準輸出，結果可能含私人聊天內容。MCP 使用閘道 `/mcp` 的無狀態 Streamable HTTP；HTTP 使用 `/api/v1`。同一台 Windows／Mac 上可用 `linebridge codex preview` → `install`，明確選擇專案或使用者範圍，確認預覽後安裝 Codex MCP；`linebridge mcp` stdio 轉接器沿用既有受保護 profile，不複製 token，預設只開放讀取工具。另提供 `verify` 與需預覽確認的 `uninstall`。[Codex 安裝、驗證與移除](CODEX.md)。這不會替雲端 Dot 註冊直接 MCP 存取。遠端須使用 HTTPS、窄範圍到期 token，必要時加上 Cloudflare Access 憑證；本機精靈 profile 不能透過通道使用。[MCP 用戶端設定與主機限制](CONNECTIONS.md#mcp-client-setup)、[OpenAPI](openapi.json)。
 
 ## 傳送與故障處理
 

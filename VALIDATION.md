@@ -1,3 +1,50 @@
+# Codex MCP integration review - 2026-10-08
+
+Local review branch `cloud/codex-mcp-integration` starts from the preserved
+README checkpoint `96d2b239802a07ba81567bc9fa0e0a4f05e22c44`, on refreshed main
+`9fb0a5fc7db582e4df3ca4f2a548dae372b9310b` (v0.7.13). This is unreleased
+engineering evidence from Linux/Node 24.19.0; Linux remains unsupported for the
+LineBridge CLI/service. The ordinary Luna/Medium README recommendation is intact.
+
+- `npm run test:codex`: **22/22 passed** on disposable files, synthetic protected
+  stores and synthetic MCP traffic. Coverage includes scope/consent, byte and
+  profile preservation, stale writes, foreign/edited entries, fixed read/send
+  allowlists, no retries/redirects, version-only verification, POSIX ownership,
+  and fail-closed metadata boundaries. The Windows helper is inspected/mocked;
+  its PowerShell and native ACL APIs were not executed on Linux.
+- Full regression: **386/386 passed**, no skips, using a test-only `darwin`
+  platform preload and writable `/tmp` npm cache. Processes, IPC and SQLite are
+  real Linux execution; the preload is not evidence of native macOS/Windows
+  behavior. An earlier run without the required cache passed 385/386 and failed
+  only the packaging test because the default npm cache was unwritable. An
+  earlier unmodeled targeted run passed 24/25; the existing portable-host test
+  rejects Linux as designed.
+- JavaScript syntax and diff whitespace checks passed. The actual esbuild
+  bundle completed preview/install/static verify/uninstall in a disposable
+  project, using modeled macOS policy/metadata commands. One concurrent bundle
+  run refused modeled metadata; its isolated rerun passed. That transient
+  refusal is not explained or claimed as a native success. The local npm
+  archive and fresh disposable installation checks cover shipped files,
+  dependency inclusion, installed Codex preview/help and MCP-only stdout.
+- Actual installed `codex-cli 0.159.0-alpha.3` parsed the generated stdio
+  configuration and seven-tool read allowlist using `mcp get --json` in an
+  isolated `CODEX_HOME`; uninstall restored the original bytes. This did not
+  launch an MCP server in Codex, open credentials, make a model request, or
+  prove project trust/effective configuration or desktop UI activation.
+- Existing custom protection is not silently rewritten: macOS ACLs/xattrs/BSD
+  flags and Windows custom DACLs/SACLs/special attributes are refused. Missing
+  metadata permissions also block edits. In particular, Windows audit metadata
+  may be unreadable to ordinary users; the installer does not elevate, relax
+  protection or offer a bypass. Native Keychain/DPAPI access, actual Codex launch,
+  macOS metadata commands and Windows ACL/ReplaceFile behavior remain required
+  acceptance checks. An unconfirmed Windows replacement retains its protected
+  candidate for manual recovery, without an automatic retry.
+
+No live user Codex configuration, protected profile, LINE account/session or
+gateway grant was changed. No real LINE read/send/login, credential enrollment,
+push, merge, release or workflow activation was performed. See [CODEX.md](CODEX.md)
+for the official Codex contract, supported command flow and local/cloud limits.
+
 # Central OpenChat sync and official LineJS migration - 2026-10-07
 
 Isolated Windows x64 development branch based on main `5f66ee9962a9f764e0d6b902375dedb812a21ca2` (v0.7.10). These are synthetic checks of the proposed code, not a released version or live LINE reception evidence.

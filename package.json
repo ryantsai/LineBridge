@@ -23,6 +23,7 @@
     "README.zh-TW.md",
     "PACKAGING.md",
     "CONNECTIONS.md",
+    "CODEX.md",
     "ALIASES.md",
     "SEARCH.md",
     "CLI.md"
@@ -36,6 +37,8 @@
     "stop": "node bin/linebridge.mjs stop",
     "test": "node --test tests/*.test.mjs",
     "test:cli": "node --test tests/cli*.test.mjs tests/client-credentials.test.mjs",
+    "test:codex": "node --test tests/codex.test.mjs tests/codex-files.test.mjs tests/mcp-adapter.test.mjs",
+    "test:codex:host": "node tests/codex-host-smoke.mjs",
     "test:credentials:native": "node tests/client-credentials-native.mjs",
     "test:package-cli": "node tests/cli-package-smoke.mjs",
     "test:smoke": "node tests/service-smoke.mjs",
@@ -57,6 +60,7 @@
     "express": "^5.2.1",
     "jose": "^6.2.12",
     "qrcode": "^1.5.4",
+    "smol-toml": "1.9.0",
     "undici": "^8.11.2",
     "zod": "^4.6.5"
   },

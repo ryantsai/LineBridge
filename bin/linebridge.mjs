@@ -10,6 +10,8 @@ const help=`LineBridge ${VERSION} — local LINE MCP / HTTP gateway
 
 Usage: linebridge [serve|tray|status|stop|shutdown] [options]
        linebridge discover|version|accounts|chats|read|refresh|search|events|send|send-flex|media|auth [options]
+       linebridge codex preview|install|uninstall|verify [options]
+       linebridge mcp --profile NAME --url GATEWAY [--tools read|read-send]
 
   serve                    Run in the foreground without a tray icon (default)
   tray                     Open the portable Windows/macOS tray launcher
@@ -29,6 +31,7 @@ Usage: linebridge [serve|tray|status|stop|shutdown] [options]
 
 Data client: linebridge accounts --help (JSON stdout, diagnostics on stderr).
 Local AI setup: linebridge discover [--data-dir DIR] (no profile required).
+Codex MCP setup: linebridge codex --help (explicit preview and consent).
 Gateway app version: linebridge version [--profile NAME].
 See CLI.md for scoped credentials, pagination and explicit sends.
 
@@ -94,6 +97,10 @@ async function main(){
 }
 if(!['win32','darwin'].includes(process.platform)) {
   console.error('LineBridge supports Windows and macOS only.');process.exitCode=1;
+} else if(process.argv[2]==='codex') {
+  const {runCodex}=await import('../client/codex.mjs');process.exitCode=await runCodex(process.argv.slice(3));
+} else if(process.argv[2]==='mcp') {
+  const {runMcp}=await import('../client/mcp.mjs');process.exitCode=await runMcp(process.argv.slice(3));
 } else if(['discover','version','accounts','chats','read','refresh','search','events','send','send-flex','media','auth'].includes(process.argv[2])) {
   const {runCli}=await import('../client/cli.mjs');process.exitCode=await runCli(process.argv.slice(2));
 } else {

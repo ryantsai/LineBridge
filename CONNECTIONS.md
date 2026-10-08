@@ -48,7 +48,7 @@ An unsupported provider saved by an older installation falls back to local acces
 
 ## MCP client setup
 
-LineBridge exposes stateless Streamable HTTP MCP at the gateway's `/mcp` endpoint, using JSON responses. It does not provide a stdio MCP launcher or automatically register itself in an AI client. Configure a compatible HTTP MCP client with that endpoint and a scoped Bearer token supplied through its private credential settings; include Cloudflare Access credentials when required. A client that accepts only a local stdio command cannot directly use this endpoint.
+LineBridge exposes stateless Streamable HTTP MCP at the gateway's `/mcp` endpoint, using JSON responses. A local Codex host on Windows/macOS can use the supported [preview/install/verify/uninstall flow](CODEX.md): its stdio adapter reuses an existing protected profile, defaults to read tools, and requires explicit consent for persistent configuration. Other compatible HTTP MCP clients can use `/mcp` with a scoped Bearer token supplied through private credential settings; include Cloudflare Access credentials when required. The adapter is a local process and does not register a cloud Dot/ChatGPT connector.
 
 An AI with terminal access on the same Windows/Mac computer can use the existing protected CLI profile without MCP registration or a tunnel. A cloud-only agent needs a reachable HTTPS gateway and separately authorized credentials; the local wizard profile cannot be used through a tunnel. Linux hosts can use HTTP/MCP clients, but the supported LineBridge CLI and service run only on Windows/macOS. Creating a tunnel or granting remote access requires the user's authorization and is not implied by local installation.
 
