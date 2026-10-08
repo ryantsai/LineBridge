@@ -112,8 +112,11 @@ The installer validates TOML and preserves all bytes outside its managed block,
 including comments, profiles and unrelated servers. It rejects invalid UTF-8,
 BOMs, invalid/unsupported TOML, linked config files, a symlinked Codex directory,
 oversized files, special permission bits and conflicting entries. Existing file protection is inspected
-before preview and immediately before replacement. On macOS, files with ACLs,
-extended attributes or BSD flags are refused. On Windows, non-owner files,
+before preview and immediately before replacement. On macOS, ACLs, BSD flags and extended attributes other than the OS-managed
+`com.apple.provenance` are refused. Provenance is never removed or rewritten.
+For an existing file, the replacement candidate must have identical supported
+metadata, including the exact provenance bytes, or the operation is refused.
+A newly created file may retain the provenance attached by macOS. On Windows, non-owner files,
 custom/protected/noncanonical ACLs, any system ACL (SACL), and attributes other
 than Normal/Archive are refused. Windows inspection requests audit metadata too;
 if the current user cannot read it, automatic changes are blocked even for an
@@ -221,6 +224,12 @@ wizard profile cannot be used through a tunnel. Linux remains unsupported for
 the LineBridge CLI/service/adapter; separate HTTP MCP clients can run there.
 
 ## Development checks
+
+`npm run test:codex:native` runs the actual macOS installer helpers on disposable
+project/user configurations, checks exact content and provenance preservation, and
+verifies that ACLs and other extended attributes remain refused. It creates no
+credential, gateway grant or live Codex entry. Optional positional arguments select
+a packaged Node runtime and CLI script for the same acceptance checks.
 
 `npm run test:codex` uses disposable files, fake protected stores and synthetic
 MCP traffic. `npm run test:codex:host` additionally needs Codex on PATH; it gives

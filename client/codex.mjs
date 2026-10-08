@@ -162,6 +162,9 @@ async function applyPlan(plan,{beforeCommit,fileOps} = {}) {
     await beforeCommit?.();
     const candidate=await snapshot(temporary,fileOps);
     if(!candidate.exists || candidate.revision!==hash(plan.after))throw failure('codex_config_changed','The configuration candidate changed before installation. Nothing was published; preview again.');
+    // Atomic replacement must retain the exact supported native metadata. In
+    // particular, never strip, transplant or silently change OS provenance.
+    if(plan.before.exists && plan.before.metadata.kind==='darwin' && candidate.metadata.signature!==plan.before.metadata.signature)throw failure('codex_metadata_unsupported','The candidate does not preserve the existing macOS file protection. No configuration was replaced; use manual Codex configuration.');
     const current=await snapshot(plan.file,fileOps);
     if(current.revision!==plan.before.revision || current.identity!==plan.before.identity)throw failure('codex_config_changed','Codex configuration changed after preview. Nothing was replaced; preview again.');
     // New files use no-clobber creation. Existing files use native replacement

@@ -1,3 +1,30 @@
+# Native macOS Codex acceptance - 2026-10-08
+
+On Ryan's Apple Silicon Mac, macOS 27.0.1, using Node 26.5.0:
+
+- The initial native first-install check correctly refused a new temporary file
+  because macOS automatically attached `com.apple.provenance`. The installer now
+  supports that one opaque OS attribute without stripping or rewriting it.
+  Existing-file replacement requires identical native metadata, including the
+  exact provenance bytes. Mismatches, ACLs, BSD flags and all other xattrs still
+  fail closed before publication.
+- `npm run test:codex:native` exercises actual `ls`, `stat`, `xattr`, `chmod` and
+  atomic file operations on disposable project/user files. First install, static
+  verification, no-op detection, consent-bound replacement and uninstall passed;
+  existing content, owner/group/mode and xattrs were retained exactly. Native ACL
+  and unrelated-xattr rejection also passed.
+- The 27 Codex/adapter regression tests passed on native macOS. MCP uses synthetic
+  in-memory credentials and a loopback fixture, including the real stdio/HTTP
+  protocol, a fixed read allowlist and refused send tools. No production LINE
+  gateway or credential store was used by these tests.
+- Installed `codex-cli 0.160.1` parsed the generated command and read allowlist with
+  a disposable host configuration; removal restored the original bytes. This is
+  a configuration parse check, not Codex desktop connection activation or a model
+  request. Native Keychain enrollment and Windows/DPAPI acceptance were not run.
+
+The real Codex configuration, protected profiles and grants were not modified.
+Portable build and release results are recorded separately by the release run.
+
 # Codex MCP integration review - 2026-10-08
 
 Review branch `cloud/codex-mcp-integration` starts from the preserved

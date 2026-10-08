@@ -109,3 +109,23 @@ test('Windows protection is applied to an empty candidate; unconfirmed replaceme
   const result=await f.cli(['install',...f.args,'--consent',preview.json.consent]);assert.equal(result.json.error,'codex_replace_unconfirmed');assert.equal(prepared,1);assert.equal(replaced,1);
   assert.equal(await readFile(f.file,'utf8'),'model="synthetic-original"\n');const files=await readdir(join(f.directory,'.codex'));assert.equal(files.length,2);assert.ok(files.some(f=>/^\.linebridge-codex-.*\.tmp$/.test(f)));assert.ok(!result.stdout.includes('private-SDDL'));assert.ok(!result.stdout.includes('never-echo'));
 });
+
+test('macOS provenance is read opaquely; extra attributes, ACLs and malformed provenance still fail closed',async()=>{
+  const listing='-rw-------@ 1 user group 1 date config\n\tcom.apple.provenance\t11 \n';
+  const make=(text=listing,raw='01 02 00 00\n')=>codexFileOps({platform:'darwin',run:async(command)=>({code:0,stdout:command==='/bin/ls'?text:command==='/usr/bin/stat'?'0\n':raw})});
+  const a=await make().inspect('/synthetic/config.toml');
+  const b=await make(listing,'01 02 00 01\n').inspect('/synthetic/config.toml');
+  assert.equal(a.kind,'darwin');assert.notEqual(a.signature,b.signature);
+  for(const text of [listing+' 0: everyone allow read\n',listing+'\tcom.example.other\t1 \n',listing.replace('com.apple.provenance','com.apple.quarantine')])await assert.rejects(make(text).inspect('/synthetic/config.toml'),{code:'codex_metadata_unsupported'});
+  for(const raw of ['', '0', 'private-native-error', '00'.repeat(4097)])await assert.rejects(make(listing,raw).inspect('/synthetic/config.toml'),{code:'codex_metadata_unsupported'});
+});
+test('a native replacement cannot change or drop the existing provenance',async t=>{
+  for(const candidateSignature of ['different-provenance','absent-provenance']){
+    const ops={inspect:async file=>({kind:'darwin',signature:file.endsWith('.tmp')?candidateSignature:'existing-provenance'}),prepare:async()=>{},replace:()=>assert.fail('No replacement may occur')};
+    const f=await fixture(t,ops),preview=await f.cli(['preview',...f.args]);assert.equal(preview.code,0);
+    const result=await f.cli(['install',...f.args,'--consent',preview.json.consent]);
+    assert.equal(result.json.error,'codex_metadata_unsupported');
+    assert.equal(await readFile(f.file,'utf8'),'model="synthetic-original"\n');
+    assert.deepEqual(await readdir(join(f.directory,'.codex')),['config.toml']);
+  }
+});

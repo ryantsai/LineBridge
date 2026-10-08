@@ -39,6 +39,7 @@
     "test:cli": "node --test tests/cli*.test.mjs tests/client-credentials.test.mjs",
     "test:codex": "node --test tests/codex.test.mjs tests/codex-files.test.mjs tests/mcp-adapter.test.mjs",
     "test:codex:host": "node tests/codex-host-smoke.mjs",
+    "test:codex:native": "node tests/codex-native-smoke.mjs",
     "test:credentials:native": "node tests/client-credentials-native.mjs",
     "test:package-cli": "node tests/cli-package-smoke.mjs",
     "test:smoke": "node tests/service-smoke.mjs",

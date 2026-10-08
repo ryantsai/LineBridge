@@ -42,8 +42,21 @@ export function codexFileOps({platform=process.platform,env=process.env,run=runP
         const listing=await helper('/bin/ls',['-lde@',file]);
         const mode=listing.split('\n')[0].match(/^-[rwxStTs-]{9}([@+ ]|$)/);
         const flags=(await helper('/usr/bin/stat',['-f','%f',file])).trim();
-        if(!mode || ['@','+'].includes(mode[1]) || flags!=='0')throw refused();
-        return {kind:'darwin',signature:signature(mode[0]+':'+flags)};
+        if(!mode || mode[1]==='+' || flags!=='0')throw refused();
+        let provenance='';
+        if(mode[1]==='@'){
+          // macOS can attach provenance even to freshly created files. Permit
+          // only this one opaque OS attribute, without clearing or changing it.
+          // An ACL adds listing lines and must still fail closed, including
+          // when the first line's @ marker hides its presence.
+          const details=listing.trimEnd().split('\n').slice(1);
+          if(details.length!==1 || !/^\s+com\.apple\.provenance\s+\d+\s*$/.test(details[0]))throw refused();
+          const raw=await helper('/usr/bin/xattr',['-px','com.apple.provenance',file]);
+          if(!/^[0-9a-fA-F\s]+$/.test(raw))throw refused();
+          provenance=raw.replace(/\s/g,'').toLowerCase();
+          if(!provenance || provenance.length%2 || provenance.length>8192)throw refused();
+        }else if(listing.trimEnd().split('\n').length!==1)throw refused();
+        return {kind:'darwin',signature:signature(mode[0]+':'+flags+':'+provenance)};
       }
       if(platform==='win32'){
         let result;try {result=JSON.parse(await windows({op:'inspect',file}));}catch{throw refused();}
