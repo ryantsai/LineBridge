@@ -12,9 +12,10 @@ import {refreshIntervalSeconds,MIN_REFRESH_INTERVAL_SECONDS,MAX_REFRESH_INTERVAL
 import {DebugLogging} from './debug-logging.mjs';
 import {validateFlex,assertFlexTransport} from './flex.mjs';
 import {imageResult} from './media.mjs';
+import {MAX_SCOPE_CHATS} from './limits.mjs';
 
 const accountInput=z.object({label:z.string().trim().min(1).max(80),kind:z.enum(['line','demo']).default('line'),device:z.enum(['IOSIPAD','DESKTOPWIN','ANDROIDSECONDARY']).default('IOSIPAD')}).strict();
-const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
+const tokenInput=z.object({name:z.string().trim().min(1).max(80),days:z.number().int().min(1).max(90).default(7),grants:z.array(z.object({accountId:z.string().min(1),read:z.boolean(),send:z.boolean(),chatIds:z.array(z.string().min(1).max(150)).min(1).max(MAX_SCOPE_CHATS).optional(),localOnly:z.literal(true).optional()}).strict()).min(1).max(30)}).strict();
 const localAccessInput=z.object({read:z.boolean(),send:z.boolean()}).strict();
 export const adminActor={id:'local-admin',admin:true};
 export const localActor=Object.freeze({id:'local-agent',local:true});
@@ -43,7 +44,7 @@ export class Hub {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
       profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,accountHealth:r?.accountHealth ?? null,
-      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id))).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected',chatIds)};
+      canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:(scope=>this.store.chats(account.id).filter(c=>c.enabled&&(!scope||scope.has(c.id))).length)(chatIds&&new Set(chatIds)),openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected',chatIds)};
   }
   accounts(actor) {
     const active=this.actor(actor);
@@ -85,7 +86,7 @@ export class Hub {
       return chat;
     }
   }
-  chatAllowed(actor,id,chatId) {const grant=actor.grants?.find(g=>g.accountId===id);return !!actor.admin||!!grant&&(!grant.chatIds||grant.chatIds.includes(chatId));}
+  chatAllowed(actor,id,chatId,allowed) {const grant=actor.grants?.find(g=>g.accountId===id);return !!actor.admin||!!grant&&(!grant.chatIds||(allowed?allowed.has(chatId):grant.chatIds.includes(chatId)));}
   limit(actor,send=false) {
     if(actor.admin) return;
     const now=Date.now(),key=`${actor.id}:${send?'send':'read'}`,max=send?10:120;
@@ -229,9 +230,13 @@ export class Hub {
       const added=[];
       this.store.transaction(()=>{
         const setup=this.automaticSetup(id);
+        // Automatic enrollment covers personal and group chats only. OpenChat
+        // rooms are still listed so they can be added by hand, but never join
+        // the managed scope on their own.
+        let room=setup?MAX_SCOPE_CHATS-setup.record.chatIds.length:0;
         for(const chat of result.chats){
           const fresh=!this.store.chat(id,chat.id);this.store.putChat(id,chat);
-          if(fresh&&setup){this.store.designate(id,chat.id,true);added.push(chat.id);this.store.audit('local-admin','chat.auto-monitor',id,chat.id,'enabled');}
+          if(fresh&&setup&&chat.kind!=='openchat'&&room>0){room--;this.store.designate(id,chat.id,true);added.push(chat.id);this.store.audit('local-admin','chat.auto-monitor',id,chat.id,'enabled');}
         }
         if(added.length){
           // Expand only the managed grant that explicitly opted into future rooms.
@@ -255,7 +260,7 @@ export class Hub {
     this.store.putChat(id,chat);return this.store.chat(id,chat.id);
   }
   designate(id,chatId,enabled) {this.authorize(adminActor,id,null,chatId);if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');this.store.designate(id,chatId,enabled);this.store.audit('local-admin','chat.designate',id,chatId,enabled?'enabled':'disabled');void this.updateMonitor(id).catch(()=>{const r=this.runtime.get(id);if(r)r.monitorStreams={worker:{status:'retrying'}};});}
-  chats(actor,id) {this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor);return this.store.chats(id).filter(c=>active.admin || c.enabled&&this.chatAllowed(active,id,c.id)).map(({account_id,...c})=>c);}
+  chats(actor,id) {this.authorize(actor,id,'read');this.limit(actor);const active=this.actor(actor),scope=active.grants?.find(g=>g.accountId===id)?.chatIds,allowed=scope&&new Set(scope);return this.store.chats(id).filter(c=>active.admin || c.enabled&&this.chatAllowed(active,id,c.id,allowed)).map(({account_id,...c})=>c);}
   async read(actor,id,chatId,limit=30,cursor,fresh=false) {
     this.authorize(actor,id,'read',chatId);this.limit(actor);
     if(!Number.isInteger(limit)||limit<1||limit>100)fail(400,'invalid_limit','limit must be between 1 and 100.');

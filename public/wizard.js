@@ -14,7 +14,11 @@ function hero(){
 export function createWizard(ctx){
   const {escape,action,nice,avatar}=ctx;
   const root=document.querySelector('#wizard-content');
-  let step=1,mode='welcome',waiting=false,awaitingNew=false,lastPicker='',lastConnect='',draftAccount=null,rooms=[],chosen=new Set(),busy=false,chatSearch='',autoMonitorNewChats=false,lastScope='',view='';
+  let step=1,mode='welcome',waiting=false,awaitingNew=false,lastPicker='',lastConnect='',draftAccount=null,rooms=[],chosen=new Set(),busy=false,autoMonitorNewChats=true,lastScope='',view='',autoDiscovered=null;
+  // This build monitors every personal and group chat; OpenChat stays out.
+  const talk=c=>c.kind!=='openchat';
+  const selectAll=()=>{chosen=new Set(rooms.filter(talk).map(c=>c.id));};
+  const SCOPE_PREVIEW=100;
   const account=()=>ctx.getState()?.accounts.find(a=>a.id===ctx.getSelected());
   const setupSignature=setup=>JSON.stringify([setup?.chatIds,setup?.autoMonitorNewChats,setup?.phase,setup?.grantActive]);
   function listen(selector,job){root.querySelector(selector)?.addEventListener('click',()=>action(job));}
@@ -27,21 +31,6 @@ export function createWizard(ctx){
   function frame(title,intro,body,buttons,aside=''){return `<div class="wizard-view"><header class="wizard-head"><div><h2>${title}</h2>${intro?`<p>${intro}</p>`:''}</div>${aside}</header><div class="wizard-body">${body}</div>${buttons}</div>`;}
   const chip=a=>`<div class="account-chip">${avatar(accountName(a),a.id,'sm')}<span>${escape(accountName(a))}</span></div>`;
   function progress(){document.querySelectorAll('.stepper li').forEach((el,index)=>{const done=index<step-1;el.classList.toggle('current',index===step-1);if(el.classList.contains('complete')!==done){el.classList.toggle('complete',done);el.querySelector('.step-dot').innerHTML=done?icon('check'):String(index+1);}if(index===step-1)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');});}
-  function renderChatList(){
-    const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase();
-    const terms=normalize(chatSearch).trim().split(/\s+/).filter(Boolean);
-    const visible=rooms.filter(c=>terms.every(term=>normalize(`${chatName(c)} ${c.id} ${nice(c.kind)}`).includes(term)));
-    const count=()=>`${visible.length===rooms.length?'':`${visible.length} / `}${rooms.length} 個聊天室 · 已選 ${chosen.size}`;
-    root.querySelector('#setup-chat-count').textContent=count();
-    const list=root.querySelector('#setup-chat-list');
-    list.innerHTML=visible.length?visible.map(c=>`<label class="pick"><input type="checkbox" data-setup-chat="${escape(c.id)}" ${chosen.has(c.id)?'checked':''} ${busy?'disabled':''}>${avatar(chatName(c),c.id,'sm')}<span class="pick-main"><strong>${escape(chatName(c))}</strong><small><span class="tag">${escape(nice(c.kind))}</span><code>${escape(c.id)}</code></small></span></label>`).join(''):rooms.length?'<div class="list-empty">沒有符合的聊天室<button class="link-btn" id="setup-clear-search">清除搜尋</button></div>':'<div class="list-empty">按「探索」載入聊天室，或新增已知 ID</div>';
-    list.querySelectorAll('[data-setup-chat]').forEach(el=>el.addEventListener('change',()=>{
-      if(el.checked)chosen.add(el.dataset.setupChat);else chosen.delete(el.dataset.setupChat);
-      root.querySelector('#wizard-next').disabled=busy||!chosen.size;
-      root.querySelector('#setup-chat-count').textContent=count();
-    }));
-    list.querySelector('#setup-clear-search')?.addEventListener('click',()=>{chatSearch='';const search=root.querySelector('#setup-chat-search');search.value='';renderChatList();search.focus();});
-  }
   function render(){
     progress();const a=account();
     if(step>1&&!a){step=1;mode='stored';progress();}
@@ -65,22 +54,19 @@ export function createWizard(ctx){
       listen('#wizard-back',()=>{mode='stored';waiting=false;render();});listen('#wizard-resume',()=>ctx.connect(false));listen('#wizard-login',()=>ctx.connect(true));listen('#wizard-next',()=>{step=2;waiting=false;render();});return;
     }
     if(draftAccount!==a.id){
-      draftAccount=a.id;rooms=ctx.getChats();
-      const monitored=rooms.filter(c=>c.enabled).map(c=>c.id),setup=a.localSetup;
-      // An active scope also starts with rooms monitored outside it (older toggles),
-      // so confirming reconciles them instead of silently stopping their reception.
-      chosen=new Set(setup?.grantActive?[...setup.chatIds,...monitored]:setup?.chatIds??monitored);
-      chatSearch='';autoMonitorNewChats=setup?.autoMonitorNewChats===true;lastScope=JSON.stringify(setup?.chatIds??[]);
+      draftAccount=a.id;rooms=ctx.getChats();selectAll();
+      const setup=a.localSetup;
+      autoMonitorNewChats=setup?.grantActive?setup.autoMonitorNewChats===true:true;lastScope=JSON.stringify(setup?.chatIds??[]);
     }
     if(step===2){
-      const searching=root.querySelector('#setup-chat-search')===document.activeElement;
-      paint('chats',frame('選擇聊天室','AI 只能存取你勾選的聊天室。',`<div class="picker-tools"><div class="input-icon">${icon('search')}<label class="sr-only" for="setup-chat-search">搜尋聊天室名稱、類型或 ID</label><input id="setup-chat-search" type="search" placeholder="搜尋名稱、類型或 ID" value="${escape(chatSearch)}"></div><button class="btn" id="setup-discover" ${busy?'disabled':''}>${icon('refresh',busy?'spin':'')}探索</button><button class="btn ghost" id="setup-manual" ${busy?'disabled':''}>${icon('plus')}新增 ID</button></div><p class="picker-count" id="setup-chat-count" role="status" aria-live="polite"></p><div class="picker-list" id="setup-chat-list"></div><label class="toggle-card"><input type="checkbox" class="switch" id="setup-auto-monitor" ${autoMonitorNewChats?'checked':''} ${busy?'disabled':''}><span><strong>自動加入新聊天室</strong><small>監聽時每 ${ctx.getState()?.refresh?.intervalSeconds??15} 秒探索一次；新的一對一、群組與 OpenChat 會自動開放 AI 讀取與傳送並封存。</small></span></label>`,bottom('返回','下一步',busy||!chosen.size),chip(a)));
-      const search=root.querySelector('#setup-chat-search');
-      search.addEventListener('input',()=>{chatSearch=search.value;renderChatList();});
+      const discover=async()=>{const id=a.id;busy=true;render();try{const next=await ctx.discover(id);if(account()?.id===id){rooms=next;selectAll();}}finally{busy=false;if(account()?.id===id)render();}};
+      // Find chats once on arrival so nobody has to press a button first.
+      if(autoDiscovered!==a.id&&!busy&&a.status==='connected'){autoDiscovered=a.id;void action(discover);}
+      const direct=rooms.filter(c=>c.kind==='direct').length,groups=rooms.filter(c=>c.kind==='group').length,openchats=rooms.filter(c=>!talk(c)).length;
+      const warnings=a.discovery?.warnings??[];
+      paint('chats',frame('監聽範圍','自動包含所有一對一與群組，不包含 OpenChat。',`<dl class="summary"><div><dt>一對一</dt><dd>${direct}</dd></div><div><dt>群組</dt><dd>${groups}</dd></div></dl><p class="picker-count" id="setup-chat-count" role="status" aria-live="polite">${busy?'正在探索聊天室…':`共 ${chosen.size} 個聊天室${openchats?`；另有 ${openchats} 個 OpenChat 不監聽`:''}`}</p>${warnings.length?`<p class="note warn">${icon('alert')}<span>部分聊天室探索失敗，可重新探索：${warnings.map(escape).join(' ')}</span></p>`:''}<div class="btn-row"><button class="btn" id="setup-discover" ${busy?'disabled':''}>${icon('refresh',busy?'spin':'')}重新探索</button></div><label class="toggle-card"><input type="checkbox" class="switch" id="setup-auto-monitor" ${autoMonitorNewChats?'checked':''} ${busy?'disabled':''}><span><strong>自動加入新聊天室</strong><small>監聽時每 ${ctx.getState()?.refresh?.intervalSeconds??15} 秒探索一次；新的一對一與群組會自動開放 AI 讀取與傳送並封存，OpenChat 不會自動加入。</small></span></label>`,bottom('返回','下一步',busy||!chosen.size),chip(a)));
       root.querySelector('#setup-auto-monitor').addEventListener('change',event=>{autoMonitorNewChats=event.target.checked;});
-      renderChatList();if(searching)search.focus();
-      listen('#setup-discover',async()=>{const id=a.id;busy=true;render();try{const next=await ctx.discover(id);if(account()?.id===id)rooms=next;}finally{busy=false;if(account()?.id===id)render();}});
-      listen('#setup-manual',()=>ctx.openChat());
+      listen('#setup-discover',discover);
       listen('#wizard-back',()=>{step=1;mode='stored';render();});listen('#wizard-next',()=>{step=3;render();});return;
     }
     const setup=a.localSetup??{phase:'not_enabled'},selected=rooms.filter(c=>chosen.has(c.id)),saved=new Set(setup.chatIds??[]);
@@ -91,7 +77,7 @@ export function createWizard(ctx){
     const updating=active&&!unchanged,stopping=rooms.filter(c=>c.enabled&&!chosen.has(c.id));
     const blocked=busy||(updating?!selected.length||selected.length!==chosen.size:!active&&(hasSetup||!selected.length||selected.length!==chosen.size||a.status!=='connected'));
     const reach=`本機 AI 可讀取並傳送訊息到以上聊天室${autoMonitorNewChats?'與之後新發現的聊天室':''}`;
-    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>${active&&setup.expiresAt?`${escape(new Date(setup.expiresAt).toLocaleDateString('zh-TW'))} 到期`:'90 天'}</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span>${active&&!saved.has(c.id)?'<span class="tag good">新增</span>':''}<span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}</ul></div>${stopping.length?`<p class="note warn">${icon('alert')}<span>將停止監控並移除 AI 存取：${stopping.map(c=>escape(chatName(c))).join('、')}</span></p>`:''}<p class="note">${icon('info')}<span>${active?`${reach}，並持續接收與加密封存。${updating?'更新範圍會沿用現有的設定檔與憑證，AI 不需重新連線。':''}`:`啟用後，${reach}，並開始接收與加密封存。${setup.phase==='enabled'?'目前的授權已到期或撤銷；請先停用並移除憑證，再重新啟用。':''}`}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',!active?'啟用':updating?'更新範圍':'完成',blocked,active&&!updating),chip(a)));
+    paint('confirm',frame('確認授權','只限這台電腦上的 AI 使用。',`<dl class="summary"><div><dt>帳號</dt><dd>${escape(accountName(a))}<code title="${escape(a.id)}">${escape(a.id)}</code></dd></div><div><dt>權限</dt><dd><span class="chip good">讀取</span><span class="chip good">搜尋</span><span class="chip good">傳送</span></dd></div><div><dt>期限</dt><dd>${active&&setup.expiresAt?`${escape(new Date(setup.expiresAt).toLocaleDateString('zh-TW'))} 到期`:'90 天'}</dd></div><div><dt>新聊天室</dt><dd>${autoMonitorNewChats?'自動加入':'手動加入'}</dd></div></dl><div class="scope"><div class="scope-head">聊天室<span class="count">${selected.length}</span></div><ul class="scope-list">${selected.slice(0,SCOPE_PREVIEW).map(c=>`<li>${avatar(chatName(c),c.id,'sm')}<span class="scope-main"><strong>${escape(chatName(c))}</strong><code>${escape(c.id)}</code></span>${active&&!saved.has(c.id)?'<span class="tag good">新增</span>':''}<span class="tag">${escape(nice(c.kind))}</span></li>`).join('')}${selected.length>SCOPE_PREVIEW?`<li class="muted">以及其他 ${selected.length-SCOPE_PREVIEW} 個聊天室</li>`:''}</ul></div>${stopping.length?`<p class="note warn">${icon('alert')}<span>將停止監控並移除 AI 存取：${stopping.slice(0,20).map(c=>escape(chatName(c))).join('、')}${stopping.length>20?` 等 ${stopping.length} 個`:''}</span></p>`:''}<p class="note">${icon('info')}<span>${active?`${reach}，並持續接收與加密封存。${updating?'更新範圍會沿用現有的設定檔與憑證，AI 不需重新連線。':''}`:`啟用後，${reach}，並開始接收與加密封存。${setup.phase==='enabled'?'目前的授權已到期或撤銷；請先停用並移除憑證，再重新啟用。':''}`}</span></p><div id="setup-status" role="status" aria-live="polite"></div>${hasSetup?`<button class="btn danger sm" id="setup-revoke" ${busy?'disabled':''}>${icon('power')}停用並移除憑證</button>`:''}<div id="setup-ai-instructions"></div><button class="link-btn" id="setup-advanced">需要雲端 AI？前往 AI 存取${icon('arrowRight')}</button>`,bottom('修改',!active?'啟用':updating?'更新範圍':'完成',blocked,active&&!updating),chip(a)));
     renderStatus();
     listen('#wizard-back',()=>{step=2;render();});
     listen('#setup-advanced',()=>ctx.go('access'));
@@ -119,17 +105,17 @@ export function createWizard(ctx){
     }else if(instructions)instructions.innerHTML='';
   }
   return {
-    start(){if(busy){render();return;}step=1;mode=ctx.getState()?.accounts.length?'stored':'welcome';waiting=false;awaitingNew=false;draftAccount=null;rooms=[];chosen=new Set();chatSearch='';lastScope='';view='';render();},
+    start(){if(busy){render();return;}step=1;mode=ctx.getState()?.accounts.length?'stored':'welcome';waiting=false;awaitingNew=false;draftAccount=null;rooms=[];chosen=new Set();lastScope='';view='';autoDiscovered=null;render();},
     render,
     cancelNewAccount(){awaitingNew=false;if(step===1)waiting=false;},
     // A room added by ID from the picker is meant to be chosen; show it now
     // instead of waiting for the next periodic refresh.
-    chatAdded(id){if(step!==2)return;rooms=ctx.getChats();if(rooms.some(c=>c.id===id))chosen.add(id);render();},
+    chatAdded(id){if(step!==2)return;rooms=ctx.getChats();selectAll();render();},
     accountAdded(){if(waiting){awaitingNew=false;mode='connect';if(account()?.status==='connected'){waiting=false;step=2;}render();}},
     sync(){
       if(waiting&&!awaitingNew&&account()?.status==='connected'){waiting=false;step=2;render();}
-      else if(step===2){const next=ctx.getChats();if(JSON.stringify(next)!==JSON.stringify(rooms)){rooms=next;render();}}
-      else if(step===3){const setup=account()?.localSetup,scope=setupSignature(setup);if(scope!==lastScope){if(setup?.grantActive){rooms=ctx.getChats();chosen=new Set(setup.chatIds);autoMonitorNewChats=setup.autoMonitorNewChats===true;}render();}else renderStatus();}
+      else if(step===2){const next=ctx.getChats();if(JSON.stringify(next)!==JSON.stringify(rooms)){rooms=next;selectAll();render();}}
+      else if(step===3){const setup=account()?.localSetup,scope=setupSignature(setup);if(scope!==lastScope){if(setup?.grantActive){rooms=ctx.getChats();selectAll();autoMonitorNewChats=setup.autoMonitorNewChats===true;}render();}else renderStatus();}
       else if(step===1&&mode==='stored'){const next=JSON.stringify((ctx.getState()?.accounts ?? []).map(a=>[a.id,a.status,a.profile?.displayName]));if(next!==lastPicker)render();}
       else if(step===1&&mode==='welcome'){const stored=root.querySelector('#wizard-stored');if(stored)stored.hidden=!ctx.getState()?.accounts.length;}
       else if(step===1){const a=account();if(JSON.stringify([a?.status,a?.canResume])!==lastConnect)render();}

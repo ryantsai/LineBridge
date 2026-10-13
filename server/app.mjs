@@ -12,6 +12,7 @@ import {Cloudflare,CALLBACK} from './cloudflare.mjs';
 import {VERSION} from './version.mjs';
 import {LocalSetup} from './local-setup.mjs';
 import {ChatAccess} from './chat-access.mjs';
+import {ADMIN_JSON_LIMIT} from './limits.mjs';
 
 function freshQuery(req){if(req.query.fresh===undefined)return false;if(!['true','false'].includes(req.query.fresh))fail(400,'invalid_input','fresh must be true or false.');return req.query.fresh==='true';}
 function harden(app) {
@@ -53,7 +54,7 @@ export function createApps({hub,tunnels,root,adminPort=3210,gatewayPort=3211,clo
     if(!['GET','HEAD'].includes(req.method) && (req.headers['x-line-bridge']!=='dashboard' || !req.headers.origin))return res.status(403).json({error:'origin_required'});
     next();
   });
-  admin.use(express.json({limit:'32kb'}));
+  admin.use(express.json({limit:ADMIN_JSON_LIMIT}));
   admin.use(admission); // An admitted request may still have been reading its body.
   admin.get(CALLBACK,asyncRoute(async(req,res)=>{
     try{await cloudflare.finish(req.query);res.type('html').send('<!doctype html><html lang="zh-TW"><meta charset="utf-8"><title>LineBridge</title><h1>Cloudflare 已連接</h1><p>可以關閉這個分頁，返回 LineBridge。</p></html>');}

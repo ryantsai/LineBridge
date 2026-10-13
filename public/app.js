@@ -216,7 +216,7 @@ function renderAutoMonitorSetting(a){
   const active=!!a.localSetup?.grantActive,mismatch=active&&a.localSetup.selectionChanged===true;
   if(!savingAutoMonitor.has(a.id))toggle.checked=active&&a.localSetup.autoMonitorNewChats===true;
   toggle.disabled=!active||savingAutoMonitor.has(a.id);
-  $('#account-auto-monitor-help').textContent=active?`監聽時每 ${state.refresh?.intervalSeconds??15} 秒探索；新聊天室會自動開放 AI 讀取與傳送並封存。關閉後保留已加入的聊天室。${mismatch?' 監控中的聊天室與本機 AI 授權範圍不一致，請用設定精靈確認並更新範圍。':''}`:'先完成設定精靈並啟用本機 AI，即可自動加入新聊天室。';
+  $('#account-auto-monitor-help').textContent=active?`監聽時每 ${state.refresh?.intervalSeconds??15} 秒探索；新的一對一與群組會自動開放 AI 讀取與傳送並封存，OpenChat 不會自動加入。關閉後保留已加入的聊天室。${mismatch?' 監控中的聊天室與本機 AI 授權範圍不一致，請用設定精靈確認並更新範圍。':''}`:'先完成設定精靈並啟用本機 AI，即可自動加入新聊天室。';
   $('#account-setup').hidden=active&&!mismatch;
 }
 async function saveAutoMonitorSetting(id,enabled){

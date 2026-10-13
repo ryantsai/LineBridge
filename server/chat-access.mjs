@@ -1,9 +1,10 @@
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {fail} from './errors.mjs';
+import {MAX_SCOPE_CHATS} from './limits.mjs';
 
 const input=z.object({enabled:z.boolean(),confirmed:z.literal(true),snapshot:z.string().length(64)}).strict();
-const chatIdList=z.array(z.string().min(1).max(150)).max(1000);
+const chatIdList=z.array(z.string().min(1).max(150)).max(MAX_SCOPE_CHATS);
 const scopeInput=z.object({chatIds:chatIdList.min(1),currentChatIds:chatIdList,autoMonitorNewChats:z.boolean(),confirmed:z.literal(true)}).strict();
 const equal=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
 const active=token=>token&&!token.revoked&&Date.parse(token.expires_at)>Date.now();
@@ -104,7 +105,8 @@ export class ChatAccess {
       const s=this.scope(id,data,signal);
       if(s.fingerprint!==before.fingerprint)changed();
       // Monitoring selection is the shared gate: it matches the confirmed scope.
-      for(const chat of this.store.chats(id))if(!!chat.enabled!==data.chatIds.includes(chat.id))this.store.designate(id,chat.id,data.chatIds.includes(chat.id));
+      const wanted=new Set(data.chatIds);
+      for(const chat of this.store.chats(id))if(!!chat.enabled!==wanted.has(chat.id))this.store.designate(id,chat.id,wanted.has(chat.id));
       this.store.setTokenGrants(s.token.id,[{...s.token.grants[0],chatIds:data.chatIds}]);
       this.setup.save(id,{...s.record,chatIds:data.chatIds,autoMonitorNewChats:data.autoMonitorNewChats});
       this.store.audit('local-admin','local-setup.scope',id,null,'ok');

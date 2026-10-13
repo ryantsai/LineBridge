@@ -3,8 +3,9 @@ import {z} from 'zod';
 import {CredentialStore} from '../client/credentials.mjs';
 import {digest} from './hub.mjs';
 import {fail} from './errors.mjs';
+import {MAX_SCOPE_CHATS} from './limits.mjs';
 
-const input=z.object({chatIds:z.array(z.string().min(1).max(150)).min(1).max(1000),read:z.literal(true),send:z.literal(true),confirmed:z.literal(true),autoMonitorNewChats:z.boolean().default(false)}).strict();
+const input=z.object({chatIds:z.array(z.string().min(1).max(150)).min(1).max(MAX_SCOPE_CHATS),read:z.literal(true),send:z.literal(true),confirmed:z.literal(true),autoMonitorNewChats:z.boolean().default(false)}).strict();
 const key=id=>`localSetup:${id}`;
 const selection=chats=>JSON.stringify(chats.map(c=>[c.id,c.kind,!!c.enabled]).sort((a,b)=>a[0].localeCompare(b[0])));
 const same=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
@@ -40,7 +41,8 @@ export class LocalSetup {
   validate(id,data){
     this.hub.record(id);this.hub.driver(id);this.usable();
     if(new Set(data.chatIds).size!==data.chatIds.length)fail(400,'duplicate_chat','Choose each chat once.');
-    for(const chatId of data.chatIds)if(!this.hub.store.chat(id,chatId))fail(409,'selection_changed','The chat selection changed. Review it again.');
+    const known=new Set(this.hub.store.chats(id).map(c=>c.id));
+    for(const chatId of data.chatIds)if(!known.has(chatId))fail(409,'selection_changed','The chat selection changed. Review it again.');
   }
   async owns(record){
     const value=await this.credentials.get(record.profile),token=this.hub.store.token(record.tokenId);
@@ -120,7 +122,8 @@ export class LocalSetup {
       if(selection(this.hub.store.chats(id))!==snapshot)fail(409,'selection_changed','The chat selection changed during setup. Review it again.');
       if(this.hub.store.setting(`monitorRevision:${id}`,0)!==record.previousMonitorRevision)fail(409,'setup_cancelled','The monitoring choice changed during setup. Review it again.');
       this.hub.store.transaction(()=>{
-        for(const chat of before)this.hub.store.designate(id,chat.id,data.chatIds.includes(chat.id));
+        const wanted=new Set(data.chatIds);
+        for(const chat of before)this.hub.store.designate(id,chat.id,wanted.has(chat.id));
         record={...record,phase:'starting',selectionApplied:true,monitorRevision:record.previousMonitorRevision+1};this.save(id,record);
       });
       await this.hub.monitor(id,true);
@@ -148,7 +151,8 @@ export class LocalSetup {
   checkPending(id,record){if(this.record(id)?.tokenId!==record.tokenId||!['enrolling','starting'].includes(this.record(id)?.phase)||this.hub.store.setting(`tokenRevocation:${record.tokenId}`,0)!==record.revocationRevision)fail(409,'setup_cancelled','Setup was cancelled. Its grant is revoked.');}
   restore(id,record){
     if(record.selectionApplied&&record.previousChats&&same(this.hub.store.chats(id).filter(c=>c.enabled).map(c=>c.id),record.chatIds)){
-      for(const chat of this.hub.store.chats(id))this.hub.store.designate(id,chat.id,record.previousChats.includes(chat.id));
+      const previous=new Set(record.previousChats);
+      for(const chat of this.hub.store.chats(id))this.hub.store.designate(id,chat.id,previous.has(chat.id));
     }
     const monitorOwned=record.selectionApplied&&record.previousMonitor!==undefined&&record.monitorRevision!==undefined&&this.hub.store.setting(`monitorRevision:${id}`,0)===record.monitorRevision;
     if(monitorOwned)this.hub.store.setSetting(`monitor:${id}`,record.previousMonitor);
