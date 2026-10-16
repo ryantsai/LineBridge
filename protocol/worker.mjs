@@ -41,8 +41,9 @@ class PipeStorage extends BaseStorage {
   async persist(operation,key,value){
     const id=randomUUID();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{writes.delete(id);reject(new Error('vault_write_failed'));},10000);
-      writes.set(id,{resolve:()=>{clearTimeout(timer);resolve();},reject:()=>{clearTimeout(timer);reject(new Error('vault_write_failed'));}});
+      const failed=()=>reject(new HubError(503,'vault_write_failed','The encrypted account storage could not be saved.'));
+      const timer=setTimeout(()=>{writes.delete(id);failed();},10000);
+      writes.set(id,{resolve:()=>{clearTimeout(timer);resolve();},reject:()=>{clearTimeout(timer);failed();}});
       emit({type:'storage',id,accountId:this.accountId,operation,key,value});
     });
   }

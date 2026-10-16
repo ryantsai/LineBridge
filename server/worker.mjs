@@ -94,7 +94,11 @@ export class ProtocolWorker {
     const call=(method,params)=>worker.call(method,{...params,accountId:id});
     return {
       ready:false,
-      async login(qr){const profile=await worker.call('connect',{accountId:id,account,storage:storage.getAll(),qr},240000);this.ready=true;return profile;},
+      async login(qr){
+        let saved;
+        try{saved=storage.getAll();}catch{throw new HubError(503,'storage_failed','Cannot read the encrypted account storage.');}
+        const profile=await worker.call('connect',{accountId:id,account,storage:saved,qr},240000);this.ready=true;return profile;
+      },
       check:signal=>worker.call('check',{accountId:id},ACCOUNT_CHECK_TIMEOUT_MS+5000,signal),discover:()=>call('discover'),
       read:(chat,limit,cursor)=>call('read',{chat,limit,cursor}),
       media:(chat,message)=>call('media',{chat,message}),
@@ -106,7 +110,13 @@ export class ProtocolWorker {
       setRefreshInterval:refreshIntervalMs=>call('monitor_interval',{refreshIntervalMs}),
       updateMonitor:chats=>call('monitor_update',{chats}),
       stopMonitor:()=>call('monitor_stop'),
-      stop(){this.ready=false;worker.events.delete(id);if(worker.child&&!worker.closing)void call('disconnect').catch(()=>{});}
+      stop(){
+        this.ready=false;
+        // A cancelled login may settle after a replacement owns this account.
+        // Its cleanup must not remove the new listener or disconnect that driver.
+        if(worker.events.get(id)!==emit)return;
+        worker.events.delete(id);if(worker.child&&!worker.closing)void call('disconnect').catch(()=>{});
+      }
     };
   }
   drain(){

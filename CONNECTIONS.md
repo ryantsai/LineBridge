@@ -1,5 +1,35 @@
 # Cloud connections
 
+## Private LINE worker recovery
+
+If the private LINE worker exits unexpectedly, previously connected accounts
+resume with their saved credentials after 5 seconds. Failed resumes retry after
+30 and 120 seconds, with at most three attempts per episode and three automatic
+worker-fault recovery attempts per account in a rolling hour. The hourly budget is saved in SQLite and
+is not cleared by a successful or manual connection. Exhaustion requires a manual
+reconnect; it does not schedule another retry when the hour expires or when the
+service restarts. Stored credentials and monitoring choices remain available for
+that manual reconnect. Normal startup restoration of healthy accounts is unchanged.
+
+Recovery restores the current monitoring preference and selected chats without
+resetting receive cursors. Monitoring that is off stays off. A resumed login does
+not prove fresh message reception; continue checking the monitor streams. Pending
+reads and sends are never replayed by recovery, and existing unknown-send outcome
+handling still applies.
+
+Only `protocol_error` from a lost worker starts recovery. `session_expired`,
+explicit authentication failures, missing credentials, and vault failures require
+manual attention. A stale/retrying receiver or a transient health-check failure
+does not restart the worker. Disconnect, removal, service shutdown and maintenance
+cancel recovery, including late results from an older connection attempt. While a
+login is in progress, disconnect it before requesting a manual reconnect.
+
+Account responses include `recovery` while an episode is waiting, connecting,
+stopped or exhausted, with its attempt count and next retry time. Persistent
+`account.fault` and `account.recovery` audit entries retain allowlisted reason
+codes and outcomes even when debug logging is off; they exclude credentials,
+profile names, message content and raw upstream exceptions.
+
 ## Chat toggles and managed local AI access
 
 After enabling Local AI setup, a chat's AI toggle asks you to confirm the chat
