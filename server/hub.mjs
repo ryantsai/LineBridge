@@ -8,6 +8,7 @@ import { capture, cachedNames, enrich, inboxMessages, monitorStatus } from './in
 import { fail, HubError, SendRejectedError, publicError } from './errors.mjs';
 import {initializeSearch,searchInput,searchArchive} from './search.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,ACCOUNT_CHECK_INTERVAL_MS,accountDiagnostic,accountRetryDelay} from './account-health.mjs';
+import {AccountRecovery,safeFaultCode,terminalRecoveryCode} from './account-recovery.mjs';
 import {refreshIntervalSeconds,MIN_REFRESH_INTERVAL_SECONDS,MAX_REFRESH_INTERVAL_SECONDS} from './monitor-policy.mjs';
 import {DebugLogging} from './debug-logging.mjs';
 import {validateFlex,assertFlexTransport} from './flex.mjs';
@@ -32,6 +33,7 @@ export class Hub {
     this.worker=new ProtocolWorker(store,vault,(id,chat,message)=>this.capture(id,chat,message));
     this.driverFactory=driverFactory ?? ((a,s,e)=>a.kind==='demo' ? new DemoDriver() : this.worker.driver(a,e));
     this.runtime=new Map();this.queues=new Map();this.monitorQueues=new Map();this.rates=new Map();this.stopping=false;
+    this.recovery=new AccountRecovery(this);
   }
   record(id) { const a=this.store.account(id);if(!a) fail(404,'account_not_found','Account not found.');return a; }
   refreshSettings(){return {intervalSeconds:refreshIntervalSeconds(this.store),minSeconds:MIN_REFRESH_INTERVAL_SECONDS,maxSeconds:MAX_REFRESH_INTERVAL_SECONDS};}
@@ -46,7 +48,7 @@ export class Hub {
   view(account,chatIds) {
     const r=this.runtime.get(account.id);
     return {id:account.id,label:account.label,kind:account.kind,device:account.device,status:r?.status ?? (account.connected ? 'reconnecting' : 'disconnected'),
-      profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,accountHealth:r?.accountHealth ?? null,
+      profile:r?.profile ?? null,lastChecked:r?.lastChecked ?? null,lastActivity:r?.lastActivity ?? null,error:r?.error ?? null,accountHealth:r?.accountHealth ?? null,recovery:this.recovery.view(account.id),
       canResume:account.kind==='demo'||!!this.store.secret(account.id,'bridge.authToken'),designatedChats:this.store.chats(account.id).filter(c=>c.enabled&&(!chatIds||chatIds.includes(c.id))).length,openchat:'experimental',monitor:monitorStatus(this.store,account.id,r?.monitorStreams,r?.status??'disconnected',chatIds)};
   }
   accounts(actor) {
@@ -109,33 +111,48 @@ export class Hub {
     if(a.kind==='demo') { await this.connect(a.id); await this.discover(a.id); }
     return this.view(a);
   }
-  async connect(id,qr=false) {
+  async connect(id,qr=false,recovery) {
+    if(this.stopping)fail(503,'service_stopping','The service is stopping.');
+    if(recovery&&!this.recovery.owns(id,recovery))return;
     const a=this.record(id),previous=this.runtime.get(id);
     if(previous?.status==='awaiting_login' || previous?.status==='connecting') fail(409,'login_in_progress','A login is already in progress.');
     if(previous?.driver?.ready && qr) fail(409,'already_connected','Disconnect this account before starting another QR login.');
+    if(!recovery)this.recovery.cancel(id);
     this.cancelHealth(previous);previous?.driver?.stop();
     const r={status:qr?'awaiting_login':'connecting',qr:null,pin:null};this.runtime.set(id,r);
+    if(recovery)recovery.runtime=r;
     const storage=new VaultStorage(this.store,this.vault,id);
     let driver;
     try {
     driver=this.driverFactory(a,storage,{
       qr:url=>{if(this.runtime.get(id)===r) {void QRCode.toDataURL(url,{width:240,margin:2}).then(image=>{if(this.runtime.get(id)===r)r.qr=image;}).catch(()=>{if(this.runtime.get(id)===r){r.status='error';r.error='qr_render_failed';}});}},
       pin:pin=>{if(this.runtime.get(id)===r) r.pin=pin;},
-      fault:error=>{if(this.runtime.get(id)===r){this.cancelHealth(r);r.status='error';r.error=error;if(r.accountHealth)r.accountHealth.status='unavailable';r.driver?.stop();}},
+      fault:error=>this.accountFault(id,r,error),
       monitor:stream=>{if(this.runtime.get(id)===r){r.monitorStreams??={};this.debug.poll(id,stream,r.monitorStreams[stream.channel]);r.monitorStreams[stream.channel]=stream;}}
     });r.driver=driver;
       r.profile=await driver.login(qr);
-      if(this.runtime.get(id)!==r || this.stopping) {driver.stop();return;}
+      if(this.runtime.get(id)!==r || this.stopping || r.faulted) {driver.stop();return;}
       r.status='connected';r.qr=null;r.pin=null;r.lastChecked=new Date().toISOString();
       r.accountHealth={status:'healthy',lastAttemptAt:r.lastChecked,lastSuccessAt:r.lastChecked,lastFailure:null,consecutiveFailures:0,nextRetryAt:null};
       this.store.connect(id,true);this.store.audit('local-admin','account.connect',id,null,'ok');
-      if(this.store.setting(`monitor:${id}`,false))await this.monitor(id,true);
+      if(this.store.setting(`monitor:${id}`,false))await this.monitor(id,true,{preserveOnFailure:!!recovery});
     } catch(error) {
       if(this.runtime.get(id)!==r || this.stopping) return;
-      driver?.stop();r.status='error';r.error=error.code==='login_required'?'login_required':'line_login_failed';r.qr=null;r.pin=null;
-      this.store.connect(id,false);this.store.audit('local-admin','account.connect',id,null,'failed');
+      driver?.stop();r.status='error';r.error=r.faulted??(safeFaultCode(error?.code)==='unknown'?'line_login_failed':error.code);r.qr=null;r.pin=null;
+      if(!recovery||terminalRecoveryCode(r.error))this.store.connect(id,false);
+      this.store.audit('local-admin','account.connect',id,null,'failed');
     }
     return this.view(a);
+  }
+  accountFault(id,r,error){
+    if(this.stopping||this.runtime.get(id)!==r)return;
+    const code=safeFaultCode(error);
+    if(r.faulted===code||r.faulted&&r.faulted!=='protocol_error')return;
+    const wasConnected=r.status==='connected';
+    this.cancelHealth(r);r.faulted=code;r.status='error';r.error=code;r.qr=null;r.pin=null;
+    if(r.accountHealth)r.accountHealth.status='unavailable';r.driver?.stop();
+    if(code!=='protocol_error')this.store.connect(id,false);
+    this.recovery.fault(id,r,code,wasConnected);
   }
   beginLogin(id) { const a=this.record(id);if(a.kind!=='line') fail(400,'invalid_account','Sandbox accounts do not need QR login.');
     const r=this.runtime.get(id);if(['connected','awaiting_login','connecting'].includes(r?.status)) fail(409,'login_in_progress','Disconnect or cancel the current session first.');
@@ -143,13 +160,13 @@ export class Hub {
   }
   loginState(id) {this.record(id);const r=this.runtime.get(id);return {status:r?.status ?? 'disconnected',qr:r?.qr ?? null,pin:r?.pin ?? null,error:r?.error ?? null};}
   disconnect(id,forget=false) {
-    this.record(id);const r=this.runtime.get(id);this.cancelHealth(r);r?.driver?.stop();this.runtime.set(id,{status:'disconnected'});this.store.connect(id,false);
+    this.record(id);this.recovery.cancel(id);const r=this.runtime.get(id);this.cancelHealth(r);r?.driver?.stop();this.runtime.set(id,{status:'disconnected'});this.store.connect(id,false);
     if(forget) this.store.deleteSecrets(id);
     this.store.audit('local-admin',forget?'account.forget':'account.disconnect',id,null,'ok');
   }
   remove(id) {this.disconnect(id,true);this.store.removeAccount(id);this.runtime.delete(id);}
   capture(id,chat,message){return capture(this.store,this.vault,id,chat,message);}
-  async monitor(id,enabled,{expectedRevision}={}){
+  async monitor(id,enabled,{expectedRevision,preserveOnFailure=false}={}){
     const account=this.record(id);
     if(typeof enabled!=='boolean')fail(400,'invalid_input','enabled must be a boolean.');
     const previousRevision=this.store.setting(`monitorRevision:${id}`,0);
@@ -167,7 +184,7 @@ export class Hub {
       if(enabled)await driver.startMonitor?.(this.store.chats(id).filter(c=>c.enabled),fresh,refreshIntervalSeconds(this.store)*1000);else if(driver?.ready)await driver.stopMonitor?.();
     });this.monitorQueues.set(id,job);
     try{await job;}
-    catch(error){if(!this.stopping&&this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
+    catch(error){if(!preserveOnFailure&&!this.stopping&&this.runtime.get(id)===r&&r?.faulted!=='protocol_error'&&this.store.setting(`monitorRevision:${id}`,0)===revision)this.store.setSetting(`monitor:${id}`,false);throw error;}
     finally{if(this.monitorQueues.get(id)===job)this.monitorQueues.delete(id);}
     if(this.store.setting(`monitorRevision:${id}`,0)===revision)this.scheduleDiscovery(id,true);
     this.store.audit('local-admin','monitor.toggle',id,null,enabled?'enabled':'disabled');
@@ -430,7 +447,7 @@ export class Hub {
         r.accountHealth={...r.accountHealth,status:auth?'auth_invalid':'retrying',consecutiveFailures:failures,nextRetryAt:auth?null:new Date(Date.now()+retryInMs).toISOString(),lastFailure:{at:now,...diagnostic,elapsedMs:Date.now()-startedAt,retryInMs}};
         this.debug.record('account-refresh','failed',{status:r.accountHealth.status,failureKind:diagnostic.kind,durationMs:Date.now()-startedAt,retryInMs},id);
         r.error=auth?'login_required':'health_check_failed';
-        if(auth){r.status='error';this.cancelDiscovery(r);this.store.connect(id,false);r.driver.stop();}
+        if(auth){r.status='error';this.recovery.cancel(id);this.cancelDiscovery(r);this.store.connect(id,false);r.driver.stop();}
         else {r.healthTimer=setTimeout(()=>{r.healthTimer=null;void this.probeAccount(id,r);},retryInMs);r.healthTimer.unref();}
       }finally{
         clearTimeout(timer);controller.signal.removeEventListener('abort',cancelled);
@@ -442,11 +459,11 @@ export class Hub {
   async healthcheck() {await Promise.allSettled([...this.runtime].map(([id,r])=>this.probeAccount(id,r)));}
   async drain() {
     if(this.draining)return this.draining;
-    this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values())this.cancelHealth(r);
+    this.stopping=true;this.recovery.close();clearInterval(this.timer);for(const r of this.runtime.values())this.cancelHealth(r);
     this.draining=(async()=>{
       await Promise.all([this.worker.drain(),Promise.allSettled([...this.queues.values()].map(q=>q.tail)),Promise.allSettled([...this.monitorQueues.values()])]);
       for(const r of this.runtime.values())r.driver?.stop();
     })();return this.draining;
   }
-  close() {this.stopping=true;clearInterval(this.timer);for(const r of this.runtime.values()){this.cancelHealth(r);r.driver?.stop();}this.worker.close();}
+  close() {this.stopping=true;this.recovery.close();clearInterval(this.timer);for(const r of this.runtime.values()){this.cancelHealth(r);r.driver?.stop();}this.worker.close();}
 }
