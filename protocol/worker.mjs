@@ -4,6 +4,7 @@ import {BaseStorage} from '@evex/linejs/storage';
 import {LineDriver} from '../server/drivers.mjs';
 import {HubError,SendRejectedError,publicError} from '../server/errors.mjs';
 import {LiveMonitor} from './monitor.mjs';
+import {encodeWorkerMessage,decodeWorkerMessage} from './worker-ipc.mjs';
 import {accountCheckError} from '../server/account-health.mjs';
 
 // This process owns only LINE RPCs. The parent owns policy, storage and HTTP.
@@ -21,7 +22,7 @@ function control(accountId,operation){
 async function stopMonitor(accountId){
   const monitor=monitors.get(accountId);monitor?.stop();await monitor?.done();monitors.delete(accountId);
 }
-const emit=value=>process.stdout.write(JSON.stringify(value,(_,v)=>typeof v==='bigint'?{$bigint:String(v)}:v)+'\n');
+const emit=value=>process.stdout.write(encodeWorkerMessage(value)+'\n');
 function authorizeDispatch(id){
   return new Promise((resolve,reject)=>{
     const denied=()=>reject(new SendRejectedError(403,'send_authorization_revoked','Send authorization expired or changed during preparation. No message was sent.'));
@@ -121,7 +122,7 @@ async function shutdown(){
 }
 input.on('line',line=>{
   if(line.length>2_000_000){process.exit(2);return;}
-  try{const message=JSON.parse(line,(_,v)=>v&&typeof v==='object'&&'$bigint'in v?BigInt(v.$bigint):v);
+  try{const message=decodeWorkerMessage(line);
     if(['storage_ack','capture_ack','authorize_send_ack'].includes(message.type)){const pending=writes.get(message.id);writes.delete(message.id);message.ok?pending?.resolve():pending?.reject();}
     else if(message.type==='shutdown')void shutdown();
     else {const job=handle(message);jobs.add(job);void job.finally(()=>jobs.delete(job));}

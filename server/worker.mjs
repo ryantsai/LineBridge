@@ -5,9 +5,8 @@ import {fileURLToPath} from 'node:url';
 import {HubError,SendRejectedError} from './errors.mjs';
 import {VaultStorage} from './vault.mjs';
 import {ACCOUNT_CHECK_TIMEOUT_MS,accountCheckError} from './account-health.mjs';
+import {encodeWorkerMessage,decodeWorkerMessage} from '../protocol/worker-ipc.mjs';
 
-const encode=value=>JSON.stringify(value,(_,v)=>typeof v==='bigint'?{$bigint:String(v)}:v);
-const decode=value=>JSON.parse(value,(_,v)=>v&&typeof v==='object'&&'$bigint' in v?BigInt(v.$bigint):v);
 // LINE runs in a private child with no database or HTTP listener. Storage and
 // captured messages are acknowledged only after the parent commits them.
 export class ProtocolWorker {
@@ -25,7 +24,7 @@ export class ProtocolWorker {
     input.on('line',line=>{
       if(this.child!==child)return;
       if(line.length>2_000_000){child.kill();return;}
-      try{this.handle(decode(line));}catch{child.kill();}
+      try{this.handle(decodeWorkerMessage(line));}catch{child.kill();}
     });
     // exit can precede the final stdout data. Keep the parser, pending RPCs and
     // child identity until close, while refusing new work on the exited child.
@@ -40,7 +39,7 @@ export class ProtocolWorker {
       if(!this.closing)for(const emit of this.events.values())emit.fault?.('protocol_error');
     });
   }
-  write(value){if(this.child&&!this.childExited)this.child.stdin.write(`${encode(value)}\n`);}
+  write(value){if(this.child&&!this.childExited)this.child.stdin.write(`${encodeWorkerMessage(value)}\n`);}
   handle(message) {
     if(message.type==='shutdown_complete'){this.drained=true;}
     else if(message.type==='result'){

@@ -16,6 +16,24 @@ test('private worker RPC returns bounded sanitized errors and stops cleanly',asy
   });assert.equal(worker.pending.size,0);
   worker.close();assert.equal(worker.child,null);
 });
+test('private pipe preserves Unicode separators in monitor requests and captured messages',async t=>{
+  const source=`import {LineDriver} from './server/drivers.mjs';
+    import {LiveMonitor} from './protocol/monitor.mjs';
+    let captured;
+    LineDriver.prototype.login=async()=>({mid:'synthetic'});
+    LiveMonitor.prototype.talkLoop=async()=>{};
+    LiveMonitor.prototype.update=function([chat]){captured=this.capture(chat.id,{text:chat.name,revision:chat.revision});};
+    LineDriver.prototype.read=async()=>{await captured;return {acknowledged:true};};
+    await import('./protocol/worker.mjs');`;
+  const messages=[],worker=new ProtocolWorker({account:()=>true},null,(_account,_chat,message)=>messages.push(message));
+  startSource(t,worker,source);t.after(()=>worker.close());
+  const accountId='synthetic',text='one\u2028two\u2029three\\u2028',revision=9007199254740995n;
+  await worker.call('connect',{accountId,account:{device:'IOSIPAD'},storage:{}});
+  await worker.call('monitor_start',{accountId,chats:[{id:'room',name:text,revision}]});
+  assert.deepEqual(await worker.call('read',{accountId,chat:{id:'room'}}),{acknowledged:true});
+  assert.deepEqual(messages,[{text,revision}]);
+});
+
 test('storage and incoming-message acknowledgements follow durable encrypted writes',async t=>{
   const store=new Store(':memory:'),vault=new Vault(randomBytes(32),'test'),a=store.addAccount('worker','demo','IOSIPAD');t.after(()=>store.close());
   const worker=new ProtocolWorker(store,vault,(id,chat,message)=>capture(store,vault,id,chat,message)),acks=[];worker.write=value=>acks.push(value);
